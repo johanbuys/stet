@@ -1,34 +1,44 @@
 {
   "name": "@johanbuys/stet",
   "version": "0.0.1",
-  "description": "Code review CLI — coming soon",
-  "main": "index.js",
-  "bin": {
-    "stet": "index.js"
-  },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
+  "description": "Code validation CLI — verify changes across five phases",
   "keywords": [
+    "agent",
+    "ai",
     "cli",
     "code-review",
-    "verification",
     "lint",
-    "ai",
-    "agent"
+    "verification"
   ],
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/johanbuys/stet.git"
-  },
   "homepage": "https://github.com/johanbuys/stet#readme",
   "bugs": {
     "url": "https://github.com/johanbuys/stet/issues"
   },
-  "author": "Johan Buys <4746851+johanbuys@users.noreply.github.com>",
   "license": "MIT",
-  "type": "commonjs"
+  "author": "Johan Buys <4746851+johanbuys@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johanbuys/stet.git"
+  },
+  "bin": {
+    "stet": "dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "dist/cli.mjs",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "test": "vp test",
+    "prepare": "vp config"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "vite-plus": "catalog:"
+  },
+  "packageManager": "pnpm@10.33.0"
 }
