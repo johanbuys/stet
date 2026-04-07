@@ -52,6 +52,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** verification has zero friction in my workflow.
 
 **Acceptance Criteria:**
+
 - Running `stet` with no arguments auto-detects the verification scope
 - Auto-detection priority: staged changes → uncommitted working tree changes → commits on current branch vs the default branch → last commit
 - The detected scope is shown clearly in the output ("Verifying: 3 staged files")
@@ -64,6 +65,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** I don't depend on auto-detection in scripted contexts.
 
 **Acceptance Criteria:**
+
 - `--staged` verifies staged changes
 - `--working` verifies uncommitted working tree changes
 - `--against <ref>` verifies the diff between current HEAD and `<ref>` (e.g. `--against main`)
@@ -80,7 +82,8 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 
 **Acceptance Criteria:**
 
-*Core input modes:*
+_Core input modes:_
+
 - `--prd <value>` accepts spec context. The value is interpreted in this order:
   1. If the value is `-`, read from stdin (e.g. `cat prd.md | stet --prd -`)
   2. If the value is a path that exists on disk, read the file
@@ -88,17 +91,20 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 - `--task <description>` accepts an inline task description as a literal string only (no file/stdin overload — if it's long enough to need a file, it's really a PRD)
 - Multiple context sources can be combined (e.g. `--prd auth.md --task "focus on the password reset flow"`); they are concatenated and passed together to the spec compliance phase
 
-*GitHub convenience:*
+_GitHub convenience:_
+
 - `--issue <number>` is a convenience wrapper that delegates to the `gh` CLI: `gh issue view <number> --json body,title,comments,url`. Stet does not implement GitHub authentication or API access directly — it inherits whatever auth and configuration the user already has set up for `gh` (including GitHub Enterprise, multiple accounts, SSO).
 - If `gh` is not installed or not authenticated when `--issue` is used, the tool prints a helpful error: "The --issue flag requires the gh CLI. Install it from https://cli.github.com/ or pipe issue content directly: `gh issue view <n> --json body -q .body | stet --prd -`"
 - The fetched issue is formatted by stet (combining body + relevant comments + URL) before being passed to the spec compliance phase, so findings can cite the issue URL
 
-*Auto-discovery (opt-in):*
+_Auto-discovery (opt-in):_
+
 - If the commit messages in the verification scope contain issue references (`#N`, `Closes #N`, `Fixes #N`, `[#N]`), the tool can fetch those issues automatically
 - Auto-discovery is opt-in via either the config file (`autoContext: true`) or the `--auto-context` flag — never on by default, because it shouldn't make network calls unexpectedly
 - Auto-discovery uses the same `gh` delegation as `--issue` and respects the same auth
 
-*Composition with other forges:*
+_Composition with other forges:_
+
 - Stet does not build in support for GitLab, Bitbucket, Gitea, Linear, Jira, or other platforms — that path leads to an unmaintainable tar pit of integrations
 - Users on other platforms compose with their own CLIs and pipe to `--prd -`. Examples:
   - GitLab: `glab issue view 42 -F json | jq -r .description | stet --prd -`
@@ -106,7 +112,8 @@ This tool should slot naturally into both human workflows (as a pre-commit check
   - Notion, Confluence, etc.: any tool that can dump text to stdout works
 - The README should include a "composing with other tools" section showing these patterns so users don't feel like GitHub is privileged
 
-*Fallback:*
+_Fallback:_
+
 - If no spec context is provided through any source, the spec compliance phase is skipped with a clear note in the output ("No spec context provided; skipping spec compliance phase. Pass --prd, --task, or --issue to enable.") — the tool still runs all other phases
 
 ### US-4: Phased verification
@@ -116,6 +123,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** I get a comprehensive picture without wasting time on phases that depend on earlier ones passing.
 
 **Acceptance Criteria:**
+
 - The tool runs five phases: deterministic gates, spec compliance, code review, test quality analysis, and behavioral verification
 - **Deterministic gates** run first: tests, type checking, linting, build (whichever exist in the project). These run in parallel where possible.
 - If deterministic gates fail, the tool reports failures and stops by default. A `--continue-on-failure` flag overrides this to run all phases regardless.
@@ -131,11 +139,12 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** I catch the common failure mode of "tests that mirror the implementation rather than verify behavior."
 
 **Acceptance Criteria:**
+
 - The test quality phase activates when the diff includes added or modified test files
 - It analyzes tests for: behavioral coverage vs. implementation mirroring, edge case coverage, assertion meaningfulness (not just "expect(x).toBeDefined()"), and whether tests would actually fail if the code were wrong
 - Findings flag specific tests with explanations, not vague warnings
 - If no tests are in the diff, the phase reports "no tests to analyze" rather than failing
-- A separate finding type flags new code that has *no* tests at all, with severity proportional to risk
+- A separate finding type flags new code that has _no_ tests at all, with severity proportional to risk
 
 ### US-5b: Behavioral verification suggestions (v1) → execution (v2)
 
@@ -144,6 +153,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** I know what to actually test in the running system, not just what looks correct in the diff.
 
 **v1 Acceptance Criteria (suggestions only):**
+
 - When the diff touches code that affects observable runtime behavior (HTTP handlers, UI components, CLI commands, background jobs, database migrations), the phase activates
 - The phase produces a finding of type "e2e-suggestion" describing what should be verified end-to-end: which user flows or API calls to exercise, what inputs to use, what outcomes to expect
 - Suggestions are concrete and actionable — "POST /api/login with valid credentials should return 200 and a session cookie; with invalid credentials should return 401" — not vague — "test the login flow"
@@ -153,12 +163,13 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 - A `--suggest-only` flag is implicit in v1 (since execution doesn't exist yet); in v2 this flag will let users opt out of execution while keeping suggestions
 
 **v2 Acceptance Criteria (execution, sandboxed):**
+
 - The phase can execute the suggested verification strategy against a running system
 - Execution requires an explicit sandboxed environment declared in the config file: test database connection string, base URL for the running app, credentials for test accounts, list of safe-to-call external services (or mocks for them)
 - stet refuses to execute if no sandbox configuration is present — falling back to suggestions-only mode with a clear message
 - The execution is performed via a browser automation tool (Playwright or similar) for UI flows and an HTTP client for API flows
 - All execution is scoped to the sandbox: stet will not call external URLs, will not send real emails, will not write outside the test database
-- A pre-execution dry-run shows the user what stet *would* do before doing it (when invoked interactively)
+- A pre-execution dry-run shows the user what stet _would_ do before doing it (when invoked interactively)
 - Findings from execution are first-class — same severity/confidence model as other phases
 - A `--no-behavioral` flag disables this phase entirely for users who want to manage e2e separately
 
@@ -169,6 +180,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** I can filter, prioritize, and act on them programmatically.
 
 **Acceptance Criteria:**
+
 - Each finding has: severity (error/warning/info), confidence (high/medium/low), phase, file path, line range (when applicable), rule/category, message, and suggested fix (when applicable)
 - Default output is human-readable with color and grouping by file
 - `--format json` produces structured JSON for programmatic consumption
@@ -183,6 +195,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** I can branch on the result without parsing output.
 
 **Acceptance Criteria:**
+
 - Exit 0: clean — no findings at or above the configured severity threshold, all deterministic gates passed
 - Exit 1: findings present at or above the threshold, OR a deterministic gate failed
 - Exit 2: tool error (couldn't detect scope, couldn't fetch context, agent invocation failed, etc.)
@@ -196,6 +209,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** I don't have to manually apply suggested fixes.
 
 **Acceptance Criteria:**
+
 - `--fix` runs the verification phases, then dispatches a fix agent for findings marked as fixable
 - The fix agent is scoped: it can only modify files within the verified diff
 - The fix agent will not modify test files to make tests pass — fixing failing tests requires fixing the code under test
@@ -212,6 +226,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** my team doesn't have to remember which flags to pass.
 
 **Acceptance Criteria:**
+
 - The tool reads `stet.config.yml` (or similar) from the repo root if present
 - Configurable: which gates to run, paths to common PRD locations, default severity threshold, custom rules per phase, fix mode confidence threshold, paths to ignore
 - CLI flags override config file values
@@ -224,6 +239,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 **So that** my loop benefits from the same validation logic without re-implementing it.
 
 **Acceptance Criteria:**
+
 - The tool can be invoked headlessly inside a Docker container
 - JSON output mode (`--format json`) provides machine-readable results
 - Exit codes are reliable enough that a wrapping bash script can branch on them without parsing
@@ -235,6 +251,7 @@ This tool should slot naturally into both human workflows (as a pre-commit check
 ### Phase 1: Deterministic Gates
 
 Discovers and runs the project's existing tooling. Detection logic:
+
 - Test runner: presence of `package.json` test script, `bun test`, `vitest`, `jest`, or similar markers
 - Type checker: presence of `tsconfig.json` triggers `tsc --noEmit` (or `bun tsc --noEmit`)
 - Linter: presence of ESLint config triggers `eslint` on changed files; presence of biome config triggers biome
@@ -247,6 +264,7 @@ Runs in parallel where independent. Fails fast unless `--continue-on-failure`.
 Inputs: the diff being verified, the spec context (PRD/task/issue).
 
 The phase invokes an AI agent (model TBD — likely Haiku for cost, Sonnet for quality on opt-in) with read-only access. The agent:
+
 - Reads the spec to understand requirements and acceptance criteria
 - Reviews the diff to understand what was actually changed
 - Identifies requirements that are satisfied, partially satisfied, or missing
@@ -260,6 +278,7 @@ Findings have severity: error if a stated requirement is unmet, warning for part
 Inputs: the diff, plus enough surrounding code context for the agent to understand patterns.
 
 Categories the agent reviews:
+
 - **Bugs**: clear logic errors, off-by-one, null handling, race conditions
 - **Security**: injection risks, auth issues, secret leakage, unsafe deserialization
 - **Quality**: dead code, duplication, overly complex functions, naming
@@ -272,12 +291,13 @@ Findings should be high-signal — the tool should err on the side of fewer, mor
 Activates when the diff modifies test files. Inputs: the new/modified tests, plus the code they test.
 
 The agent analyzes:
+
 - Whether assertions verify behavior or just structure
 - Whether tests would fail if the code under test were buggy (mutation-style reasoning)
 - Whether edge cases are covered
 - Whether tests are tautological (testing the implementation by mirroring it)
 
-Separately, when new code has *no* tests, that's flagged as its own finding type with severity based on the code's apparent risk (auth code with no tests = error; trivial getter = info).
+Separately, when new code has _no_ tests, that's flagged as its own finding type with severity based on the code's apparent risk (auth code with no tests = error; trivial getter = info).
 
 ### Phase 5: Behavioral Verification
 
@@ -287,7 +307,7 @@ Activates when the diff touches code that affects observable runtime behavior �
 
 The agent produces an end-to-end verification strategy as a finding: which flows to exercise, what inputs to use, what outcomes to assert. Strategies should be concrete enough that a developer or another agent could execute them by hand. The agent explicitly notes when it lacks enough context to design a confident strategy.
 
-If the project already has e2e tests covering similar surface area (detected by file path heuristics — `e2e/`, `tests/e2e/`, `*.e2e.ts`, etc.), the agent reads them and suggests *additions* rather than duplicates.
+If the project already has e2e tests covering similar surface area (detected by file path heuristics — `e2e/`, `tests/e2e/`, `*.e2e.ts`, etc.), the agent reads them and suggests _additions_ rather than duplicates.
 
 **v2 — Sandboxed execution.** The phase gains the ability to actually run the suggested strategy. This requires:
 
@@ -317,23 +337,27 @@ These are explicitly deferred to v2 or later:
 ## Roadmap
 
 **v0.x — Foundation**
+
 - CLI scaffolding, scope detection, config file loading
 - Phase 1 (deterministic gates) fully working
 - Findings format and output modes (human, JSON)
 - Exit code contract
 
 **v1.0 — AI Phases**
+
 - Phase 2 (spec compliance), Phase 3 (code review), Phase 4 (test quality)
 - Phase 5 in suggestions-only mode
 - Fix mode for high-confidence findings
 - Integration documentation for autonomous loops
 
 **v1.x — Polish**
+
 - SARIF output
 - Configuration `--init` command
 - Performance optimization (caching, parallel phase execution)
 
 **v2.0 — Behavioral Execution**
+
 - Phase 5 gains sandboxed execution capability
 - Sandbox configuration schema in `stet.config.yml`
 - Browser automation integration (Playwright)
@@ -341,6 +365,7 @@ These are explicitly deferred to v2 or later:
 - Dry-run mode for execution previews
 
 **Beyond v2** (no commitments)
+
 - Visual regression, perf benchmarking, multi-language support, plugin system
 
 ## Distribution
@@ -349,10 +374,10 @@ These are explicitly deferred to v2 or later:
 - Install: `npm install -g @johanbuys/stet` or `bun install -g @johanbuys/stet`
 - Binary name: `stet` (set via the `bin` field in package.json, so the daily-use command is unaffected by the scope)
 - Requires: Node.js or Bun runtime, `git`, optionally `gh` CLI for issue fetching
-- Uses pi for llm 
-    - https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent
-    - https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/sdk.md
-    - https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/examples/sdk
+- Uses pi for llm
+  - https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent
+  - https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/sdk.md
+  - https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/examples/sdk
 - Source repository: https://github.com/johanbuys/stet
 - License: MIT
 
