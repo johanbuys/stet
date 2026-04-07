@@ -13,7 +13,9 @@
     "cli",
     "code-review",
     "verification",
-    "lint"
+    "lint",
+    "ai",
+    "agent"
   ],
   "repository": {
     "type": "git",
