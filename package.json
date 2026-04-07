@@ -15,6 +15,14 @@
     "verification",
     "lint"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johanbuys/stet.git"
+  },
+  "homepage": "https://github.com/johanbuys/stet#readme",
+  "bugs": {
+    "url": "https://github.com/johanbuys/stet/issues"
+  },
   "author": "Johan Buys <4746851+johanbuys@users.noreply.github.com>",
   "license": "MIT",
   "type": "commonjs"
