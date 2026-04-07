@@ -1,0 +1,18 @@
+{
+  "name": "stet",
+  "version": "0.0.1",
+  "description": "Code review CLI — coming soon",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "cli",
+    "code-review",
+    "verification",
+    "lint"
+  ],
+  "author": "Johan Buys <4746851+johanbuys@users.noreply.github.com>",
+  "license": "MIT",
+  "type": "commonjs"
+}
