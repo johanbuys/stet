@@ -173,9 +173,13 @@ eval-earned guards:
 
 ## 5. Agent runner
 
-The Pi SDK integration, lifted from the POC recipe (`@earendil-works/pi-coding-agent` — the
-proven stack; the behavioral-engine PRD confirms the `badlogic/pi-mono` relationship before
-pinning):
+The Pi SDK integration, lifted from the POC recipe. **SDK confirmed (2026-06-06):**
+`@earendil-works/pi-coding-agent` *is* the successor of `badlogic/pi-mono`'s coding-agent — the
+GitHub repo transferred to `earendil-works/pi`, and the old `@mariozechner/pi-coding-agent` npm
+scope is deprecated ("please use @earendil-works/pi-coding-agent instead", frozen at 0.73.1
+while the new scope releases actively — 0.78.1 at time of writing). Same project, same author
+(Mario Zechner), MIT. stet standardizes on `@earendil-works/pi-coding-agent` (0.78.x); zero
+porting risk — the POC already runs on it. The runner:
 
 - `createAgentSession` per phase run, with `systemPromptOverride` replacing the coding-agent
   persona entirely with the phase rubric; user prompt carries the per-run inputs (diff summary,

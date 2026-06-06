@@ -607,7 +607,7 @@ Error: invalid JSON
     <tr><td>Verdict vs findings · exit policy</td><td class="dec-res"><span class="ok-dot">●</span> Verdict internal; <code>failed→error / blocked→warning / inconclusive→info</code>; one <code>--fail-on</code> knob, default <code>error</code>.</td></tr>
     <tr><td>Anti-mock vs sandbox mocks</td><td class="dec-res"><span class="ok-dot">●</span> Mocks isolate peripherals; claims <i>about</i> a mocked service are <code>blocked</code>. Config encodes per-service <code>real|mock</code>.</td></tr>
     <tr><td>Mutation-free vs <code>--fix</code></td><td class="dec-res"><span class="ok-dot">●</span> Generalized — the whole product is mutation-free; <code>--fix</code> is cut entirely.</td></tr>
-    <tr><td>Pi SDK variant</td><td class="dec-res"><span style="color:var(--warn)">●</span> Default to the POC's package (<code>@earendil-works/pi-coding-agent</code>); the behavioral-engine feature PRD verifies its relationship to <code>badlogic/pi-mono</code> and pins it.</td></tr>
+    <tr><td>Pi SDK variant</td><td class="dec-res"><span class="ok-dot">●</span> Resolved: <code>badlogic/pi-mono</code> transferred to <code>earendil-works/pi</code>; old npm scope deprecated. stet standardizes on <code>@earendil-works/pi-coding-agent</code> 0.78.x — the POC already runs on it.</td></tr>
     <tr><td><code>behavioral</code> config schema</td><td class="dec-res"><span class="ok-dot">●</span> Shape stated (start, URL, ready, credentials, per-service real/mock); concrete schema in the feature PRD; drafted by <code>init</code>.</td></tr>
   </table>
   <table style="margin-top:18px;">

@@ -265,7 +265,7 @@ validated POC, so it ports early rather than last.
 | `spec-compliance` | phase 2 rubric, context inputs, requirement mapping |
 | `code-review` | phase 3 lens set (bugs, security, patterns, quality, coverage-gaps), context windowing |
 | `test-quality` | phase 4 rubric, no-tests findings |
-| `behavioral-engine` | rubric port, verdict contract, adapters, evidence ladder, **pins the Pi SDK package** |
+| `behavioral-engine` | rubric port, verdict contract, adapters, evidence ladder |
 | `start-service` / `pty-session` | lifecycle + raw-mode tools |
 | `browser-execution` | agent-browser integration + provisioning (baked image / remote / cloud) |
 | `eval-suite` | fixture port, content-aware grader, `stet models test` qualification + curated manifest |
@@ -278,7 +278,7 @@ validated POC, so it ports early rather than last.
 | Verdict vs findings, exit policy | Verdict internal; `failed→error / blocked→warning / inconclusive→info`; one `--fail-on` knob, default `error` (§3.5, §6). |
 | Anti-mock vs sandbox mocks | Mocks isolate peripherals; claims about a mocked service are `blocked`. Config encodes per-service `real|mock` (§5). |
 | Mutation-free vs `--fix` | Generalized: the whole product is mutation-free; `--fix` is cut (§1, §9). |
-| Pi SDK variant | Default to the POC's package (`@earendil-works/pi-coding-agent`) since the engine ports directly; the `behavioral-engine` feature PRD verifies its relationship to `badlogic/pi-mono` and pins it. |
+| Pi SDK variant | **Resolved 2026-06-06:** `badlogic/pi-mono` transferred to `earendil-works/pi`; the old npm scope is deprecated in favor of `@earendil-works/pi-coding-agent` (actively released). stet standardizes on it — the POC already runs on it (`features/harness.md` §5). |
 | `behavioral` config schema | Shape stated (§5, §8); concrete schema in the `behavioral-engine` feature PRD, drafted by `init` (§7). |
 
 Decisions made beyond §10 during this PRD: no `--fix` at all (v1 had it); parallel scheduler with
