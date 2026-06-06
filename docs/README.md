@@ -34,6 +34,9 @@ docs/
 ## Conventions
 
 - One concern per doc. Link between layers rather than duplicating.
+- Every PRD gets a companion `<name>-overview.html` next to it — a self-contained visual
+  walkthrough (diagrams + open review questions) used for review; the markdown stays the source
+  of truth.
 - Filenames are kebab-case. Feature docs share a stem across layers (e.g.
   `prd/features/start-service.md` ↔ `plans/start-service-plan.md`).
 - Each doc states its **status** and what it supersedes/depends on at the top.
@@ -46,7 +49,8 @@ docs/
 | `research/behavioral-validation-findings.md` | research | **done** — POC discoveries for behavioral verification |
 | `plans/stet-prd-v1.md` | (legacy PRD) | historical — solid on phases 1–4; Phase 5 deferred/under-specified. To be superseded by the fresh high-level PRD. |
 | `prd/stet-prd.md` | high-level PRD | **draft** — fresh direction; resolves findings §10 (see its §12) |
-| `prd/features/*` | feature PRDs | TODO — implied features: behavioral-verification engine, `start_service`, `pty_session`, browser execution (agent-browser), eval/regression suite |
+| `prd/features/harness.md` | feature PRD | **draft** — the shared substrate; all other feature PRDs write against its contracts |
+| `prd/features/*` (rest) | feature PRDs | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, behavioral-engine, start-service/pty-session, browser-execution, eval-suite |
 | `plans/*-plan.md` | impl plans | TODO — one per feature PRD |
 
 ## Pointers a fresh session needs

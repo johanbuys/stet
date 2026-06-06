@@ -65,7 +65,7 @@ documented this class repeatedly. The validator must be **independent** of the a
    gates fail. Ordering is a config knob for the cost-conscious, not the product's shape.
 7. **Agentic at the edges, deterministic in the loop.** LLM exploration happens once, at
    `stet init`, and writes config; the recurring run path of Phase 1 is plain process execution.
-   AI phases (2–5) are agents on a shared chassis.
+   AI phases (2–5) are agents on a shared harness.
 8. **Inference over configuration.** Zero-config invocation works (scope auto-detection, gate
    heuristics); `stet init` upgrades it; config refines it. Flags override config.
 9. **Model routing is configuration.** Each phase has a model knob with sane defaults. Routing is
@@ -78,16 +78,16 @@ documented this class repeatedly. The validator must be **independent** of the a
     is the regression gate for every rubric edit and every model routing change ("does this model
     hold the line?"). It runs under `vp test`.
 
-## 4. Architecture — one chassis, five phase configurations
+## 4. Architecture — one harness, five phase configurations
 
-The harness (chassis) owns everything common: scope detection, config, the scheduler, the agent
+The harness owns everything common: scope detection, config, the scheduler, the agent
 runner (Pi SDK), the findings schema, output-as-tool (submitting structured findings is the *only*
 way for an agent phase to finish — R&D D6), output formats, and the exit-code contract.
 
 Each phase contributes only: **a rubric (system prompt) + a toolset + a default model.**
 
 ```
-            ┌─────────────────────────── chassis ───────────────────────────┐
+            ┌─────────────────────────── harness ───────────────────────────┐
             │ scope detection · config · scheduler (parallel, fail-fast     │
             │ cancel) · agent runner · findings schema · output-as-tool ·   │
             │ formats (human/json) · exit codes                             │
@@ -238,12 +238,12 @@ ignore:       # paths
 Build order follows risk and proof, not phase number — Phase 5's engine already exists as a
 validated POC, so it ports early rather than last.
 
-- **v0.x — Chassis + floor.** CLI scaffolding, scope detection, config, scheduler, findings
+- **v0.x — Harness + floor.** CLI scaffolding, scope detection, config, scheduler, findings
   schema + output formats, exit codes, Phase 1 with heuristics. `stet init` (gates part).
-- **v0.x — Behavioral engine port.** Port the POC engine/rubric/verdict onto the chassis; eval
+- **v0.x — Behavioral engine port.** Port the POC engine/rubric/verdict onto the harness; eval
   suite (14 fixtures + grader) running under `vp test`; `start_service`; CLI-surface validation
   end-to-end. Browser/PTY behind provisioning docs.
-- **v1.0 — Full suite.** Phases 2–4 on the chassis; `init` drafts the behavioral config;
+- **v1.0 — Full suite.** Phases 2–4 on the harness; `init` drafts the behavioral config;
   `pty_session`; provisioned `agent-browser` path; loop-integration docs (the ideoshi-code
   contract).
 - **v1.x — Polish.** SARIF, caching, routing presets, hardening from eval expansion.
@@ -252,7 +252,7 @@ validated POC, so it ports early rather than last.
 
 | Feature PRD | Covers |
 |---|---|
-| `chassis` | scheduler, agent runner, findings schema, output-as-tool, formats, exit codes |
+| `harness` | scheduler, agent runner, findings schema, output-as-tool, formats, exit codes |
 | `deterministic-gates` | detection heuristics, gate execution, hygiene/drift findings |
 | `init` | exploration agent, config drafting, refresh |
 | `spec-compliance` | phase 2 rubric, context inputs, requirement mapping |

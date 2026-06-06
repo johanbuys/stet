@@ -114,15 +114,15 @@
   .prin .t .pn { color: var(--faint); font-size: 12px; font-weight: 700; }
   .prin .d { font-size: 13.5px; color: var(--muted); margin-top: 5px; }
 
-  /* ---------- chassis diagram ---------- */
-  .chassis { margin-top: 18px; }
-  .chassis-bar {
+  /* ---------- harness diagram ---------- */
+  .harness { margin-top: 18px; }
+  .harness-bar {
     background: linear-gradient(180deg, #f1f5fb, #e8eef8);
     border: 1.5px solid #c9d6ea; border-radius: 12px;
     padding: 16px 22px; text-align: center;
   }
-  .chassis-bar .t { font-weight: 800; letter-spacing: 2px; font-size: 13px; color: #33415c; }
-  .chassis-bar .d { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .harness-bar .t { font-weight: 800; letter-spacing: 2px; font-size: 13px; color: #33415c; }
+  .harness-bar .d { font-size: 13px; color: var(--muted); margin-top: 4px; }
   .struts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; padding: 0 10px; }
   .strut-line { height: 20px; border-left: 2px solid #c9d6ea; margin-left: 50%; }
   .phases { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
@@ -360,14 +360,14 @@ Error: invalid JSON
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">04</span>Architecture — one chassis, five configurations</h2>
+  <h2><span class="num">04</span>Architecture — one harness, five configurations</h2>
   <p class="lede">
     The harness owns everything common. Each phase contributes only <strong>a rubric + a toolset + a default
     model</strong>. Phase 5 is just the configuration with the hardened rubric and the execution tools.
   </p>
-  <div class="chassis">
-    <div class="chassis-bar">
-      <div class="t">CHASSIS</div>
+  <div class="harness">
+    <div class="harness-bar">
+      <div class="t">HARNESS</div>
       <div class="d">scope detection · config · scheduler (parallel, fail-fast cancel) · agent runner (Pi SDK) · findings schema · output-as-tool · formats (human / JSON) · exit codes</div>
     </div>
     <div class="struts">
@@ -577,16 +577,16 @@ Error: invalid JSON
   <h2><span class="num">10</span>Roadmap — build order follows proof, not phase number</h2>
   <div class="road">
     <div class="mile">
-      <div class="v">v0.x</div><div class="t">Chassis + floor</div>
+      <div class="v">v0.x</div><div class="t">Harness + floor</div>
       <ul><li>CLI scaffolding, scope detection, config</li><li>scheduler · findings schema · formats · exit codes</li><li>Phase 1 with heuristics</li><li><code>stet init</code> (gates part)</li></ul>
     </div>
     <div class="mile hl">
       <div class="v">v0.x</div><div class="t">Behavioral engine port</div>
-      <ul><li>POC engine/rubric/verdict onto the chassis</li><li>eval suite (14 fixtures + grader) under <code>vp test</code></li><li><code>start_service</code> · CLI-surface validation e2e</li><li>browser/PTY behind provisioning docs</li></ul>
+      <ul><li>POC engine/rubric/verdict onto the harness</li><li>eval suite (14 fixtures + grader) under <code>vp test</code></li><li><code>start_service</code> · CLI-surface validation e2e</li><li>browser/PTY behind provisioning docs</li></ul>
     </div>
     <div class="mile">
       <div class="v">v1.0</div><div class="t">Full suite</div>
-      <ul><li>Phases 2–4 on the chassis</li><li><code>init</code> drafts behavioral config</li><li><code>pty_session</code> · provisioned <code>agent-browser</code></li><li>loop-integration docs (ideoshi-code contract)</li></ul>
+      <ul><li>Phases 2–4 on the harness</li><li><code>init</code> drafts behavioral config</li><li><code>pty_session</code> · provisioned <code>agent-browser</code></li><li>loop-integration docs (ideoshi-code contract)</li></ul>
     </div>
     <div class="mile">
       <div class="v">v1.x</div><div class="t">Polish</div>
@@ -612,7 +612,7 @@ Error: invalid JSON
   </table>
   <table style="margin-top:18px;">
     <tr><th>Decided beyond §10 (this PRD)</th><th>Call</th></tr>
-    <tr><td>Product identity</td><td>Full five-phase suite on a common chassis — not behavioral-only.</td></tr>
+    <tr><td>Product identity</td><td>Full five-phase suite on a common harness — not behavioral-only.</td></tr>
     <tr><td>Remediation</td><td>None. Findings are the fixer's input; the caller owns the fix loop.</td></tr>
     <tr><td>Execution model</td><td>Parallel scheduler + fail-fast cancellation replaces the staged ladder.</td></tr>
     <tr><td>Phase 1 framing</td><td>The independence floor — deterministic run path, skippable, hygiene findings; no LLM at run time.</td></tr>
@@ -626,9 +626,9 @@ Error: invalid JSON
   <h2><span class="num">12</span>Things to poke at while reviewing</h2>
   <p class="lede">Questions the draft answers implicitly or leaves for feature PRDs — worth a deliberate look.</p>
   <div class="ask"><div class="q">Is "full suite" still right at the margin?</div><div class="c">Phases 2–4 overlap with what code-review agents increasingly do. Phase 5 is the moat. Does the roadmap invest accordingly — and would you cut a static phase before cutting anything in Phase 5?</div></div>
-  <div class="ask"><div class="q">Cancellation semantics</div><div class="c">Gates fail → cancel AI phases. But should a <i>lint</i> failure cancel as aggressively as a <i>compile</i> failure? Per-gate cancellation policy might belong in the chassis feature PRD.</div></div>
+  <div class="ask"><div class="q">Cancellation semantics</div><div class="c">Gates fail → cancel AI phases. But should a <i>lint</i> failure cancel as aggressively as a <i>compile</i> failure? Per-gate cancellation policy might belong in the harness feature PRD.</div></div>
   <div class="ask"><div class="q">Confidence × severity gating</div><div class="c">"AI findings below high confidence never gate" — is that the right line for spec-compliance errors (a stated requirement unmet is fairly binary)? Phase 5 findings are evidence-backed; should they bypass confidence entirely?</div></div>
-  <div class="ask"><div class="q">Large diffs</div><div class="c">Context-window overflow strategy (chunking vs. degrade-with-warning) is unaddressed — v1 left it open too. Chassis concern.</div></div>
+  <div class="ask"><div class="q">Large diffs</div><div class="c">Context-window overflow strategy (chunking vs. degrade-with-warning) is unaddressed — v1 left it open too. Harness concern.</div></div>
   <div class="ask"><div class="q">Cost visibility</div><div class="c">Loops care about $/run. Should the report include per-phase token/cost accounting as a first-class output field?</div></div>
   <div class="ask"><div class="q">Concurrent behavioral runs</div><div class="c"><code>start_service</code> implies ports/databases. Two stet runs on one CI box: isolation story (port allocation, teardown guarantees) — feature-PRD depth, but worth flagging now.</div></div>
   <div class="ask"><div class="q">The spec-quality dependency</div><div class="c">Phases 2 and 5 are only as good as the spec given. Garbage spec → confident-looking findings about the wrong thing. Should stet judge spec adequacy ("this spec has no testable acceptance criteria") as a finding?</div></div>
