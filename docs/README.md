@@ -20,15 +20,17 @@ above it:
 ```
 docs/
   README.md                                  ← this file (doc map + workflow)
-  glossary.md                                ← shared vocabulary: terms, disambiguations [living]
+  GLOSSARY.md                                ← shared vocabulary: terms, disambiguations [living]
   research/
     behavioral-validation-findings.md        ← discoveries from the validation-agent POC
   prd/
-    stet-prd.md                              ← high-level product PRD            [TODO]
+    stet-prd.md                              ← high-level product PRD            [draft]
+    stet-prd-overview.html                   ← its visual companion (review here)
     features/
-      <feature>.md                           ← one PRD per feature               [TODO]
+      <feature>.md                           ← one PRD per feature               [harness: draft]
+      <feature>-overview.html                ← visual companion per feature PRD
   plans/
-    stet-prd-v1.md                           ← ORIGINAL PRD (historical; being superseded)
+    stet-prd-v1.md                           ← ORIGINAL PRD (historical; superseded)
     <feature>-plan.md                        ← one implementation plan per feature [TODO]
 ```
 
@@ -38,7 +40,7 @@ docs/
 - Every PRD gets a companion `<name>-overview.html` next to it — a self-contained visual
   walkthrough (diagrams + open review questions) used for review; the markdown stays the source
   of truth.
-- Use terms as defined in `glossary.md`, and update the glossary **in the same PR** that
+- Use terms as defined in `GLOSSARY.md`, and update the glossary **in the same PR** that
   introduces, renames, or sharpens a term.
 - Filenames are kebab-case. Feature docs share a stem across layers (e.g.
   `prd/features/start-service.md` ↔ `plans/start-service-plan.md`).
@@ -49,7 +51,7 @@ docs/
 
 | Doc | Layer | Status |
 |---|---|---|
-| `glossary.md` | reference | **living** — shared vocabulary; update in the same PR as term changes |
+| `GLOSSARY.md` | reference | **living** — shared vocabulary; update in the same PR as term changes |
 | `research/behavioral-validation-findings.md` | research | **done** — POC discoveries for behavioral verification |
 | `plans/stet-prd-v1.md` | (legacy PRD) | historical — solid on phases 1–4; Phase 5 deferred/under-specified. To be superseded by the fresh high-level PRD. |
 | `prd/stet-prd.md` | high-level PRD | **draft** — fresh direction; resolves findings §10 (see its §12) |
