@@ -18,22 +18,30 @@ above it:
    build steps, milestones, file/module breakdown, test plan (TDD), sequencing.
 
 ```
+GLOSSARY.md                                  ← repo root: shared vocabulary for docs AND code [living]
 docs/
   README.md                                  ← this file (doc map + workflow)
   research/
     behavioral-validation-findings.md        ← discoveries from the validation-agent POC
   prd/
-    stet-prd.md                              ← high-level product PRD            [TODO]
+    stet-prd.md                              ← high-level product PRD            [draft]
+    stet-prd-overview.html                   ← its visual companion (review here)
     features/
-      <feature>.md                           ← one PRD per feature               [TODO]
+      <feature>.md                           ← one PRD per feature               [harness: draft]
+      <feature>-overview.html                ← visual companion per feature PRD
   plans/
-    stet-prd-v1.md                           ← ORIGINAL PRD (historical; being superseded)
+    stet-prd-v1.md                           ← ORIGINAL PRD (historical; superseded)
     <feature>-plan.md                        ← one implementation plan per feature [TODO]
 ```
 
 ## Conventions
 
 - One concern per doc. Link between layers rather than duplicating.
+- Every PRD gets a companion `<name>-overview.html` next to it — a self-contained visual
+  walkthrough (diagrams + open review questions) used for review; the markdown stays the source
+  of truth.
+- Use terms as defined in the repo-root `GLOSSARY.md`, and update the glossary **in the same
+  PR** that introduces, renames, or sharpens a term.
 - Filenames are kebab-case. Feature docs share a stem across layers (e.g.
   `prd/features/start-service.md` ↔ `plans/start-service-plan.md`).
 - Each doc states its **status** and what it supersedes/depends on at the top.
@@ -43,10 +51,12 @@ docs/
 
 | Doc | Layer | Status |
 |---|---|---|
+| `../GLOSSARY.md` (repo root) | reference | **living** — shared vocabulary for docs and code; update in the same PR as term changes |
 | `research/behavioral-validation-findings.md` | research | **done** — POC discoveries for behavioral verification |
 | `plans/stet-prd-v1.md` | (legacy PRD) | historical — solid on phases 1–4; Phase 5 deferred/under-specified. To be superseded by the fresh high-level PRD. |
-| `prd/stet-prd.md` | high-level PRD | **next** — fresh, incorporating the findings |
-| `prd/features/*` | feature PRDs | TODO — implied features: behavioral-verification engine, `start_service`, `pty_session`, browser execution (agent-browser), eval/regression suite |
+| `prd/stet-prd.md` | high-level PRD | **draft** — fresh direction; resolves findings §10 (see its §12) |
+| `prd/features/harness.md` | feature PRD | **draft** — the shared substrate; all other feature PRDs write against its contracts |
+| `prd/features/*` (rest) | feature PRDs | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, behavioral-engine, start-service/pty-session, browser-execution, eval-suite |
 | `plans/*-plan.md` | impl plans | TODO — one per feature PRD |
 
 ## Pointers a fresh session needs
