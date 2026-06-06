@@ -19,7 +19,7 @@ research/findings → **high-level PRD** (`docs/prd/stet-prd.md`, drafted) → p
 them in that order. The original PRD (`docs/plans/stet-prd-v1.md`) is historical, superseded by
 the fresh high-level PRD. Every PRD has a companion `<name>-overview.html` for visual review.
 
-**Terminology:** `docs/GLOSSARY.md` is the shared vocabulary (harness, phase, specialist,
+**Terminology:** `GLOSSARY.md` is the shared vocabulary (harness, phase, specialist,
 finding, tier, …). Use those terms exactly, and update the glossary in the same change that
 introduces or renames a term.
 
