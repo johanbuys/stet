@@ -35,12 +35,19 @@ claims about mocked services are blocked; blunt-conservative rubric discipline; 
 `@earendil-works/pi-coding-agent`; single capable agent, no planner/worker split (R&D D2);
 evidence ladder; robust tier.)*
 
+1. **Diff exposure & surface selection — option A: fully diff-blind agent; harness owns the
+   mapping.** The harness resolves changed paths → surfaces deterministically (path→surface
+   mapping drafted by `stet init`, heuristic fallback); the agent receives **surfaces only** —
+   never file paths, never patch hunks. Activation and surface selection are one mechanism.
+   Over-selection is acceptable (token cost, never a wrong verdict); under-selection is an
+   init/config hygiene finding. — *why:* this is the exact posture the 14-fixture POC evidence
+   validates (zero author-bias leakage), and the harness's pre-launch activation contract
+   requires a deterministic map regardless — one mechanism, not two. (user call, 2026-06-06)
+
 ## Open questions
 
 ### Fork-level (must land before this brief settles)
 
-1. **Diff exposure & surface selection** — what of the diff does the engine see, and who maps
-   diff → surfaces (harness heuristic from config'd path→surface mapping vs agent judgment)?
 2. **Claim scoping** — claims derive from the spec; does a run derive claims for the *whole*
    spec or only the spec ∩ selected surfaces? Who filters, at what cost?
 3. **Rubric composition** — POC rubric embeds browser/TTY specifics, but the architecture says
@@ -67,7 +74,10 @@ mechanics (consumes the schema this PRD defines).
 
 ## Glossary seeds
 
-- *surface selection* — the diff→surfaces mapping step (owner TBD: decision 1).
+- *surface selection* — the harness's deterministic diff→surfaces mapping (config'd
+  path→surface map + heuristics); same mechanism as Phase 5 activation. Decided: D1.
+- *path→surface map* — the `behavioral` config section mapping repo paths to surfaces,
+  drafted by `stet init`.
 - *adapter clause* — candidate term if rubric splits into core + per-adapter sections (decision 3).
 
 ## Evidence
