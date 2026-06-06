@@ -45,7 +45,7 @@ docs/
 |---|---|---|
 | `research/behavioral-validation-findings.md` | research | **done** — POC discoveries for behavioral verification |
 | `plans/stet-prd-v1.md` | (legacy PRD) | historical — solid on phases 1–4; Phase 5 deferred/under-specified. To be superseded by the fresh high-level PRD. |
-| `prd/stet-prd.md` | high-level PRD | **next** — fresh, incorporating the findings |
+| `prd/stet-prd.md` | high-level PRD | **draft** — fresh direction; resolves findings §10 (see its §12) |
 | `prd/features/*` | feature PRDs | TODO — implied features: behavioral-verification engine, `start_service`, `pty_session`, browser execution (agent-browser), eval/regression suite |
 | `plans/*-plan.md` | impl plans | TODO — one per feature PRD |
 

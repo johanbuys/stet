@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>stet — PRD Overview</title>
+<style>
+  :root {
+    --ink: #1a2233;
+    --muted: #5b6678;
+    --faint: #8b94a6;
+    --bg: #fafbfd;
+    --card: #ffffff;
+    --line: #e3e8f0;
+    --accent: #0f62fe;
+
+    --p1: #64748b;  /* gates — slate */
+    --p2: #2563eb;  /* spec — blue */
+    --p3: #7c3aed;  /* review — violet */
+    --p4: #d97706;  /* tests — amber */
+    --p5: #059669;  /* behavioral — green */
+
+    --err: #dc2626;
+    --warn: #d97706;
+    --info: #2563eb;
+    --ok: #059669;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg);
+    line-height: 1.55; font-size: 16px;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 28px 120px; }
+
+  /* ---------- header ---------- */
+  header { padding: 64px 0 36px; border-bottom: 1px solid var(--line); margin-bottom: 48px; }
+  .brand { font-size: 54px; font-weight: 800; letter-spacing: -2px; }
+  .brand .mark { color: var(--p5); }
+  .tagline { font-size: 20px; color: var(--muted); margin-top: 6px; }
+  .tagline em { color: var(--ink); font-style: italic; }
+  .status-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .chip {
+    font-size: 12.5px; font-weight: 600; padding: 4px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--card); color: var(--muted);
+  }
+  .chip.draft { background: #fff7ed; border-color: #fdba74; color: #c2410c; }
+  .chip.proven { background: #ecfdf5; border-color: #6ee7b7; color: #047857; }
+
+  /* ---------- sections ---------- */
+  section { margin-bottom: 64px; }
+  h2 {
+    font-size: 26px; font-weight: 750; letter-spacing: -0.5px; margin-bottom: 6px;
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .num { font-size: 14px; font-weight: 700; color: var(--faint); letter-spacing: 1px; }
+  .lede { color: var(--muted); margin-bottom: 24px; max-width: 820px; }
+  .lede strong { color: var(--ink); }
+  h3 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; }
+  p + p { margin-top: 10px; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em; background: #eef1f6; padding: 1px 6px; border-radius: 4px;
+  }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px 24px; box-shadow: 0 1px 2px rgba(20,30,60,.04);
+  }
+
+  /* ---------- the loop diagram ---------- */
+  .loop { display: flex; align-items: center; justify-content: center; gap: 0; flex-wrap: wrap; margin: 18px 0; }
+  .loop-node {
+    background: var(--card); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 14px 20px; text-align: center; min-width: 150px;
+  }
+  .loop-node .t { font-weight: 700; font-size: 15px; }
+  .loop-node .s { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .loop-node.stet { border-color: var(--p5); background: #ecfdf5; }
+  .loop-arrow { padding: 0 14px; color: var(--faint); font-size: 13px; text-align: center; }
+  .loop-arrow .lbl { display: block; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+  .loop-back {
+    width: 100%; text-align: center; color: var(--faint); font-size: 12.5px; margin-top: 10px;
+    border-top: 1.5px dashed var(--line); padding-top: 8px; max-width: 700px; margin-left: auto; margin-right: auto;
+  }
+
+  /* ---------- killer demo ---------- */
+  .demo { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+  .repo {
+    border-radius: 12px; padding: 18px 20px; border: 1.5px solid;
+    font-size: 14px;
+  }
+  .repo.good { border-color: #6ee7b7; background: #f0fdf9; }
+  .repo.bad  { border-color: #fca5a5; background: #fef5f5; }
+  .repo h4 { font-size: 14px; margin-bottom: 10px; }
+  .repo ul { list-style: none; }
+  .repo li { padding: 3px 0; }
+  .repo li .y { color: var(--ok); font-weight: 700; }
+  .repo li .n { color: var(--err); font-weight: 700; }
+  .repo pre {
+    margin-top: 10px; background: #1a2233; color: #d8e0ee; border-radius: 8px;
+    padding: 10px 14px; font-size: 12.5px; overflow-x: auto;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .demo-caption { grid-column: 1 / -1; font-size: 14px; color: var(--muted); }
+  .demo-caption strong { color: var(--ink); }
+
+  /* ---------- principles ---------- */
+  .prin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .prin {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px;
+  }
+  .prin .t { font-weight: 700; font-size: 14.5px; display: flex; gap: 8px; align-items: baseline; }
+  .prin .t .pn { color: var(--faint); font-size: 12px; font-weight: 700; }
+  .prin .d { font-size: 13.5px; color: var(--muted); margin-top: 5px; }
+
+  /* ---------- chassis diagram ---------- */
+  .chassis { margin-top: 18px; }
+  .chassis-bar {
+    background: linear-gradient(180deg, #f1f5fb, #e8eef8);
+    border: 1.5px solid #c9d6ea; border-radius: 12px;
+    padding: 16px 22px; text-align: center;
+  }
+  .chassis-bar .t { font-weight: 800; letter-spacing: 2px; font-size: 13px; color: #33415c; }
+  .chassis-bar .d { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .struts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; padding: 0 10px; }
+  .strut-line { height: 20px; border-left: 2px solid #c9d6ea; margin-left: 50%; }
+  .phases { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+  .phase {
+    border-radius: 12px; border: 1.5px solid var(--line); background: var(--card);
+    padding: 14px 14px 16px; border-top-width: 4px; display: flex; flex-direction: column;
+  }
+  .phase .pnum { font-size: 11px; font-weight: 800; letter-spacing: 1.5px; color: var(--faint); }
+  .phase .pname { font-weight: 750; font-size: 15px; margin: 2px 0 6px; letter-spacing: -0.2px; }
+  .phase .pdesc { font-size: 12.5px; color: var(--muted); flex: 1; }
+  .phase .ptools { font-size: 11px; margin-top: 10px; color: var(--faint); font-family: ui-monospace, Menlo, monospace; }
+  .phase.p1 { border-top-color: var(--p1); }
+  .phase.p2 { border-top-color: var(--p2); }
+  .phase.p3 { border-top-color: var(--p3); }
+  .phase.p4 { border-top-color: var(--p4); }
+  .phase.p5 { border-top-color: var(--p5); box-shadow: 0 0 0 3px #d1fae5; }
+  .badge {
+    display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .6px;
+    padding: 2px 8px; border-radius: 999px; margin-top: 8px; align-self: flex-start;
+  }
+  .badge.nollm { background: #f1f5f9; color: #475569; }
+  .badge.proven { background: #d1fae5; color: #047857; }
+  .badge.agent { background: #ede9fe; color: #6d28d9; }
+
+  /* ---------- scheduler gantt ---------- */
+  .gantt { margin-top: 14px; }
+  .gantt .row { display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 14px; margin-bottom: 9px; }
+  .gantt .lbl { font-size: 13px; font-weight: 600; text-align: right; color: var(--muted); }
+  .gantt .track { position: relative; height: 26px; background: #f1f4f9; border-radius: 6px; }
+  .gantt .bar {
+    position: absolute; top: 0; height: 100%; border-radius: 6px;
+    font-size: 11px; font-weight: 700; color: #fff; display: flex; align-items: center; padding-left: 10px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .gantt .marker {
+    position: absolute; top: -6px; bottom: -6px; width: 2px; background: var(--ink); opacity: .55;
+  }
+  .gantt .marker .mt {
+    position: absolute; top: -18px; left: -4px; font-size: 10.5px; font-weight: 700; color: var(--muted); white-space: nowrap;
+  }
+  .gantt-note { font-size: 13px; color: var(--muted); margin-top: 14px; }
+  .gantt-vs { font-size: 12px; font-weight: 800; letter-spacing: 1px; color: var(--faint); margin: 18px 0 10px; text-align: center; }
+  .bar.cancelled { opacity: .35; }
+  .bar .x { margin-left: 6px; font-size: 12px; }
+
+  /* ---------- phase 5 ---------- */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 800px) { .split, .demo { grid-template-columns: 1fr; } .phases, .struts { grid-template-columns: 1fr; } .strut-line { display: none; } }
+
+  .rubric-box {
+    border: 1.5px solid var(--p5); border-radius: 12px; background: #f0fdf7; padding: 18px 20px;
+  }
+  .rubric-box h4, .adapt-box h4 { font-size: 13px; letter-spacing: 1.2px; font-weight: 800; margin-bottom: 10px; }
+  .rubric-box h4 { color: #047857; }
+  .rubric-box ul, .adapt-box ul { list-style: none; }
+  .rubric-box li { font-size: 13.5px; padding: 4px 0; }
+  .rubric-box li b { font-weight: 700; }
+  .adapt-box { border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); padding: 18px 20px; }
+  .adapt-box h4 { color: var(--muted); }
+  .adapt-box li {
+    font-size: 13px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; background: #fafbfd;
+  }
+  .adapt-box li b { color: var(--p5); font-family: -apple-system, sans-serif; }
+  .times { text-align: center; font-size: 26px; color: var(--faint); align-self: center; padding: 8px 0; }
+
+  /* ---------- evidence ladder ---------- */
+  .ladder { display: flex; align-items: flex-end; gap: 0; margin-top: 16px; }
+  .rung { flex: 1; text-align: center; }
+  .rung .step {
+    border: 1.5px solid var(--line); border-bottom-width: 4px; border-radius: 10px 10px 0 0;
+    background: var(--card); padding: 12px 10px 10px; margin: 0 5px;
+  }
+  .rung:nth-child(1) .step { height: 86px;  border-bottom-color: var(--ok); }
+  .rung:nth-child(2) .step { height: 122px; border-bottom-color: #0d9488; }
+  .rung:nth-child(3) .step { height: 158px; border-bottom-color: #0f766e; }
+  .rung .t { font-weight: 700; font-size: 13.5px; }
+  .rung .d { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .rung .cost { font-size: 11px; font-weight: 700; color: var(--faint); margin-top: 6px; letter-spacing: .5px; }
+  .ladder-axis { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--faint); font-weight: 700; letter-spacing: 1px; padding: 8px 6px 0; }
+
+  /* ---------- verdict mapping ---------- */
+  .verdicts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 14px; }
+  @media (max-width: 800px) { .verdicts { grid-template-columns: repeat(2, 1fr); } }
+  .verdict { border-radius: 10px; padding: 14px; border: 1.5px solid var(--line); background: var(--card); text-align: center; }
+  .verdict .v { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; }
+  .verdict .arrow { color: var(--faint); font-size: 13px; margin: 6px 0; }
+  .verdict .f { display: inline-block; font-size: 11.5px; font-weight: 800; letter-spacing: .5px; padding: 3px 12px; border-radius: 999px; }
+  .verdict .note { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  .f.err  { background: #fee2e2; color: #b91c1c; }
+  .f.warn { background: #fef3c7; color: #b45309; }
+  .f.info { background: #dbeafe; color: #1d4ed8; }
+  .f.ok   { background: #d1fae5; color: #047857; }
+
+  /* ---------- exit codes / tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 12px; background: var(--card); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: 1px; color: var(--muted); background: #f4f7fb; }
+  tr:last-child td { border-bottom: none; }
+  td code { white-space: nowrap; }
+
+  /* ---------- init flow ---------- */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin-top: 16px; }
+  .flow-node {
+    flex: 1; min-width: 170px; background: var(--card); border: 1.5px solid var(--line);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .flow-node .t { font-weight: 700; font-size: 14px; }
+  .flow-node .d { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+  .flow-sep { display: flex; align-items: center; padding: 0 10px; color: var(--faint); font-size: 18px; }
+  .flow-node.hl { border-color: var(--p5); background: #f0fdf7; }
+
+  /* ---------- roadmap ---------- */
+  .road { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 16px; }
+  @media (max-width: 800px) { .road { grid-template-columns: 1fr; } }
+  .mile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; position: relative; }
+  .mile .v { font-size: 12px; font-weight: 800; letter-spacing: 1px; color: var(--accent); }
+  .mile .t { font-weight: 750; font-size: 15px; margin: 4px 0 8px; }
+  .mile ul { list-style: none; }
+  .mile li { font-size: 12.5px; color: var(--muted); padding: 2.5px 0; padding-left: 14px; position: relative; }
+  .mile li::before { content: "·"; position: absolute; left: 2px; font-weight: 800; color: var(--faint); }
+  .mile.hl { border-color: #6ee7b7; background: #f7fefb; }
+  .mile.hl .v { color: var(--p5); }
+
+  /* ---------- out of scope ---------- */
+  .cuts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .cut {
+    font-size: 13.5px; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--card); color: var(--muted); text-decoration: line-through; text-decoration-color: #d1d8e4;
+  }
+  .cut.big { border-color: #fca5a5; background: #fff5f5; color: #b91c1c; font-weight: 700; text-decoration-color: #fca5a5; }
+
+  /* ---------- decisions ---------- */
+  .dec-res { font-weight: 600; }
+  .dec-res .ok-dot { color: var(--ok); }
+
+  /* ---------- review prompts ---------- */
+  .ask { border-left: 4px solid var(--warn); background: #fffbeb; border-radius: 0 10px 10px 0; padding: 14px 18px; margin-bottom: 12px; }
+  .ask .q { font-weight: 700; font-size: 14.5px; }
+  .ask .c { font-size: 13.5px; color: var(--muted); margin-top: 4px; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 60px; padding-top: 20px; font-size: 13px; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="brand">stet<span class="mark">.</span></div>
+  <div class="tagline">Latin: <em>"let it stand."</em> A proofreader's mark — it annotates the manuscript, it never rewrites it.</div>
+  <div class="status-row">
+    <span class="chip draft">PRD STATUS: DRAFT — 2026-06-05</span>
+    <span class="chip">supersedes stet-prd-v1</span>
+    <span class="chip proven">Phase 5 evidence-backed by validation-agent-poc</span>
+    <span class="chip">phases 1–4 carried on v1 reasoning</span>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">01</span>What stet is</h2>
+  <p class="lede">
+    An <strong>independent code-change validation suite</strong>: a standalone CLI that judges a change across
+    five dimensions and reports structured findings. Invoked when work is <em>believed done</em> — by a human
+    pre-commit, by an AI agent at the end of a task, by an autonomous loop, or by CI.
+    <strong>stet reports; it never fixes.</strong> There is no <code>--fix</code>.
+  </p>
+  <div class="card">
+    <div class="loop">
+      <div class="loop-node"><div class="t">Author</div><div class="s">human · agent · loop</div></div>
+      <div class="loop-arrow"><span class="lbl">"I'm done"</span>──▶</div>
+      <div class="loop-node stet"><div class="t">stet</div><div class="s">judges — read-only,<br>mutation-free by construction</div></div>
+      <div class="loop-arrow"><span class="lbl">findings (JSON / exit code)</span>──▶</div>
+      <div class="loop-node"><div class="t">Caller remediates</div><div class="s">the findings are the fixer's input</div></div>
+      <div class="loop-back">◀── caller fixes &nbsp;→&nbsp; stet re-judges &nbsp;→&nbsp; until clean — <b>stet judges, the caller fixes</b></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">02</span>Why — the killer demonstration</h2>
+  <p class="lede">
+    The R&amp;D proved the gap no static layer covers. Two <strong>byte-identical sibling repos</strong> differ by one
+    line: the broken one prints the right error but is missing <code>process.exit(1)</code> — bad input exits <code>0</code>.
+  </p>
+  <div class="demo">
+    <div class="repo good">
+      <h4>✅ Correct sibling</h4>
+      <ul>
+        <li><span class="y">✓</span> tests green</li>
+        <li><span class="y">✓</span> static review passes</li>
+        <li><span class="y">✓</span> behavioral run passes</li>
+      </ul>
+      <pre>$ node cli.js bad.json; echo $?
+Error: invalid JSON
+1</pre>
+    </div>
+    <div class="repo bad">
+      <h4>❌ Broken sibling (missing <code>process.exit(1)</code>)</h4>
+      <ul>
+        <li><span class="y">✓</span> tests green <span style="color:var(--muted)">— asserts the message, never the exit code</span></li>
+        <li><span class="y">✓</span> static review passes <span style="color:var(--muted)">— the try/catch is "there"</span></li>
+        <li><span class="n">✗</span> behavioral run <b>fails</b> — with the reproducing command</li>
+      </ul>
+      <pre>$ node cli.js bad.json; echo $?
+Error: invalid JSON
+0   ← violates the acceptance criterion</pre>
+    </div>
+    <div class="demo-caption">
+      <strong>Only running the system catches it.</strong> An author-agent grading its own work compounds this —
+      the POC documented agents over-claiming repeatedly. The validator must be independent of the author,
+      and verification that never executes inherits whatever the tests and the author missed.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">03</span>Design principles</h2>
+  <div class="prin-grid">
+    <div class="prin"><div class="t"><span class="pn">P1</span>Findings, not fixes</div><div class="d">No write tools, at any phase, by construction. A verdict from a mutated repo is worthless. Remediation belongs to the caller.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P2</span>Independent verification</div><div class="d">stet runs the gates itself; behavioral claims derive from the <b>spec</b>, never the diff. The diff only selects which surfaces to exercise.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P3</span>Evidence must reach the claim</div><div class="d">Code shape ≠ proof. A mock proves the harness, not the product. A pipe is not a TTY. HTTP is not proof for an SPA.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P4</span>Blunt conservative rubrics</div><div class="d">A precise permissive rule is a loophole for a weaker model. Proven by a measured rollback in the R&amp;D.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P5</span>Verdicts inside, findings outside</div><div class="d">Phase 5 reaches a real verdict with executable evidence, then surfaces it as findings through the same severity contract as everything else.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P6</span>Parallel by default</div><div class="d">Phases are independent; sequencing is a cost-policy knob, not architecture. Fail-fast cancellation bounds wasted tokens.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P7</span>Agentic at the edges, deterministic in the loop</div><div class="d">LLM exploration is spent once at <code>stet init</code>; the recurring Phase 1 run path is plain process execution.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P8</span>Inference over configuration</div><div class="d">Zero-config works; <code>init</code> upgrades it; config refines it; flags override.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P9</span>Model routing is config</div><div class="d">Per-phase model knob. Robust models for anything touching real systems/mocks/web; cheap models routed off the trap classes.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P10</span>Provisioned, never self-installed</div><div class="d">The browser is provisioned ahead (baked image / remote / cloud) — never installed mid-validation.</div></div>
+    <div class="prin"><div class="t"><span class="pn">P11</span>The eval suite is the discipline</div><div class="d">14 fixtures + content-aware grader gate every rubric edit and model-routing change, under <code>vp test</code>.</div></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">04</span>Architecture — one chassis, five configurations</h2>
+  <p class="lede">
+    The harness owns everything common. Each phase contributes only <strong>a rubric + a toolset + a default
+    model</strong>. Phase 5 is just the configuration with the hardened rubric and the execution tools.
+  </p>
+  <div class="chassis">
+    <div class="chassis-bar">
+      <div class="t">CHASSIS</div>
+      <div class="d">scope detection · config · scheduler (parallel, fail-fast cancel) · agent runner (Pi SDK) · findings schema · output-as-tool · formats (human / JSON) · exit codes</div>
+    </div>
+    <div class="struts">
+      <div class="strut-line"></div><div class="strut-line"></div><div class="strut-line"></div><div class="strut-line"></div><div class="strut-line"></div>
+    </div>
+    <div class="phases">
+      <div class="phase p1">
+        <div class="pnum">PHASE 1</div><div class="pname">Deterministic gates</div>
+        <div class="pdesc">Runs the project's own tests / types / lint / build. The <b>floor, not the pitch</b>: independence, self-contained reports, bootstrap. Missing gates are findings. Skippable.</div>
+        <span class="badge nollm">NO LLM IN RUN PATH</span>
+        <div class="ptools">spawn processes</div>
+      </div>
+      <div class="phase p2">
+        <div class="pnum">PHASE 2</div><div class="pname">Spec compliance</div>
+        <div class="pdesc">Maps the diff against stated requirements: satisfied / partial / missing, plus scope creep. <b>No spec → skipped with a note.</b></div>
+        <span class="badge agent">AGENT</span>
+        <div class="ptools">read-only tools</div>
+      </div>
+      <div class="phase p3">
+        <div class="pnum">PHASE 3</div><div class="pname">Code review</div>
+        <div class="pdesc">Bugs, security, quality, consistency with nearby code. High-signal over nitpicks; confidence scoring is critical.</div>
+        <span class="badge agent">AGENT</span>
+        <div class="ptools">read-only tools</div>
+      </div>
+      <div class="phase p4">
+        <div class="pnum">PHASE 4</div><div class="pname">Test quality</div>
+        <div class="pdesc">Behavior vs. mirroring, would-fail-if-wrong, edge cases, tautology. Flags new code with <i>no</i> tests, severity ∝ risk.</div>
+        <span class="badge agent">AGENT</span>
+        <div class="ptools">read-only tools</div>
+      </div>
+      <div class="phase p5">
+        <div class="pnum">PHASE 5</div><div class="pname">Behavioral verification</div>
+        <div class="pdesc">Proves spec-derived claims <b>by running the system</b>. Diff-blind, mutation-free, verdict + executable evidence. <b>Requires a spec.</b></div>
+        <span class="badge proven">PROVEN BY R&amp;D</span>
+        <div class="ptools">bash · start_service · pty_session · agent-browser</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">05</span>Scheduler — parallel, with fail-fast cancellation</h2>
+  <p class="lede">
+    The phases have <strong>no data dependencies</strong> — the old "ladder" was a cost policy, not architecture.
+    Everything launches at once; gates are the fastest thing in the set, so a broken build still stops the run early.
+  </p>
+  <div class="card">
+    <div class="gantt-vs">HAPPY PATH — gates pass (the common case in a loop) · wall-clock ≈ slowest phase</div>
+    <div class="gantt">
+      <div class="row"><div class="lbl">P1 gates</div><div class="track"><div class="bar" style="left:0; width:18%; background:var(--p1);">gates ✓</div></div></div>
+      <div class="row"><div class="lbl">P2 spec compliance</div><div class="track"><div class="bar" style="left:0; width:42%; background:var(--p2);">spec ✓</div></div></div>
+      <div class="row"><div class="lbl">P3 code review</div><div class="track"><div class="bar" style="left:0; width:50%; background:var(--p3);">review ✓</div></div></div>
+      <div class="row"><div class="lbl">P4 test quality</div><div class="track"><div class="bar" style="left:0; width:38%; background:var(--p4);">tests ✓</div></div></div>
+      <div class="row"><div class="lbl">P5 behavioral</div><div class="track"><div class="bar" style="left:0; width:78%; background:var(--p5);">behavioral ✓</div></div></div>
+    </div>
+    <div class="gantt-vs" style="margin-top:28px;">BROKEN PATH — gates fail fast → in-flight AI phases cancelled · bounded token waste</div>
+    <div class="gantt">
+      <div class="row"><div class="lbl">P1 gates</div><div class="track"><div class="bar" style="left:0; width:12%; background:var(--err);">fail ✗</div><div class="marker" style="left:12%;"><span class="mt">cancel signal</span></div></div></div>
+      <div class="row"><div class="lbl">P2 spec compliance</div><div class="track"><div class="bar cancelled" style="left:0; width:12%; background:var(--p2);">…<span class="x">⊘</span></div></div></div>
+      <div class="row"><div class="lbl">P3 code review</div><div class="track"><div class="bar cancelled" style="left:0; width:12%; background:var(--p3);">…<span class="x">⊘</span></div></div></div>
+      <div class="row"><div class="lbl">P4 test quality</div><div class="track"><div class="bar cancelled" style="left:0; width:12%; background:var(--p4);">…<span class="x">⊘</span></div></div></div>
+      <div class="row"><div class="lbl">P5 behavioral</div><div class="track"><div class="bar cancelled" style="left:0; width:12%; background:var(--p5);">…<span class="x">⊘</span></div></div></div>
+    </div>
+    <div class="gantt-note">
+      <code>--continue-on-failure</code> disables cancellation · a <code>sequential</code> scheduler policy exists in config for the cost-paranoid · activation rules still apply (e.g. P4 only when tests changed).
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">06</span>Phase 5 up close — one rubric × execution adapters</h2>
+  <p class="lede">
+    The single most reusable R&amp;D finding: <strong>the judgment is surface-agnostic; only the execution adapter
+    is surface-specific.</strong> Nothing in the rubric says "CLI."
+  </p>
+  <div class="split">
+    <div class="rubric-box">
+      <h4>JUDGMENT — one hardened rubric, reused</h4>
+      <ul>
+        <li><b>Diff-blind:</b> claims derive from the spec; diff only selects surfaces</li>
+        <li><b>Mutation-free:</b> no write tools, enforced by construction</li>
+        <li><b>Evidence sufficiency:</b> evidence must reach the regime the claim is about</li>
+        <li><b>Anti-mocking:</b> a mock proves your harness, not the product</li>
+        <li><b>Interactive honesty:</b> a pipe is not a TTY; unreachable ≠ failed</li>
+        <li><b>Browser rule:</b> SPAs need a real browser; curl is not proof</li>
+      </ul>
+    </div>
+    <div class="adapt-box">
+      <h4>EXECUTION ADAPTERS — per surface</h4>
+      <ul>
+        <li><b>CLI</b> &nbsp;spawn → stdout / stderr / exit code</li>
+        <li><b>API</b> &nbsp;start_service → curl → status / body</li>
+        <li><b>WEB</b> &nbsp;start_service → agent-browser → DOM / network</li>
+        <li><b>TTY</b> &nbsp;pty_session → raw-mode keys</li>
+      </ul>
+      <div style="font-size:12px; color:var(--muted); margin-top:8px;">
+        Tools earned by probes, not speculation — built only where models could not self-serve <i>reliably</i>.
+      </div>
+    </div>
+  </div>
+
+  <h3>The evidence ladder — cheapest sufficient rung wins</h3>
+  <div class="card">
+    <div class="ladder">
+      <div class="rung"><div class="step"><div class="t">exit code · HTTP status/body</div><div class="d">most validation lives here</div><div class="cost">CHEAP</div></div></div>
+      <div class="rung"><div class="step"><div class="t">in-process JS execution</div><div class="d">node / DOM-shim runs the client logic</div><div class="cost">MODERATE</div></div></div>
+      <div class="rung"><div class="step"><div class="t">real browser</div><div class="d">mandatory only for real interactive SPAs<br>(provisioned, never self-installed)</div><div class="cost">EXPENSIVE</div></div></div>
+    </div>
+    <div class="ladder-axis"><span>← lower cost</span><span>higher fidelity →</span></div>
+  </div>
+
+  <h3>Verdict → findings → exit code</h3>
+  <div class="verdicts">
+    <div class="verdict"><div class="v">passed</div><div class="arrow">↓</div><span class="f ok">no finding</span><div class="note">claim proven by execution</div></div>
+    <div class="verdict"><div class="v">failed</div><div class="arrow">↓</div><span class="f err">ERROR</span><div class="note">+ the exact reproducing command — gates by default</div></div>
+    <div class="verdict"><div class="v">blocked</div><div class="arrow">↓</div><span class="f warn">WARNING</span><div class="note">couldn't reach the claim (no browser, mocked service…)</div></div>
+    <div class="verdict"><div class="v">inconclusive</div><div class="arrow">↓</div><span class="f info">INFO</span><div class="note">honest uncertainty, never silent</div></div>
+  </div>
+  <p style="font-size:14px; color:var(--muted); margin-top:14px;">
+    <b style="color:var(--ink)">No spec → Phase 5 does not run</b> and emits a <span class="f warn" style="font-size:11px;">WARNING</span>
+    ("behavioral verification did not run: no spec provided"). Deriving claims from the diff would inherit the
+    author's blind spot — that's not verification. &nbsp;·&nbsp; <b style="color:var(--ink)">Mocks:</b> isolate
+    <i>peripheral</i> services only; a claim <i>about</i> a mocked service is <code>blocked</code>, never <code>passed</code>.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">07</span>CLI contract</h2>
+  <div class="split">
+    <div>
+      <h3 style="margin-top:0;">Scope (auto-detected, flags override)</h3>
+      <table>
+        <tr><td><code>stet</code></td><td>staged → working tree → branch vs default → last commit</td></tr>
+        <tr><td><code>--staged --working</code></td><td rowspan="2">explicit scope for scripted contexts</td></tr>
+        <tr><td><code>--against &lt;ref&gt; --commit --commits</code></td></tr>
+      </table>
+      <h3>Spec context</h3>
+      <table>
+        <tr><td><code>--prd &lt;file|-|text&gt;</code></td><td>file, stdin, or inline literal</td></tr>
+        <tr><td><code>--task "&lt;text&gt;"</code></td><td>inline task description</td></tr>
+        <tr><td><code>--issue &lt;n&gt;</code></td><td>delegates to <code>gh</code> — no built-in forge integrations; other platforms pipe to <code>--prd -</code></td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 style="margin-top:0;">Exit codes — one knob</h3>
+      <table>
+        <tr><th>code</th><th>meaning</th></tr>
+        <tr><td><code>0</code></td><td>clean at threshold</td></tr>
+        <tr><td><code>1</code></td><td>findings at/above <code>--fail-on</code> (default <code>error</code>)</td></tr>
+        <tr><td><code>2</code></td><td>tool error (no scope, context fetch failed…)</td></tr>
+      </table>
+      <p style="font-size:13.5px; color:var(--muted); margin-top:10px;">
+        Default: only a proven <code>failed</code> blocks. Strict CI opts into <code>--fail-on warning</code> to also gate
+        on <code>blocked</code> / skipped-behavioral. AI findings below high confidence never gate.
+        Output: human-readable default, <code>--format json</code> for machines, SARIF later. Headless by design —
+        no TTY, container-friendly.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">08</span><code>stet init</code> — the exploration agent</h2>
+  <p class="lede">
+    The one place agentic exploration is spent so runs never spend it. The same exploration that finds
+    <code>vp test</code> also finds how to <em>start the app</em> — so init drafts Phase 5's run-instructions too, turning
+    the hardest config in the product into "review what init drafted."
+  </p>
+  <div class="flow">
+    <div class="flow-node"><div class="t">Explore (read-only)</div><div class="d">package scripts · lockfiles · <b>CI workflows</b> (how the project already verifies itself) · tsconfig · lint configs · Makefiles</div></div>
+    <div class="flow-sep">→</div>
+    <div class="flow-node"><div class="t">Write <code>stet.config.yml</code></div><div class="d">gate commands (P1) + <b>drafted</b> behavioral section (P5): start cmd, URL, readiness — marked for human confirmation</div></div>
+    <div class="flow-sep">→</div>
+    <div class="flow-node hl"><div class="t">Hygiene findings</div><div class="d">"no test runner" · "no linter" · "no type checking" — the project's <i>capacity to be verified</i> is itself audited</div></div>
+    <div class="flow-sep">→</div>
+    <div class="flow-node"><div class="t">Deterministic forever</div><div class="d">runs spawn processes from config; drift → error finding suggesting <code>init --refresh</code>; no config → heuristics fallback</div></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">09</span>Out of scope</h2>
+  <div class="cuts">
+    <span class="cut big">--fix / any remediation (deliberate cut from v1)</span>
+    <span class="cut">visual regression</span>
+    <span class="cut">perf benchmarking</span>
+    <span class="cut">license / dependency scanning</span>
+    <span class="cut">multi-language beyond TS/JS</span>
+    <span class="cut">IDE plugins</span>
+    <span class="cut">watch mode</span>
+    <span class="cut">server / daemon mode</span>
+    <span class="cut">plugin system</span>
+    <span class="cut">distributed execution</span>
+  </div>
+  <p style="font-size:13.5px; color:var(--muted); margin-top:12px;">
+    Cutting <code>--fix</code> also deletes fix-convergence loops, fix-scoping rules, and "don't fix the tests"
+    policing — and makes the whole product mutation-free by construction, not just Phase 5.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">10</span>Roadmap — build order follows proof, not phase number</h2>
+  <div class="road">
+    <div class="mile">
+      <div class="v">v0.x</div><div class="t">Chassis + floor</div>
+      <ul><li>CLI scaffolding, scope detection, config</li><li>scheduler · findings schema · formats · exit codes</li><li>Phase 1 with heuristics</li><li><code>stet init</code> (gates part)</li></ul>
+    </div>
+    <div class="mile hl">
+      <div class="v">v0.x</div><div class="t">Behavioral engine port</div>
+      <ul><li>POC engine/rubric/verdict onto the chassis</li><li>eval suite (14 fixtures + grader) under <code>vp test</code></li><li><code>start_service</code> · CLI-surface validation e2e</li><li>browser/PTY behind provisioning docs</li></ul>
+    </div>
+    <div class="mile">
+      <div class="v">v1.0</div><div class="t">Full suite</div>
+      <ul><li>Phases 2–4 on the chassis</li><li><code>init</code> drafts behavioral config</li><li><code>pty_session</code> · provisioned <code>agent-browser</code></li><li>loop-integration docs (ideoshi-code contract)</li></ul>
+    </div>
+    <div class="mile">
+      <div class="v">v1.x</div><div class="t">Polish</div>
+      <ul><li>SARIF output</li><li>caching</li><li>routing presets</li><li>hardening from eval expansion</li></ul>
+    </div>
+  </div>
+  <p style="font-size:13.5px; color:var(--muted); margin-top:12px;">
+    Phase 5's engine already exists as a validated POC — so it ports <b>early</b> rather than last (the inverse of v1's roadmap, where execution was the deferred tail).
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">11</span>Decisions resolved (traceability to findings §10)</h2>
+  <table>
+    <tr><th>Open item</th><th>Resolution</th></tr>
+    <tr><td>Diff-blind vs diff-activated</td><td class="dec-res"><span class="ok-dot">●</span> Diff selects surfaces; claims derive from spec.</td></tr>
+    <tr><td>Verdict vs findings · exit policy</td><td class="dec-res"><span class="ok-dot">●</span> Verdict internal; <code>failed→error / blocked→warning / inconclusive→info</code>; one <code>--fail-on</code> knob, default <code>error</code>.</td></tr>
+    <tr><td>Anti-mock vs sandbox mocks</td><td class="dec-res"><span class="ok-dot">●</span> Mocks isolate peripherals; claims <i>about</i> a mocked service are <code>blocked</code>. Config encodes per-service <code>real|mock</code>.</td></tr>
+    <tr><td>Mutation-free vs <code>--fix</code></td><td class="dec-res"><span class="ok-dot">●</span> Generalized — the whole product is mutation-free; <code>--fix</code> is cut entirely.</td></tr>
+    <tr><td>Pi SDK variant</td><td class="dec-res"><span style="color:var(--warn)">●</span> Default to the POC's package (<code>@earendil-works/pi-coding-agent</code>); the behavioral-engine feature PRD verifies its relationship to <code>badlogic/pi-mono</code> and pins it.</td></tr>
+    <tr><td><code>behavioral</code> config schema</td><td class="dec-res"><span class="ok-dot">●</span> Shape stated (start, URL, ready, credentials, per-service real/mock); concrete schema in the feature PRD; drafted by <code>init</code>.</td></tr>
+  </table>
+  <table style="margin-top:18px;">
+    <tr><th>Decided beyond §10 (this PRD)</th><th>Call</th></tr>
+    <tr><td>Product identity</td><td>Full five-phase suite on a common chassis — not behavioral-only.</td></tr>
+    <tr><td>Remediation</td><td>None. Findings are the fixer's input; the caller owns the fix loop.</td></tr>
+    <tr><td>Execution model</td><td>Parallel scheduler + fail-fast cancellation replaces the staged ladder.</td></tr>
+    <tr><td>Phase 1 framing</td><td>The independence floor — deterministic run path, skippable, hygiene findings; no LLM at run time.</td></tr>
+    <tr><td>Phase 5 without a spec</td><td>Does not run; warning finding. No diff-derived claims.</td></tr>
+    <tr><td><code>stet init</code></td><td>Exploration agent; also drafts the behavioral run-instructions.</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">12</span>Things to poke at while reviewing</h2>
+  <p class="lede">Questions the draft answers implicitly or leaves for feature PRDs — worth a deliberate look.</p>
+  <div class="ask"><div class="q">Is "full suite" still right at the margin?</div><div class="c">Phases 2–4 overlap with what code-review agents increasingly do. Phase 5 is the moat. Does the roadmap invest accordingly — and would you cut a static phase before cutting anything in Phase 5?</div></div>
+  <div class="ask"><div class="q">Cancellation semantics</div><div class="c">Gates fail → cancel AI phases. But should a <i>lint</i> failure cancel as aggressively as a <i>compile</i> failure? Per-gate cancellation policy might belong in the chassis feature PRD.</div></div>
+  <div class="ask"><div class="q">Confidence × severity gating</div><div class="c">"AI findings below high confidence never gate" — is that the right line for spec-compliance errors (a stated requirement unmet is fairly binary)? Phase 5 findings are evidence-backed; should they bypass confidence entirely?</div></div>
+  <div class="ask"><div class="q">Large diffs</div><div class="c">Context-window overflow strategy (chunking vs. degrade-with-warning) is unaddressed — v1 left it open too. Chassis concern.</div></div>
+  <div class="ask"><div class="q">Cost visibility</div><div class="c">Loops care about $/run. Should the report include per-phase token/cost accounting as a first-class output field?</div></div>
+  <div class="ask"><div class="q">Concurrent behavioral runs</div><div class="c"><code>start_service</code> implies ports/databases. Two stet runs on one CI box: isolation story (port allocation, teardown guarantees) — feature-PRD depth, but worth flagging now.</div></div>
+  <div class="ask"><div class="q">The spec-quality dependency</div><div class="c">Phases 2 and 5 are only as good as the spec given. Garbage spec → confident-looking findings about the wrong thing. Should stet judge spec adequacy ("this spec has no testable acceptance criteria") as a finding?</div></div>
+</section>
+
+<footer>
+  stet — high-level PRD overview · generated from <code>docs/prd/stet-prd.md</code> (draft, 2026-06-05) ·
+  evidence base: <code>docs/research/behavioral-validation-findings.md</code> · supersedes <code>docs/plans/stet-prd-v1.md</code>
+</footer>
+
+</div>
+</body>
+</html>
