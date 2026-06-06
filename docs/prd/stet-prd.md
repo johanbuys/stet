@@ -68,9 +68,10 @@ documented this class repeatedly. The validator must be **independent** of the a
    AI phases (2–5) are agents on a shared harness.
 8. **Inference over configuration.** Zero-config invocation works (scope auto-detection, gate
    heuristics); `stet init` upgrades it; config refines it. Flags override config.
-9. **Model routing is configuration.** Each phase has a model knob with sane defaults. Routing is
-   task-dependent: robust models for anything touching real systems/mocks/web; cheap models are
-   viable for self-contained checks but are routed off dependency/mock traps.
+9. **Model routing is configuration.** Built-in defaults are **capability tiers** (robust for
+   anything touching real systems/mocks/web; fast for self-contained checks), resolved at run
+   time against the providers the user actually has credentials for — teams share tier intent in
+   project config, never provider pins. Tier membership is earned on the eval suite.
 10. **Provisioned, never self-installed.** Anything the validator cannot self-serve at run time
     (the browser) is provisioned ahead — baked image, remote browser, or cloud provider. The
     validator never installs infrastructure mid-validation.
@@ -123,7 +124,7 @@ against ground truth; (c) **bootstrap** for loops dropped into unfamiliar repos.
 - Missing gates are findings, not silence: "no lint configured" (warning) — a green report can
   never quietly mean "nothing was checked." Project-level hygiene ("no test runner at all") is
   flagged at init and at run time.
-- Skippable (`--skip-gates` / config) where the environment already guarantees them (e.g. a CI
+- Skippable (`--skip gates` / config) where the environment already guarantees them (e.g. a CI
   step that runs after the test job).
 - Drift (configured command no longer exists) is an error finding suggesting `stet init --refresh`.
 
@@ -136,15 +137,18 @@ still run.
 
 ### Phase 3 — General code review
 
-Inputs: the diff + enough surrounding context to judge patterns. Categories: bugs, security,
-quality, consistency with nearby code. High-signal over nitpicks; confidence scoring is critical;
-fewer, more confident findings beat exhaustive noise.
+Inputs: the diff + enough surrounding context to judge patterns. Runs as a **panel of
+specialized lenses** in parallel — bugs, security, patterns, quality, coverage-gaps (where tests
+should be added or updated, risk-weighted) — narrow specialists over one generalist rubric.
+High-signal over nitpicks; confidence scoring is critical; fewer, more confident findings beat
+exhaustive noise.
 
 ### Phase 4 — Test quality
 
-Activates when the diff touches tests. Judges whether assertions verify behavior or mirror
-implementation, whether tests would fail if the code were wrong, edge-case coverage, tautology.
-Separately flags new code with *no* tests, severity proportional to apparent risk.
+Activates only when the diff touches test files — the tests themselves are the object of
+judgment. Judges whether assertions verify behavior or mirror implementation, whether tests
+would fail if the code were wrong, edge-case coverage, tautology. ("Tests missing or stale" for
+changed code is review's coverage-gaps lens — that's a judgment about the *code*.)
 
 ### Phase 5 — Behavioral verification (the proven core)
 
@@ -180,13 +184,14 @@ Carried from v1 (still right), minus fix mode:
   no built-in forge integrations — other platforms pipe to `--prd -`). Opt-in auto-discovery of
   issue refs from commit messages (`--auto-context` / config). Sources combine.
 - **Output:** human-readable default; `--format json` for machines; SARIF later. `--quiet`,
-  `--severity <level>` filters. Per-phase status + overall result always shown, including what was
-  skipped and why.
+  `--show <severity>` display filters. Per-phase status + overall result always shown, including
+  what was skipped and why.
 - **Findings schema:** severity (`error|warning|info`), confidence (`high|medium|low`), phase,
   file/line where applicable, category, message, evidence (commands/output for Phase 5).
-- **Exit codes:** `0` clean at threshold · `1` findings at/above threshold · `2` tool error.
-  One knob: `--fail-on <severity>` (default `error`). Strict CI uses `--fail-on warning` to also
-  gate on `blocked`/skipped-behavioral. AI findings below high confidence never gate.
+- **Exit codes:** `0` clean at threshold · `1` findings at/above threshold · `2` tool error ·
+  `130`/`143` interrupted (POSIX `128+signal`, partial report written). One knob:
+  `--fail-on <severity>` (default `error`). Strict CI uses `--fail-on warning` to also gate on
+  `blocked`/skipped-behavioral. AI findings below high confidence never gate.
 - **Headless by design:** no TTY required, runs in a container, JSON + exit codes are the loop
   contract.
 - **`stet init`** — see §7.
@@ -211,7 +216,9 @@ requirement.
 
 ## 8. Configuration (shape, not schema)
 
-`stet.config.yml` at the repo root; flags override. Concrete schemas live in feature PRDs.
+`stet.config.yml` at the repo root holds project facts (sharable across a team); a user layer
+(`~/.config/stet`) holds provider/model concretes. Precedence: flags > project > user > built-in
+defaults. Concrete schemas live in feature PRDs.
 
 ```yaml
 gates:        # phase 1 commands; skippable per-gate
@@ -256,12 +263,12 @@ validated POC, so it ports early rather than last.
 | `deterministic-gates` | detection heuristics, gate execution, hygiene/drift findings |
 | `init` | exploration agent, config drafting, refresh |
 | `spec-compliance` | phase 2 rubric, context inputs, requirement mapping |
-| `code-review` | phase 3 rubric, context windowing |
+| `code-review` | phase 3 lens set (bugs, security, patterns, quality, coverage-gaps), context windowing |
 | `test-quality` | phase 4 rubric, no-tests findings |
 | `behavioral-engine` | rubric port, verdict contract, adapters, evidence ladder, **pins the Pi SDK package** |
 | `start-service` / `pty-session` | lifecycle + raw-mode tools |
 | `browser-execution` | agent-browser integration + provisioning (baked image / remote / cloud) |
-| `eval-suite` | fixture port, content-aware grader, model hold-the-line runs |
+| `eval-suite` | fixture port, content-aware grader, `stet models test` qualification + curated manifest |
 
 ## 12. Resolved decisions (traceability to findings §10)
 
@@ -279,6 +286,11 @@ fail-fast cancellation replaces the staged ladder; Phase 1 reframed as the indep
 (deterministic run path, skippable, hygiene findings); Phase 5 requires a spec (no diff-derived
 claims — warning finding when absent); `stet init` as an exploration agent that also drafts the
 behavioral config.
+
+The harness-PRD review round (2026-06-06) added: tier-based model routing with a user config
+layer and eval-earned qualification (`stet models test`); review as a lens panel (test-gap
+judgment moves there from Phase 4); budget presets; POSIX signal exit codes; streaming deferred.
+Details and rationale in `features/harness.md`.
 
 ## 13. Success metrics
 

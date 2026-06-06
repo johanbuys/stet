@@ -26,9 +26,11 @@ PhaseConfiguration = {
   — agent phases only —
   rubric      constant system prompt (cacheable)
   toolset     allowlist of harness tools (never includes edit/write)
-  model       default "provider/id", overridable via config routing
+  model       capability tier ("robust" | "fast") or pinned "provider/id" (§5)
   extension   phase-specific additions to the submit-tool schema (e.g. Phase 5 claims/checks)
   budgets     overrides for time/turn defaults
+  lenses      optional: parallel specialized sub-agents, each itself a
+              (rubric, toolset, model, activation) tuple — see §5.1
 }
 ```
 
@@ -63,6 +65,7 @@ Finding = {
                                               // "test-quality.tautological", "behavioral.claim-failed",
                                               // "behavioral.not-run" …
   phase:      PhaseId
+  lens?:      string                          // composite phases: which lens emitted it
   severity:   "error" | "warning" | "info"    // the gating vocabulary
   confidence: "high" | "medium" | "low"       // see 3.5 — deterministic and evidence-backed
                                               // findings are "high" by construction
@@ -114,7 +117,8 @@ PhaseReport = {
   reason?:  string            // required for skipped | cancelled | error
   findings: Finding[]
   audit:    Audit
-  cost:     { model?: string, inputTokens?: number, outputTokens?: number, durationMs: number }
+  cost:     { model?: string, inputTokens?: number, outputTokens?: number, durationMs: number,
+              lenses?: Record<string, Cost> }  // composite phases: per-lens breakdown
 }
 ```
 
@@ -181,12 +185,43 @@ pinning):
   tools). Edit/write tools are never registered. There is no code path on which an agent phase
   can mutate the repo.
 - In-memory session + settings managers; compaction enabled; SDK-level retry (max 2).
-- **Model routing:** `"provider/id"` strings resolved via the SDK's model registry; per-phase
-  default from the `PhaseConfiguration`, overridable in `stet.config.yml` (`phases.<id>.model`)
-  and by `--model <phase>=<provider/id>` for one-off runs. Unresolvable model ⇒ phase `error`
-  report (named reason), not a crash of the whole run.
+- **Model routing — tiers, not IDs.** Built-in defaults are **capability tiers** (`robust` for
+  behavioral/review, `fast` for the structured phases), resolved at run time against the
+  providers the user actually has credentials for (the SDK's model registry + auth storage
+  already know), via a shipped per-provider preference table. Project config speaks tiers —
+  safe to share across a team whose members hold different subscriptions; concrete model pins
+  live in the user layer or in flags (the documented exception, not the norm). One-off override:
+  `--model <phase>=<provider/id>`, repeatable; bare `--model X` applies to all agent phases;
+  specific beats general. No credentialed provider satisfies a required tier ⇒ caught at
+  preflight, before any phase launches, with an actionable message; a single phase's resolution
+  failure ⇒ that phase reports `error` (named reason), the rest run.
+- **Model qualification.** Tier membership is earned on the eval suite. A resolved model with no
+  valid qualification for the tier it serves — from the shipped curated manifest or a local
+  `stet models test` run, keyed by *(model × rubric version × fixture-set version)* — emits
+  `harness.unqualified-model` (warning): never blocks by default; strict CI gates it via
+  `--fail-on warning`. The command, N-run scorecards, and manifest format belong to the
+  eval-suite PRD; the harness owns the resolution-time check and the finding.
 - Progress events (`tool_execution_start`) stream to stderr so a human sees liveness without
   corrupting machine-readable stdout.
+
+### 5.1 Lenses (composite agent phases)
+
+A phase may declare **lenses**: parallel specialized sub-agents — narrow specialists beat one
+generalist with a kitchen-sink rubric. Each lens is the same configuration shape (rubric +
+toolset + model + activation predicate); the phase stays the *reporting* unit, lenses are the
+*execution* unit. Mechanics are uniform: each lens is its own agent run with its own
+`submit_findings` (all three §4 guards apply per lens), per-lens cost in the phase report, the
+emitting lens recorded on each finding, and one lens failing (error/budget) never loses the
+other lenses' findings. Lenses inherit the phase's model/tier unless individually overridden,
+and may narrow activation (e.g. review's `coverage-gaps` lens — where tests should be added or
+updated, risk-weighted — activates only when non-test code is added or changed).
+
+The review phase is the first composite phase; its concrete lens set (bugs, security, patterns,
+quality, coverage-gaps) is the code-review feature PRD's to define. Built-in lenses are
+enable/disable-able in config; **custom user-defined lenses are deferred** — a config-supplied
+rubric is the plugin system v1 explicitly excludes. No cross-lens dedup/verification pass in v1:
+lenses are disjoint by rubric design; an adversarial-verify stage is the known fix if overlap
+proves noisy in practice.
 
 ## 6. Scheduler
 
@@ -199,8 +234,8 @@ spec presence, config). Built-in rules:
 |---|---|
 | gates | always (unless `--skip-gates` / config) |
 | spec | spec context present |
-| review | diff non-empty |
-| test-quality | diff touches test files, or diff adds non-test code (for the no-tests finding) |
+| review | diff non-empty (per-lens predicates may narrow further — `coverage-gaps` only when non-test code is added/changed) |
+| test-quality | diff touches test files — the tests themselves are the object of judgment; "tests missing/stale" belongs to review's `coverage-gaps` lens |
 | behavioral | diff touches runnable surfaces AND spec present |
 
 Non-activated phases appear in the report as `skipped` with the rule named. Mandated visibility
@@ -223,14 +258,20 @@ Gates are split into two classes:
 - **Report-only class** — style gates: **lint, format**. Failures become findings but do not
   cancel; a lint error does not invalidate a behavioral run.
 
-Class membership is overridable per gate in config (`gates.<name>.cancel: true|false`).
+Class membership is overridable per gate in config (`gates.<name>.cancel: true|false`). A gate
+**timeout** is always report-only regardless of class — a merely-slow suite must not nuke the
+AI phases; only a *failing* gate proves the code doesn't function.
 
 ### 6.4 Teardown
 
 Cancellation (gate-triggered or Ctrl-C/SIGTERM) must be total: agent sessions disposed, child
 processes killed (process groups), Phase 5 services torn down (delegated to `start_service`'s
-guaranteed-teardown contract). A second Ctrl-C force-kills. The report is still written on
-interrupt, with `cancelled` statuses — a partial run produces a partial report, never nothing.
+guaranteed-teardown contract). A second Ctrl-C force-kills (no report — teardown was refused).
+The report is still written on graceful interrupt, with `cancelled` statuses — a partial run
+produces a partial report, never nothing. Interrupts exit per POSIX signal convention — SIGINT
+⇒ `130`, SIGTERM ⇒ `143` — keeping exit `2` reserved for genuine tool errors, so a wrapper can
+distinguish "my timeout killed it, partial findings usable" (143) from "stet malfunctioned,
+trust nothing" (2).
 
 ## 7. Budgets & safety limits
 
@@ -239,13 +280,21 @@ default:
 
 | Limit | Default | On breach |
 |---|---|---|
-| per-phase wall clock | 5 min (agent), 10 min (gates, behavioral) | phase `error`, reason "budget exceeded", partial audit preserved |
+| per-phase wall clock | 5 min (static agent phases), 15 min (gates, behavioral) | phase `error`, reason "budget exceeded", partial audit preserved |
 | per-phase turn count | 50 | same |
 | bash command timeout | 60 s | command killed; output so far returned to the agent (it can react) |
 | bash output cap | 32 KB per call, truncation marked | truncated marker visible to agent |
 
-All overridable per phase in config. A budget breach is always a named `error` report — never a
-silent hang or a silent kill.
+The behavioral ceiling carries real headroom over observed successful runs (the POC's web
+validations ran ~8 min): a false "budget exceeded" costs a loop a whole iteration and is worse
+than a slow pass. A gate hitting its wall clock is report-only, never cancel-class (§6.3). The
+60 s bash timeout is deliberate design pressure — anything long-lived belongs in
+`start_service`, not a hanging shell.
+
+All overridable per phase in config, and bundled as presets: `--budget <fast|default|thorough>`
+(config: `budgets.preset`) scales the set without tuning four numbers — `fast` for snappy
+pre-commit, `thorough` for loops that prize completeness over latency. A budget breach is
+always a named `error` report — never a silent hang or a silent kill.
 
 ## 8. Scope detection & inputs
 
@@ -265,16 +314,38 @@ Carried from v1/high-level PRD, owned by the harness:
 
 ## 9. Configuration
 
-`stet.config.yml` at the repo root. Precedence: **flags > config > built-in defaults**. Harness-
-owned sections (others defined in their feature PRDs):
+Two config homes with one rule: **project config records project facts; user config records
+machine/provider facts.** Precedence, resolved per-setting (deep merge, never whole-section
+replacement):
+
+**flags > `stet.config.yml` (project, checked in) > `~/.config/stet/config.yml` (user) >
+built-in defaults**
+
+- **Project layer** — gate commands, behavioral run-instructions, tier intent
+  (`phases.<id>.tier`), scheduler policy, deliberate deviations. Safe to share across a team
+  whose members hold different model subscriptions, because it never names providers.
+- **User layer** — provider/model preferences ("robust means X on this machine"), local model
+  qualifications (§5). Never project-specific.
+- **Sparse by design:** `stet init` writes only project facts that have no built-in default and
+  deviations it has evidence for — never a restatement of defaults (which would freeze them
+  against future improvement) and never model pins (it can't know teammates' providers).
+- **The binding run is CI's run.** AI findings are judgments, not pure functions of the code —
+  two users on different tiers can legitimately disagree at the margins, and even one model
+  disagrees with itself across runs. Local runs are advisory pre-flight; the merge gate is CI
+  with pinned routing in its own user layer (the same answer every toolchain gives to
+  environment variance). Evidence-backed findings travel regardless — a reproducing command is
+  checkable by anyone — and `cost.model` makes any divergence diagnosable at first look.
 
 ```yaml
+# project: stet.config.yml
 scheduler:                  # parallel | sequential; continueOnFailure
+budgets: { preset: default }       # fast | default | thorough
 phases:
   <id>:
     enabled: true|false
-    model: provider/id      # routing override
+    tier: robust|fast       # or model: provider/id — the documented exception, not the norm
     budgets: { wallClockMs, turns }
+    lenses: { <lens>: { enabled: true|false } }
 gates:
   <name>: { cancel: true|false }   # cancellation class override
 output:
@@ -293,10 +364,17 @@ compatibility), not error.
   stderr while running.
 - **`--format json`:** the `RunReport`, exactly, on stdout; nothing else on stdout. Versioned via
   `version`.
-- **`--quiet`:** suppress passing phases and progress; findings only.
-- **Exit codes:** `0` clean at threshold · `1` ≥1 gating finding · `2` tool error. A finding
-  gates iff `severity ≥ failOn` **and** `confidence == "high"`. The report's `result.gating`
-  lists exactly which findings caused exit 1 — no parsing required to answer "why did it fail?".
+- **`--quiet`:** suppress passing phases and progress; findings only. **`--show <severity>`**
+  filters *display* only — renamed from v1's `--severity` to be visually distinct from
+  `--fail-on`, which decides exit codes (a CI confusion trap otherwise).
+- **Phase selection:** `--skip <phase>` (repeatable) and `--only <phase>` generalize v1's
+  ad-hoc `--skip-gates`/`--no-behavioral`; config keeps `phases.<id>.enabled` as the durable
+  form.
+- **Exit codes:** `0` clean at threshold · `1` ≥1 gating finding · `2` tool error ·
+  `130`/`143` interrupted (SIGINT/SIGTERM, POSIX `128+signal`) after writing the partial
+  report. A finding gates iff `severity ≥ failOn` **and** `confidence == "high"`. The report's
+  `result.gating` lists exactly which findings caused exit 1 — no parsing required to answer
+  "why did it fail?".
 - SARIF: deferred (v1.x), enabled by the stable `Finding` shape.
 
 ## 11. Acceptance criteria
@@ -321,12 +399,23 @@ compatibility), not error.
    confidence ⇒ exit 0 (default `failOn: error`); `--fail-on warning` additionally gates
    warnings; `result.gating` names the responsible findings.
 9. Ctrl-C mid-run kills all children and services, writes the partial report with `cancelled`
-   statuses, and exits 2.
+   statuses, and exits 130 (SIGTERM: 143); exit 2 stays reserved for genuine tool errors.
 10. `--format json` emits only the `RunReport` on stdout (validated against the schema in tests);
     progress and human chrome go to stderr.
 11. Conflicting scope flags, undetectable scope, malformed config each produce exit 2 with a
     distinct, actionable message.
 12. Per-phase and total token/duration cost appear in every report for agent phases.
+13. With no config at all, every agent phase resolves a model via tier defaults against whatever
+    credentialed providers exist; with none available, preflight fails before any phase
+    launches, with the actionable message.
+14. A composite phase's lenses run in parallel; each finding carries its lens; per-lens cost
+    appears in the phase report; one lens failing (error/budget) does not lose the other
+    lenses' findings.
+15. Routing a tier to a model with no valid qualification yields the
+    `harness.unqualified-model` warning finding; a valid local `stet models test` result
+    suppresses it; a rubric/fixture-set version bump invalidates prior qualifications.
+16. `--only behavioral` runs exactly that phase (others `skipped`, reasons named); `--skip` is
+    repeatable; both are reflected in the report.
 
 ## 12. Edge cases
 
@@ -348,9 +437,9 @@ compatibility), not error.
 
 ## 13. Open questions (deliberately deferred)
 
-- **Result streaming:** should phases stream findings as they're found (NDJSON event mode) for
-  long behavioral runs, or only the final report? Deferred until a consumer needs it; the
-  `RunReport` contract is unaffected.
+- **Result streaming:** resolved 2026-06-06 — **deferred.** Run-then-read is the loop contract
+  (confirmed against the ideoshi-code use case); an NDJSON event mode can be added later
+  without touching the `RunReport` contract.
 - **Caching:** re-running on an unchanged scope could reuse phase reports (cache key: scope hash ×
   phase config hash). v1.x roadmap item; requires deterministic report serialization, which the
   schema already provides.

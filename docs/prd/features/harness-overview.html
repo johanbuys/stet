@@ -30,10 +30,12 @@
   .crumb b { color: var(--p5); }
   .brand { font-size: 44px; font-weight: 800; letter-spacing: -1.5px; margin-top: 4px; }
   .tagline { font-size: 18px; color: var(--muted); margin-top: 6px; max-width: 760px; }
+  .tagline b { color: var(--ink); }
   .status-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
   .chip { font-size: 12.5px; font-weight: 600; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--muted); }
   .chip.draft { background: #fff7ed; border-color: #fdba74; color: #c2410c; }
   .chip.proven { background: #ecfdf5; border-color: #6ee7b7; color: #047857; }
+  .chip.rev { background: #eef4ff; border-color: #93c5fd; color: #1d4ed8; }
 
   section { margin-bottom: 60px; }
   h2 { font-size: 25px; font-weight: 750; letter-spacing: -0.5px; margin-bottom: 6px; display: flex; align-items: baseline; gap: 12px; }
@@ -46,7 +48,7 @@
 
   /* owns vs contributes */
   .ovc { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
-  @media (max-width: 800px) { .ovc, .schema-grid, .split2 { grid-template-columns: 1fr !important; } }
+  @media (max-width: 800px) { .ovc, .schema-grid, .split2, .lens-grid { grid-template-columns: 1fr !important; } }
   .ownbox { border: 1.5px solid #c9d6ea; background: linear-gradient(180deg, #f4f8fd, #edf2fa); border-radius: 12px; padding: 18px 20px; }
   .ownbox h4, .contribox h4 { font-size: 12.5px; letter-spacing: 1.5px; font-weight: 800; margin-bottom: 12px; color: var(--hx); }
   .own-grid { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -56,21 +58,20 @@
   .contribox ul { list-style: none; }
   .contribox li { font-size: 13.5px; padding: 6px 10px; background: #fff; border: 1px solid #c8eedd; border-radius: 8px; margin-bottom: 8px; }
   .contribox li b { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: #047857; }
-  .rule-line { margin-top: 14px; font-size: 13.5px; color: var(--muted); border-top: 1.5px dashed var(--line); padding-top: 12px; }
+  .rule-line { margin-top: 14px; font-size: 13.5px; color: var(--muted); }
   .rule-line b { color: var(--ink); }
 
   /* schema nesting */
   .schema { border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); padding: 16px 18px; }
   .schema .sname { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; color: var(--accent); }
-  .schema .sdesc { font-size: 12.5px; color: var(--muted); margin: 2px 0 10px; }
   .fieldrow { display: flex; gap: 10px; font-size: 12.8px; padding: 4px 0; border-bottom: 1px dashed #eef1f6; align-items: baseline; }
   .fieldrow:last-child { border-bottom: none; }
   .fieldrow .fn { font-family: ui-monospace, Menlo, monospace; font-weight: 600; min-width: 105px; color: var(--ink); }
   .fieldrow .fv { color: var(--muted); }
+  .fieldrow .fv b { color: var(--ink); }
   .nest { border: 1.5px solid #e3e8f0; border-left: 4px solid var(--accent); border-radius: 10px; background: #fbfcfe; padding: 12px 14px; margin-top: 12px; }
   .nest.green { border-left-color: var(--p5); }
-  .nest.amber { border-left-color: var(--p4); }
-  .pillrow { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+  .pillrow { display: inline-flex; gap: 6px; flex-wrap: wrap; margin: 0 4px 0 0; vertical-align: baseline; }
   .pill { font-size: 11px; font-weight: 800; letter-spacing: .4px; padding: 2px 10px; border-radius: 999px; }
   .pill.err { background: #fee2e2; color: #b91c1c; }
   .pill.warn { background: #fef3c7; color: #b45309; }
@@ -78,18 +79,28 @@
   .pill.ok { background: #d1fae5; color: #047857; }
   .pill.gray { background: #f1f5f9; color: #475569; }
 
-  /* sequence diagram (output-as-tool) */
+  /* sequence (output-as-tool) */
   .seq { margin-top: 14px; }
   .seq-step { display: grid; grid-template-columns: 44px 1fr; gap: 14px; margin-bottom: 10px; align-items: flex-start; }
   .seq-num { width: 34px; height: 34px; border-radius: 50%; background: #eef3fb; border: 1.5px solid #c9d6ea; color: var(--hx); font-weight: 800; font-size: 14px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
   .seq-body { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; font-size: 13.5px; }
-  .seq-body b { font-weight: 700; }
   .seq-body .g { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .6px; padding: 2px 9px; border-radius: 999px; background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; margin-left: 8px; }
   .seq-body .why { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
 
-  /* scheduler */
+  /* lenses */
+  .lensbox { border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); padding: 18px 20px; margin-top: 14px; }
+  .lens-parent { display: inline-block; font-weight: 750; font-size: 15px; padding: 8px 18px; border: 1.5px solid var(--p3); border-radius: 10px; background: #f8f5ff; color: #5b21b6; }
+  .lens-parent small { display: block; font-weight: 600; font-size: 11px; color: var(--muted); }
+  .lens-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 16px; }
+  .lens { border: 1.5px solid var(--line); border-top: 4px solid var(--p3); border-radius: 10px; background: #fdfcff; padding: 11px 12px; }
+  .lens .ln { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 12.5px; }
+  .lens .ld { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .lens .la { font-size: 10.5px; font-weight: 700; color: var(--faint); margin-top: 6px; letter-spacing: .3px; }
+  .lens.hl { border-top-color: var(--p5); background: #f7fdfa; }
+
+  /* gate classes */
   .classbox { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
-  @media (max-width: 800px) { .classbox { grid-template-columns: 1fr; } }
+  @media (max-width: 800px) { .classbox, .states { grid-template-columns: 1fr; } }
   .gclass { border-radius: 12px; padding: 16px 18px; border: 1.5px solid; }
   .gclass.cancel { border-color: #fca5a5; background: #fff7f7; }
   .gclass.report { border-color: #fcd34d; background: #fffdf2; }
@@ -100,9 +111,7 @@
   .gclass .gate { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; font-weight: 600; }
   .gclass p { font-size: 13px; color: var(--muted); }
 
-  /* states */
   .states { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 14px; }
-  @media (max-width: 800px) { .states { grid-template-columns: repeat(2, 1fr); } }
   .state { border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); padding: 13px 14px; }
   .state .sn { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 13.5px; }
   .state .sd { font-size: 12px; color: var(--muted); margin-top: 4px; }
@@ -111,7 +120,21 @@
   .state.cancelled { border-top: 4px solid var(--warn); }
   .state.error { border-top: 4px solid var(--err); }
 
-  /* decision flow (exit codes) */
+  /* routing layers */
+  .layers { margin-top: 14px; }
+  .layer { display: grid; grid-template-columns: 200px 1fr; gap: 14px; align-items: center; margin-bottom: 8px; }
+  .layer .ll { text-align: right; font-weight: 700; font-size: 13.5px; }
+  .layer .lc { background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
+  .layer .lc b { color: var(--ink); }
+  .layer.l1 .lc { border-left: 4px solid var(--err); }
+  .layer.l2 .lc { border-left: 4px solid var(--p2); }
+  .layer.l3 .lc { border-left: 4px solid var(--p4); }
+  .layer.l4 .lc { border-left: 4px solid var(--faint); }
+  .resolve { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; padding: 14px 16px; border: 1.5px dashed #c9d6ea; border-radius: 10px; background: #f7fafd; font-size: 13.5px; }
+  .resolve .r { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-weight: 600; }
+  .resolve .arr { color: var(--faint); font-weight: 800; }
+
+  /* exit codes */
   .dflow { display: flex; align-items: stretch; flex-wrap: wrap; gap: 0; margin-top: 14px; }
   .dnode { flex: 1; min-width: 165px; background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 13px 15px; }
   .dnode .t { font-weight: 700; font-size: 13.5px; }
@@ -121,9 +144,8 @@
   .exit-pills { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
   .exit { border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); padding: 10px 16px; font-size: 13px; }
   .exit b { font-family: ui-monospace, Menlo, monospace; font-size: 15px; }
-  .exit.e0 b { color: var(--ok); } .exit.e1 b { color: var(--err); } .exit.e2 b { color: var(--warn); }
+  .exit.e0 b { color: var(--ok); } .exit.e1 b { color: var(--err); } .exit.e2 b { color: var(--warn); } .exit.es b { color: var(--p2); }
 
-  /* budgets table */
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 12px; background: var(--card); border-radius: 10px; overflow: hidden; }
   th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { font-size: 11.5px; letter-spacing: 1px; color: var(--muted); background: #f4f7fb; }
@@ -131,13 +153,12 @@
   td code { white-space: nowrap; }
   .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 
-  /* precedence strip */
   .prec { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
   .prec .p { padding: 8px 16px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--card); font-size: 13.5px; font-weight: 700; }
   .prec .p .s { display: block; font-size: 11px; color: var(--muted); font-weight: 600; }
   .prec .gt { color: var(--faint); font-weight: 800; }
 
-  /* decisions + asks */
+  .dec-res { font-weight: 600; }
   .dec-res .ok-dot { color: var(--ok); }
   .ask { border-left: 4px solid var(--warn); background: #fffbeb; border-radius: 0 10px 10px 0; padding: 13px 17px; margin-bottom: 11px; }
   .ask .q { font-weight: 700; font-size: 14px; }
@@ -155,8 +176,8 @@
   <div class="tagline">The shared substrate all five phases run on. A phase is reduced to a configuration;
   the harness owns everything common. <b>Every other feature PRD writes against the contracts on this page.</b></div>
   <div class="status-row">
-    <span class="chip draft">STATUS: DRAFT — 2026-06-06</span>
-    <span class="chip">depends on stet-prd.md §4 §6 §8</span>
+    <span class="chip draft">STATUS: DRAFT — updated 2026-06-06</span>
+    <span class="chip rev">REVIEW ROUND 1 RESOLVED — all 6 open questions</span>
     <span class="chip proven">contracts mined from validation-agent-poc</span>
     <span class="chip">detail: docs/prd/features/harness.md</span>
   </div>
@@ -172,18 +193,19 @@
       <h4>THE HARNESS OWNS</h4>
       <div class="own-grid">
         <span class="own-item">scope detection</span>
-        <span class="own-item">config loading + precedence</span>
+        <span class="own-item">config layers + precedence</span>
         <span class="own-item">scheduler + cancellation</span>
         <span class="own-item">agent runner (Pi SDK)</span>
+        <span class="own-item">tier routing + qualification check</span>
         <span class="own-item">findings schema</span>
         <span class="own-item">output-as-tool + guards</span>
+        <span class="own-item">lens fan-out + roll-up</span>
         <span class="own-item">report aggregation</span>
-        <span class="own-item">budgets &amp; safety limits</span>
+        <span class="own-item">budgets &amp; presets</span>
         <span class="own-item">cost accounting</span>
         <span class="own-item">human / JSON output</span>
-        <span class="own-item">progress streaming</span>
-        <span class="own-item">exit codes</span>
-        <span class="own-item">teardown (Ctrl-C, kill children)</span>
+        <span class="own-item">exit codes + signal handling</span>
+        <span class="own-item">teardown</span>
       </div>
     </div>
     <div class="contribox">
@@ -193,16 +215,17 @@
         <li><b>activation</b> — predicate over (diff, spec, config)</li>
         <li><b>rubric</b> — constant system prompt (cacheable)</li>
         <li><b>toolset</b> — allowlist; <b style="color:#b91c1c">never edit/write</b></li>
-        <li><b>model</b> — default, routable via config</li>
-        <li><b>extension</b> — phase-specific submit-schema additions</li>
+        <li><b>model</b> — tier (robust | fast) or pin</li>
+        <li><b>extension</b> — submit-schema additions</li>
         <li><b>budgets</b> — overrides of harness defaults</li>
+        <li><b>lenses</b> — optional parallel specialists (§04)</li>
       </ul>
     </div>
   </div>
   <div class="card rule-line" style="margin-top:16px;">
     <b>Mutation-free by construction:</b> the agent session's tool list <i>is</i> the phase allowlist — edit/write
-    tools are never registered, so there is no code path on which any phase can modify the repo. Enforced at the
-    tool-registration boundary (proven in the POC), verified by a test asserting the registered tool list.
+    tools are never registered, so no phase (or lens) has a code path to modify the repo. Verified by a test
+    asserting the registered tool list.
   </div>
 </section>
 
@@ -223,16 +246,16 @@
       <div class="sname">PhaseReport <span style="color:var(--faint); font-weight:400;">— one per configured phase, ALWAYS (skipped &amp; cancelled included)</span></div>
       <div class="fieldrow"><span class="fn">status</span><span class="fv"><span class="pillrow"><span class="pill ok">completed</span><span class="pill gray">skipped</span><span class="pill warn">cancelled</span><span class="pill err">error</span></span> + required reason for the last three</span></div>
       <div class="fieldrow"><span class="fn">audit</span><span class="fv"><b>first-class anti-silent-green:</b> examined[] · checks[] (every command run + evidence) · claims {derived / proven / unproven} — a green report always shows what was actually examined</span></div>
-      <div class="fieldrow"><span class="fn">cost</span><span class="fv">model · tokens in/out · duration — per-phase accounting</span></div>
+      <div class="fieldrow"><span class="fn">cost</span><span class="fv">model · tokens in/out · duration · <b>per-lens breakdown</b> for composite phases</span></div>
 
       <div class="nest green">
         <div class="sname">Finding</div>
-        <div class="fieldrow"><span class="fn">id</span><span class="fv">stable, phase-namespaced: <code>gates.no-linter-configured</code> · <code>behavioral.claim-failed</code> · <code>behavioral.not-run</code></span></div>
+        <div class="fieldrow"><span class="fn">id</span><span class="fv">stable, phase-namespaced: <code>gates.no-linter-configured</code> · <code>behavioral.claim-failed</code> · <code>harness.unqualified-model</code></span></div>
+        <div class="fieldrow"><span class="fn">lens?</span><span class="fv">for composite phases: which lens emitted it</span></div>
         <div class="fieldrow"><span class="fn">severity</span><span class="fv"><span class="pillrow"><span class="pill err">error</span><span class="pill warn">warning</span><span class="pill info">info</span></span> the ONE gating vocabulary</span></div>
         <div class="fieldrow"><span class="fn">confidence</span><span class="fv">high | medium | low — deterministic &amp; evidence-backed findings are <b>high by construction</b></span></div>
         <div class="fieldrow"><span class="fn">evidence</span><span class="fv">command + output — a Phase 5 <code>failed</code> MUST carry its reproducing command here</span></div>
-        <div class="fieldrow"><span class="fn">location · suggestion</span><span class="fv">file:line when applicable · suggested next action</span></div>
-        <div class="fieldrow"><span class="fn">meta</span><span class="fv">phase extension — e.g. POC's critical/high/medium/low priority survives here, not as a second gating vocab</span></div>
+        <div class="fieldrow"><span class="fn">location · suggestion · meta</span><span class="fv"><code>file:line</code> · next action · phase extension (e.g. POC priority granularity)</span></div>
       </div>
     </div>
   </div>
@@ -242,15 +265,15 @@
     <tr><th>finding origin</th><th>confidence</th><th>can cause exit 1?</th></tr>
     <tr><td>Deterministic (Phase 1 gate failure)</td><td><b>high</b> by construction — a failing test run is not an opinion</td><td>yes</td></tr>
     <tr><td>Evidence-backed (carries a reproducing command — Phase 5 <code>failed</code>)</td><td><b>high</b> by construction — proof bypasses the opinion filter</td><td>yes</td></tr>
-    <tr><td>AI judgment (phases 2–4, Phase 5 inconclusives)</td><td>model-assigned</td><td>only at <b>high</b> — sub-high AI findings never break automation</td></tr>
+    <tr><td>AI judgment (phases 2–4 lenses, Phase 5 inconclusives)</td><td>model-assigned</td><td>only at <b>high</b> — sub-high AI findings never break automation</td></tr>
   </table>
 </section>
 
 <!-- ============================================================ -->
 <section>
   <h2><span class="num">03</span>Output-as-tool — the agent completion contract</h2>
-  <p class="lede">Each agent phase has exactly one way to finish: a <code>submit_findings</code> tool whose parameter
-  schema is the findings schema + the phase's extension. Three guards, <strong>each earned by an observed failure in evals</strong>.</p>
+  <p class="lede">Each agent run — phase or lens — has exactly one way to finish: a <code>submit_findings</code> tool whose
+  parameter schema is the findings schema + the phase's extension. Three guards, <strong>each earned by an observed failure in evals</strong>.</p>
   <div class="seq">
     <div class="seq-step"><div class="seq-num">1</div><div class="seq-body"><b>Agent works</b> — read / bash / grep / find / ls (+ Phase 5 execution tools). Freetext reasoning in, no parsing anywhere.</div></div>
     <div class="seq-step"><div class="seq-num">2</div><div class="seq-body"><b>Agent calls <code>submit_findings</code></b> — the only path to completion (D6). Loose freetext in, rigorous JSON out (D7).</div></div>
@@ -262,17 +285,84 @@
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">04</span>Scheduler — activation, cancellation classes, teardown</h2>
+  <h2><span class="num">04</span>Lenses — composite agent phases <span class="chip rev" style="font-size:11px;">NEW — review round 1</span></h2>
+  <p class="lede">A panel of narrow specialists beats one generalist with a kitchen-sink rubric. A phase may declare
+  <strong>lenses</strong>: parallel sub-agents, each the same configuration shape (rubric + toolset + model + activation),
+  findings rolling up to the parent. <b>Phase = reporting unit; lens = execution unit.</b> All three §03 guards apply per lens;
+  one lens failing never loses the others' findings.</p>
+  <div class="lensbox">
+    <div class="lens-parent">Phase 3 — code review<small>the first composite phase · lens set defined in the code-review PRD</small></div>
+    <div class="lens-grid">
+      <div class="lens"><div class="ln">bugs</div><div class="ld">uncaught errors, logic, null/race</div><div class="la">always</div></div>
+      <div class="lens"><div class="ln">security</div><div class="ld">injection, secrets, log leaks</div><div class="la">always</div></div>
+      <div class="lens"><div class="ln">patterns</div><div class="ld">established pattern exists; diff invents a new one</div><div class="la">always</div></div>
+      <div class="lens"><div class="ln">quality</div><div class="ld">dead code, duplication, complexity</div><div class="la">always</div></div>
+      <div class="lens hl"><div class="ln">coverage-gaps</div><div class="ld">where tests should be added or <i>updated</i>, risk-weighted</div><div class="la">non-test code added/changed</div></div>
+    </div>
+    <p style="font-size:13px; color:var(--muted); margin-top:14px;">
+      <b style="color:var(--ink)">Question-3 resolution lives here:</b> Phase 4 (test quality) activates only when the diff touches
+      test files — it judges the <i>tests as artifacts</i> (tautology, mirroring, would-it-fail). "Tests missing or stale" is a
+      judgment about the <i>code</i> → the coverage-gaps lens, which rides the always-on review phase for zero extra activations.
+      Lenses inherit the phase tier unless overridden (security on <code>robust</code>, quality on <code>fast</code> is plausible).
+      <b style="color:var(--ink)">Fences:</b> custom user-defined lenses deferred (plugin system); no cross-lens dedup pass in v1.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">05</span>Model routing — tiers, not IDs <span class="chip rev" style="font-size:11px;">NEW — review round 1</span></h2>
+  <p class="lede">User A has OpenAI, user B has Anthropic, user C has OpenRouter — same repo. Absolute model defaults can't work,
+  and provider pins in shared config are broken-by-teammate. So <strong>defaults are capability tiers</strong>, resolved at run time
+  against whichever providers <i>this user</i> has credentials for.</p>
+
+  <div class="resolve">
+    <span class="r">phase wants <b>tier: robust</b></span><span class="arr">→</span>
+    <span class="r">shipped per-provider preference table</span><span class="arr">×</span>
+    <span class="r">credentialed providers (Pi SDK registry + auth)</span><span class="arr">→</span>
+    <span class="r"><b>best available qualified model</b></span><span class="arr">→</span>
+    <span class="r">report records <code>cost.model</code></span>
+  </div>
+
+  <h3>Four config layers — resolved per-setting</h3>
+  <div class="layers">
+    <div class="layer l1"><div class="ll">1 · flags</div><div class="lc"><b>this invocation</b> — <code>--model behavioral=…</code> (bare <code>--model X</code> = all agent phases; specific beats general) · <code>--budget thorough</code> · <code>--only</code>/<code>--skip</code></div></div>
+    <div class="layer l2"><div class="ll">2 · project config</div><div class="lc"><b>stet.config.yml, checked in</b> — project facts: gate commands, run-instructions, <i>tier intent</i>. Never names providers → safe for teams. <code>stet init</code> writes ONLY this layer, sparsely.</div></div>
+    <div class="layer l3"><div class="ll">3 · user config</div><div class="lc"><b>~/.config/stet</b> — machine/provider facts: "robust means X for me", local model qualifications. Never project-specific.</div></div>
+    <div class="layer l4"><div class="ll">4 · built-in defaults</div><div class="lc"><b>shipped</b> — tier table with receipts (= the curated qualification manifest), budget defaults, scheduler policy. Sparse configs track these as they improve.</div></div>
+  </div>
+
+  <h3>Qualification — tier membership is earned on the eval suite</h3>
+  <table>
+    <tr><th>mechanism</th><th>contract</th></tr>
+    <tr><td><code>stet models test &lt;provider/id&gt;</code></td><td>runs the fixture suite <b>N times (default 3)</b>; verdict per tier; <b>any false <code>passed</code> on an over-claim trap disqualifies</b>; conservative misses tolerated. User pays their own model's exam.</td></tr>
+    <tr><td>Qualification key</td><td><i>(model × rubric version × fixture-set version)</i> — a rubric edit or new trap invalidates prior quals; stale quals downgrade to the warning, never silent acceptance.</td></tr>
+    <tr><td>Registry</td><td>curated manifest shipped per release + local qual cache in the user layer + community PRs. <b>No web service, no self-reported scores.</b></td></tr>
+    <tr><td>Unqualified model in use</td><td><code>harness.unqualified-model</code> <span class="pill warn">WARNING</span> finding — in the report, visible to loops; strict CI refuses unqualified judges via <code>--fail-on warning</code>; default runs anyway.</td></tr>
+  </table>
+
+  <h3>Whose result counts? — variance is contained, not eliminated</h3>
+  <p style="font-size:13.5px; color:var(--muted);">
+    AI findings are judgments — even one model disagrees with itself across runs. Containment: everything that
+    <b style="color:var(--ink)">gates by default is model-independent</b> (deterministic gates; Phase 5 faileds carry a reproducing
+    command anyone can run); the conservative rubric makes cross-model disagreement skew toward extra warnings, not false passes
+    (the grader's asymmetry); and <b style="color:var(--ink)">the binding run is CI's run, with pinned routing</b> — local runs are
+    advisory pre-flight. <code>cost.model</code> makes any divergence diagnosable at first look. No consensus machinery in v1.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2><span class="num">06</span>Scheduler — activation, cancellation classes, teardown</h2>
   <p class="lede"><strong>Parallel default</strong> (wall-clock ≈ slowest phase) · <code>sequential</code> in config for staged cost ·
-  <code>--continue-on-failure</code> disables cancellation. Activation is evaluated first; non-activated phases appear as
-  <code>skipped</code> with the rule named.</p>
+  <code>--continue-on-failure</code> disables cancellation. Non-activated phases appear as <code>skipped</code> with the rule named.</p>
 
   <table>
     <tr><th>phase</th><th>activates when</th></tr>
-    <tr><td>gates</td><td>always (unless <code>--skip-gates</code> / config)</td></tr>
+    <tr><td>gates</td><td>always (unless <code>--skip gates</code> / config)</td></tr>
     <tr><td>spec compliance</td><td>spec context present</td></tr>
-    <tr><td>code review</td><td>diff non-empty</td></tr>
-    <tr><td>test quality</td><td>diff touches tests, or adds untested non-test code</td></tr>
+    <tr><td>code review</td><td>diff non-empty — per-lens predicates may narrow (coverage-gaps: non-test code added/changed)</td></tr>
+    <tr><td>test quality</td><td>diff touches test files <b>only</b> — the tests themselves are the object of judgment</td></tr>
     <tr><td>behavioral</td><td>diff touches runnable surfaces <b>and</b> spec present — surfaces changed without a spec ⇒ <code>behavioral.not-run</code> warning</td></tr>
   </table>
 
@@ -286,42 +376,48 @@
     <div class="gclass report">
       <h4>REPORT-ONLY CLASS — "the code is untidy"</h4>
       <div class="gates"><span class="gate">lint</span><span class="gate">format</span></div>
-      <p>Failure becomes a finding but cancels nothing — a lint error does not invalidate a behavioral run. Overridable per gate: <code>gates.&lt;name&gt;.cancel</code>.</p>
+      <p>Failure becomes a finding but cancels nothing. Overridable per gate: <code>gates.&lt;name&gt;.cancel</code>.
+      <b>A gate <i>timeout</i> is always report-only</b> — a merely-slow suite must not nuke the AI phases; only a failing gate proves the code doesn't function.</p>
     </div>
   </div>
 
   <h3>Phase outcome states</h3>
   <div class="states">
     <div class="state completed"><div class="sn">completed</div><div class="sd">ran to the end and submitted — may contain findings</div></div>
-    <div class="state skipped"><div class="sn">skipped</div><div class="sd">activation rule / config said don't run — reason named; mandated skips also emit a finding</div></div>
-    <div class="state cancelled"><div class="sn">cancelled</div><div class="sd">scheduler cancelled it (gate failure, Ctrl-C) — never silent</div></div>
+    <div class="state skipped"><div class="sn">skipped</div><div class="sd">activation rule / config / <code>--skip</code> — reason named; mandated skips also emit a finding</div></div>
+    <div class="state cancelled"><div class="sn">cancelled</div><div class="sd">scheduler cancelled it (gate failure, interrupt) — never silent</div></div>
     <div class="state error"><div class="sn">error</div><div class="sd">the phase itself broke — model unavailable, budget exhausted, no-submit</div></div>
   </div>
 
   <p style="font-size:13.5px; color:var(--muted); margin-top:14px;">
-    <b style="color:var(--ink)">Teardown is total:</b> cancellation disposes agent sessions, kills child process groups, and tears down
-    Phase 5 services. Ctrl-C still writes the partial report with <code>cancelled</code> statuses — a partial run produces
-    a partial report, never nothing. Second Ctrl-C force-kills.
+    <b style="color:var(--ink)">Teardown is total:</b> sessions disposed, child process groups killed, Phase 5 services torn down.
+    Graceful interrupt still writes the partial report — a partial run produces a partial report, never nothing.
+    Second Ctrl-C force-kills (no report — teardown was refused).
   </p>
 </section>
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">05</span>Budgets &amp; safety — limits are the default</h2>
-  <p class="lede">The POC ran with <strong>no limits</strong> and produced 300s+ hangs in evals. The harness inverts that:
-  every breach is a <strong>named outcome</strong>, never a silent hang or silent kill. All overridable per phase.</p>
+  <h2><span class="num">07</span>Budgets &amp; safety — limits are the default</h2>
+  <p class="lede">The POC ran with <strong>no limits</strong> and produced 300s+ hangs in evals. Every breach is a
+  <strong>named outcome</strong>, never a silent hang or silent kill. Numbers adjusted in review round 1: the POC's
+  <i>successful</i> web runs took ~8 min — a false "budget exceeded" costs a loop a whole iteration and is worse than a slow pass.</p>
   <table>
     <tr><th>limit</th><th>default</th><th>on breach</th></tr>
-    <tr><td>per-phase wall clock</td><td>5 min (agent) · 10 min (gates, behavioral)</td><td>phase <code>error</code>, reason "budget exceeded", partial audit preserved</td></tr>
+    <tr><td>per-phase wall clock</td><td>5 min (static agents) · <b>15 min</b> (gates, behavioral)</td><td>phase <code>error</code>, reason "budget exceeded", partial audit preserved; <b>gate timeout never cancels other phases</b></td></tr>
     <tr><td>per-phase turns</td><td>50</td><td>same</td></tr>
-    <tr><td>bash command timeout</td><td>60 s</td><td>command killed; output-so-far returned to the agent so it can react</td></tr>
+    <tr><td>bash command timeout</td><td>60 s — deliberate pressure toward <code>start_service</code> for anything long-lived</td><td>command killed; output-so-far returned to the agent so it can react</td></tr>
     <tr><td>bash output cap</td><td>32 KB per call</td><td>truncated, with a visible marker</td></tr>
   </table>
+  <p style="font-size:13.5px; color:var(--muted); margin-top:12px;">
+    All per-phase overridable, and bundled: <code>--budget &lt;fast|default|thorough&gt;</code> (config <code>budgets.preset</code>) —
+    <code>fast</code> for snappy pre-commit, <code>thorough</code> for loops that prize completeness over latency.
+  </p>
 </section>
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">06</span>Exit codes — how a finding becomes a verdict</h2>
+  <h2><span class="num">08</span>Exit codes &amp; CLI surface</h2>
   <div class="dflow">
     <div class="dnode"><div class="t">Finding</div><div class="d">from any phase report</div></div>
     <div class="dsep">→</div>
@@ -334,70 +430,57 @@
   <div class="exit-pills">
     <div class="exit e0"><b>0</b> &nbsp;clean at threshold</div>
     <div class="exit e1"><b>1</b> &nbsp;≥1 gating finding</div>
-    <div class="exit e2"><b>2</b> &nbsp;tool error — bad flags, no scope, malformed config, unreadable spec</div>
+    <div class="exit e2"><b>2</b> &nbsp;tool error — bad flags, no scope, malformed config</div>
+    <div class="exit es"><b>130 / 143</b> &nbsp;interrupted (SIGINT / SIGTERM, POSIX 128+signal) — partial report written; "my timeout killed it" ≠ "stet malfunctioned"</div>
   </div>
-  <p style="font-size:13.5px; color:var(--muted); margin-top:14px;">
-    Output: human (grouped by phase, severity-colored, <code>file:line</code>) · <code>--format json</code> = the RunReport and
-    <i>nothing else</i> on stdout (progress → stderr) · <code>--quiet</code> · SARIF deferred to v1.x.
+  <h3>Flag surface (cleaned up in review round 1)</h3>
+  <table>
+    <tr><th>group</th><th>flags</th></tr>
+    <tr><td>scope</td><td><i>(none = auto-detect)</i> · <code>--staged</code> · <code>--working</code> · <code>--against</code> · <code>--commit</code> · <code>--commits</code></td></tr>
+    <tr><td>spec</td><td><code>--prd &lt;file|-|literal&gt;</code> · <code>--task</code> · <code>--issue</code> (via <code>gh</code>) · <code>--auto-context</code></td></tr>
+    <tr><td>phases</td><td><code>--skip &lt;phase&gt;</code> (repeatable) · <code>--only &lt;phase&gt;</code> — generalize v1's <code>--skip-gates</code>/<code>--no-behavioral</code></td></tr>
+    <tr><td>routing / budget</td><td><code>--model [phase=]provider/id</code> (repeatable; specific beats general) · <code>--budget fast|default|thorough</code></td></tr>
+    <tr><td>output</td><td><code>--format human|json</code> · <code>--quiet</code> · <code>--show &lt;severity&gt;</code> (display; renamed from <code>--severity</code> — confusion trap with <code>--fail-on</code>) · <code>--fail-on &lt;severity&gt;</code> (gating)</td></tr>
+    <tr><td>commands</td><td><code>stet init [--refresh]</code> · <code>stet models test &lt;provider/id&gt;</code></td></tr>
+  </table>
+  <p style="font-size:13px; color:var(--muted); margin-top:10px;">
+    Flags are escape hatches, never required: zero-config <code>stet</code> runs everything on tier defaults.
+    Large diffs degrade with a <code>partial-coverage</code> warning naming what was excluded — no silent truncation.
+    Streaming findings: <b>deferred</b> (run-then-read confirmed as the loop contract).
   </p>
 </section>
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">07</span>Scope, inputs &amp; config precedence</h2>
-  <div class="split2">
-    <div class="card">
-      <h3 style="margin-top:0;">Scope auto-detection (echoed in every report)</h3>
-      <p style="font-size:13.5px; color:var(--muted);">staged → working tree → branch vs default → last commit.<br>
-      Explicit flags override; conflicts = exit 2; nothing detectable = exit 2 with message.</p>
-      <h3>Large diffs — degrade with visibility</h3>
-      <p style="font-size:13.5px; color:var(--muted);">No chunking in v1. Over-budget phases analyze the highest-churn subset and emit
-      <code>&lt;phase&gt;.partial-coverage</code> (warning) naming what was excluded. <b style="color:var(--ink)">No silent truncation</b> — same ethos as hygiene findings.</p>
-    </div>
-    <div class="card">
-      <h3 style="margin-top:0;">Config precedence</h3>
-      <div class="prec">
-        <div class="p">flags<span class="s">one-off</span></div><span class="gt">&gt;</span>
-        <div class="p">stet.config.yml<span class="s">project</span></div><span class="gt">&gt;</span>
-        <div class="p">defaults<span class="s">built-in</span></div>
-      </div>
-      <p style="font-size:13.5px; color:var(--muted); margin-top:12px;">Malformed config → exit 2 with the YAML error.
-      Unknown keys → warning, not error (forward compatibility).<br><br>
-      Harness sections: <code>scheduler</code> · <code>phases.&lt;id&gt;</code> (enabled, model, budgets) ·
-      <code>gates.&lt;name&gt;.cancel</code> · <code>output</code> · <code>ignore</code>.</p>
-    </div>
-  </div>
-</section>
-
-<!-- ============================================================ -->
-<section>
-  <h2><span class="num">08</span>Decisions this PRD makes</h2>
+  <h2><span class="num">09</span>Decisions — original draft + review round 1</h2>
   <table>
     <tr><th>decision</th><th>call</th></tr>
-    <tr><td>Severity vocabulary</td><td class="dec-res"><span class="ok-dot">●</span> One gating vocab (<code>error/warning/info</code>); POC's critical/high/medium/low survives as <code>meta.priority</code> on behavioral findings.</td></tr>
-    <tr><td>Audit trail</td><td class="dec-res"><span class="ok-dot">●</span> First-class for every phase — the anti-silent-green mechanism, not a Phase 5 quirk.</td></tr>
-    <tr><td>Confidence × evidence</td><td class="dec-res"><span class="ok-dot">●</span> Evidence-backed and deterministic findings are high-confidence by construction; the confidence filter exists for opinions.</td></tr>
-    <tr><td>Per-gate cancellation</td><td class="dec-res"><span class="ok-dot">●</span> tests/types/build cancel; lint/format report-only; overridable per gate.</td></tr>
-    <tr><td>Large diffs</td><td class="dec-res"><span class="ok-dot">●</span> Degrade with a <code>partial-coverage</code> warning; no chunking in v1.</td></tr>
-    <tr><td>Cost accounting</td><td class="dec-res"><span class="ok-dot">●</span> First-class: per-phase + total tokens/duration in every report.</td></tr>
-    <tr><td>Budgets</td><td class="dec-res"><span class="ok-dot">●</span> On by default (the POC's 300s+ hangs); every breach is a named outcome.</td></tr>
+    <tr><td>Severity vocabulary</td><td class="dec-res"><span class="ok-dot">●</span> One gating vocab (<code>error/warning/info</code>); POC granularity survives in <code>meta</code>.</td></tr>
+    <tr><td>Audit trail</td><td class="dec-res"><span class="ok-dot">●</span> First-class for every phase — the anti-silent-green mechanism.</td></tr>
+    <tr><td>Confidence × evidence</td><td class="dec-res"><span class="ok-dot">●</span> Evidence-backed + deterministic findings are high-confidence by construction.</td></tr>
+    <tr><td>Per-gate cancellation</td><td class="dec-res"><span class="ok-dot">●</span> tests/types/build cancel; lint/format report-only; <b>timeouts always report-only</b>.</td></tr>
+    <tr><td>Budget numbers + presets</td><td class="dec-res"><span class="ok-dot">●</span> 15 min behavioral/gates, 5 min static agents; <code>--budget fast|default|thorough</code>.</td></tr>
+    <tr><td>CLI cleanup</td><td class="dec-res"><span class="ok-dot">●</span> <code>--skip</code>/<code>--only</code> generalized; <code>--severity</code>→<code>--show</code>; <code>--model</code> repeatable + namespaced.</td></tr>
+    <tr><td>Model routing</td><td class="dec-res"><span class="ok-dot">●</span> Capability tiers resolved against credentialed providers; 4 config layers; sparse init; CI is the binding run.</td></tr>
+    <tr><td>Model qualification</td><td class="dec-res"><span class="ok-dot">●</span> <code>stet models test</code> + curated manifest + local cache; <code>harness.unqualified-model</code> warning.</td></tr>
+    <tr><td>Lenses</td><td class="dec-res"><span class="ok-dot">●</span> First-class composite phases; review = 5-lens panel; Phase 4 stays a phase, tests-only activation.</td></tr>
+    <tr><td>Signal exit codes</td><td class="dec-res"><span class="ok-dot">●</span> SIGINT→130, SIGTERM→143, partial report written; 2 strictly tool error.</td></tr>
+    <tr><td>Streaming</td><td class="dec-res"><span class="ok-dot">●</span> Deferred — run-then-read confirmed; NDJSON addable later without touching RunReport.</td></tr>
     <tr><td>SDK</td><td class="dec-res"><span style="color:var(--warn)">●</span> <code>@earendil-works/pi-coding-agent</code> per the POC recipe; behavioral-engine PRD confirms the badlogic/pi-mono relationship before pinning.</td></tr>
   </table>
 </section>
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">09</span>Things to poke at while reviewing</h2>
-  <div class="ask"><div class="q">Default budget numbers</div><div class="c">5 min agent / 10 min behavioral / 50 turns / 60 s bash are educated guesses — the POC saw ~470 s web runs. Sanity-check against your tolerance for loop latency; they're config, but defaults stick.</div></div>
-  <div class="ask"><div class="q">Lint never cancels — right call?</div><div class="c">A lint failure not cancelling means you pay full AI cost on a run that already has an error-severity finding (if lint is configured as error). Comfortable?</div></div>
-  <div class="ask"><div class="q">Test-quality activation</div><div class="c">It activates on "diff adds non-test code" too (for the no-tests finding) — which makes it nearly always-on. Intended, or should the no-tests check live somewhere cheaper?</div></div>
-  <div class="ask"><div class="q">`--model` flag shape</div><div class="c">Per-phase routing via <code>--model &lt;phase&gt;=&lt;provider/id&gt;</code> — is a repeatable namespaced flag acceptable, or would you rather config-only for routing?</div></div>
-  <div class="ask"><div class="q">Exit 2 on Ctrl-C</div><div class="c">Interrupt writes a partial report and exits 2 (tool error). Alternative: a dedicated exit code for "interrupted, partial report available". Does any consumer care about the distinction?</div></div>
-  <div class="ask"><div class="q">Streaming findings</div><div class="c">Deferred NDJSON event mode — but if ideoshi-code wants live findings during a 10-minute behavioral run, deferral has a real cost. Defer or pull in?</div></div>
+  <h2><span class="num">10</span>Still open (deliberately)</h2>
+  <div class="ask"><div class="q">Caching</div><div class="c">Re-running on an unchanged scope could reuse phase reports (key: scope hash × phase config hash). v1.x; the schema's deterministic serialization already enables it.</div></div>
+  <div class="ask"><div class="q">SARIF mapping</div><div class="c">v1.x — enabled by the stable Finding shape.</div></div>
+  <div class="ask"><div class="q">Custom lenses</div><div class="c">Deferred as part of the no-plugin-system line — revisit when the built-in lens set stabilizes.</div></div>
+  <div class="ask"><div class="q">Cross-lens dedup / adversarial verify</div><div class="c">Not in v1 — lenses are disjoint by rubric design. The known fix if overlap proves noisy in practice.</div></div>
 </section>
 
 <footer>
-  stet — harness feature PRD overview · generated from <code>docs/prd/features/harness.md</code> (draft, 2026-06-06) ·
+  stet — harness feature PRD overview · generated from <code>docs/prd/features/harness.md</code> (draft, updated 2026-06-06 after review round 1) ·
   contracts mined from <code>validation-agent-poc</code> · parent: <code>docs/prd/stet-prd.md</code>
 </footer>
 
