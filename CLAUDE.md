@@ -8,6 +8,30 @@
 
 Use the tdd skill.
 
+## Project Direction & Documentation (read before starting)
+
+**Status:** greenfield — `src/cli.ts` is a stub. The project is being (re)specified before
+implementation. Start from the docs.
+
+**Documentation:** see `docs/README.md` for the doc map and workflow. Docs flow broad → specific:
+research/findings → **high-level PRD** (`docs/prd/stet-prd.md`, to be written) → per-feature PRDs
+(`docs/prd/features/`) → per-feature implementation plans (`docs/plans/`). Write them in that order.
+The original PRD (`docs/plans/stet-prd-v1.md`) is historical and being superseded by the fresh
+high-level PRD.
+
+**Behavioral verification (Phase 5) R&D is done.** A prototype in the sibling repo
+**`../validation-agent-poc`** proved a diff-blind, mutation-free behavioral validator. Findings are
+captured in **`docs/research/behavioral-validation-findings.md`** — read it before writing any
+behavioral-verification spec. Mine the POC for the engine/rubric/verdict schema, 14 fixtures + a
+content-aware grader, and the browser provisioning recipe.
+
+**Principle upgrades from that R&D** (carry into the fresh PRD): behavioral verification is
+**diff-blind** (derives claims from the spec, not the diff) and **mutation-free** (no edits during
+validation; `--fix` is separate); it reaches a **verdict** surfaced as **findings**; a **blunt
+conservative rubric beats a precise permissive one**; and the **browser must be provisioned**, never
+self-installed at validation time. Caveat: the R&D validated Phase 5 + cross-cutting principles, NOT
+the static phases 1–4. Open decisions are listed in the findings doc §10.
+
 <!--VITE PLUS START-->
 
 # Using Vite+, the Unified Toolchain for the Web
