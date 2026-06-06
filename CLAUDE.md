@@ -14,10 +14,11 @@ Use the tdd skill.
 implementation. Start from the docs.
 
 **Documentation:** see `docs/README.md` for the doc map and workflow. Docs flow broad → specific:
-research/findings → **high-level PRD** (`docs/prd/stet-prd.md`, drafted) → per-feature PRDs
-(`docs/prd/features/`, harness drafted) → per-feature implementation plans (`docs/plans/`). Write
-them in that order. The original PRD (`docs/plans/stet-prd-v1.md`) is historical, superseded by
-the fresh high-level PRD. Every PRD has a companion `<name>-overview.html` for visual review.
+research/findings → **high-level PRD** (`docs/product/stet-prd.md`, drafted) → per-feature PRDs →
+per-feature implementation plans. Write them in that order. A feature's artifacts all live
+together in `docs/product/features/<feature>/` (`<feature>-prd.md`, `<feature>-plan.md`; harness
+PRD drafted). The original PRD (`docs/archive/stet-prd-v1.md`) is historical, superseded by the
+fresh high-level PRD. Every PRD has a companion `<name>-overview.html` for visual review.
 
 **Terminology:** `GLOSSARY.md` is the shared vocabulary (harness, phase, specialist,
 finding, tier, …). Use those terms exactly, and update the glossary in the same change that
@@ -35,7 +36,7 @@ anywhere — `--fix` was cut from the product entirely; stet reports, the caller
 a **verdict** surfaced as **findings**; a **blunt conservative rubric beats a precise permissive
 one**; and the **browser must be provisioned**, never self-installed at validation time. Caveat:
 the R&D validated Phase 5 + cross-cutting principles, NOT the static phases 1–4. The findings doc
-§10 open decisions are all **resolved** — traceability table in `docs/prd/stet-prd.md` §12.
+§10 open decisions are all **resolved** — traceability table in `docs/product/stet-prd.md` §12.
 
 <!--VITE PLUS START-->
 

@@ -10,11 +10,11 @@ above it:
 
 1. **Research / findings** (`docs/research/`) — what we *learned* (experiments, evaluations,
    discoveries). Not a spec; the evidence base the specs draw on.
-2. **High-level PRD** (`docs/prd/stet-prd.md`) — the overall product: vision, principles, the
+2. **High-level PRD** (`docs/product/stet-prd.md`) — the overall product: vision, principles, the
    shape of the whole tool and its phases. Stays high-level; defers feature depth downward.
-3. **Feature PRDs** (`docs/prd/features/<feature>.md`) — one per feature: the *what* and *why* for
+3. **Feature PRDs** (`docs/product/features/<feature>/<feature>-prd.md`) — one per feature: the *what* and *why* for
    that feature in depth (requirements, acceptance criteria, contracts, edge cases).
-4. **Implementation plans** (`docs/plans/<feature>-plan.md`) — one per feature: the *how* — the
+4. **Implementation plans** (`docs/product/features/<feature>/<feature>-plan.md`) — one per feature: the *how* — the
    build steps, milestones, file/module breakdown, test plan (TDD), sequencing.
 
 ```
@@ -23,15 +23,16 @@ docs/
   README.md                                  ← this file (doc map + workflow)
   research/
     behavioral-validation-findings.md        ← discoveries from the validation-agent POC
-  prd/
+  product/
     stet-prd.md                              ← high-level product PRD            [draft]
     stet-prd-overview.html                   ← its visual companion (review here)
     features/
-      <feature>.md                           ← one PRD per feature               [harness: draft]
-      <feature>-overview.html                ← visual companion per feature PRD
-  plans/
+      <feature>/                             ← ALL of a feature's artifacts, together
+        <feature>-prd.md                     ← the feature PRD                   [harness: draft]
+        <feature>-prd-overview.html          ← visual companion
+        <feature>-plan.md                    ← implementation plan               [TODO]
+  archive/
     stet-prd-v1.md                           ← ORIGINAL PRD (historical; superseded)
-    <feature>-plan.md                        ← one implementation plan per feature [TODO]
 ```
 
 ## Conventions
@@ -42,8 +43,11 @@ docs/
   of truth.
 - Use terms as defined in the repo-root `GLOSSARY.md`, and update the glossary **in the same
   PR** that introduces, renames, or sharpens a term.
-- Filenames are kebab-case. Feature docs share a stem across layers (e.g.
-  `prd/features/start-service.md` ↔ `plans/start-service-plan.md`).
+- Docs are grouped **by feature, not by document type**: everything about a feature — PRD, plan,
+  overviews, future artifacts — lives in `product/features/<feature>/`. Filenames are kebab-case
+  and stem-named after the feature (`harness-prd.md`, `harness-plan.md`), so a file is
+  identifiable out of context.
+- Superseded docs move to `archive/` rather than being deleted.
 - Each doc states its **status** and what it supersedes/depends on at the top.
 - A doc claims only what's been validated; mark inference vs. evidence honestly.
 
@@ -53,11 +57,11 @@ docs/
 |---|---|---|
 | `../GLOSSARY.md` (repo root) | reference | **living** — shared vocabulary for docs and code; update in the same PR as term changes |
 | `research/behavioral-validation-findings.md` | research | **done** — POC discoveries for behavioral verification |
-| `plans/stet-prd-v1.md` | (legacy PRD) | historical — solid on phases 1–4; Phase 5 deferred/under-specified. To be superseded by the fresh high-level PRD. |
-| `prd/stet-prd.md` | high-level PRD | **draft** — fresh direction; resolves findings §10 (see its §12) |
-| `prd/features/harness.md` | feature PRD | **draft** — the shared substrate; all other feature PRDs write against its contracts |
-| `prd/features/*` (rest) | feature PRDs | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, behavioral-engine, start-service/pty-session, browser-execution, eval-suite |
-| `plans/*-plan.md` | impl plans | TODO — one per feature PRD |
+| `archive/stet-prd-v1.md` | (legacy PRD) | historical — superseded by the fresh high-level PRD |
+| `product/stet-prd.md` | high-level PRD | **draft** — fresh direction; resolves findings §10 (see its §12) |
+| `product/features/harness/harness-prd.md` | feature PRD | **draft** — the shared substrate; all other feature PRDs write against its contracts |
+| `product/features/*` (rest) | feature PRDs | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, behavioral-engine, start-service/pty-session, browser-execution, eval-suite |
+| `product/features/*/​*-plan.md` | impl plans | TODO — one per feature PRD |
 
 ## Pointers a fresh session needs
 
@@ -67,5 +71,5 @@ docs/
   `docs/PROVISIONING.md`), and the full walkthrough (`docs/overview.html`).
 - **What's validated vs. not:** the POC rigorously informs **behavioral verification (Phase 5) and
   cross-cutting principles** — NOT the static phases 1–4.
-- **Open decisions** to settle while writing the high-level PRD are listed in
-  `research/behavioral-validation-findings.md` §10.
+- **Open decisions** from `research/behavioral-validation-findings.md` §10 are all **resolved** —
+  traceability table in `product/stet-prd.md` §12.
