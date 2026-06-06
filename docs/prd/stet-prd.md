@@ -138,8 +138,8 @@ still run.
 ### Phase 3 — General code review
 
 Inputs: the diff + enough surrounding context to judge patterns. Runs as a **panel of
-specialized lenses** in parallel — bugs, security, patterns, quality, coverage-gaps (where tests
-should be added or updated, risk-weighted) — narrow specialists over one generalist rubric.
+specialists** in parallel — bugs, security, patterns, quality, coverage-gaps (where tests should
+be added or updated, risk-weighted) — narrow rubrics over one generalist rubric.
 High-signal over nitpicks; confidence scoring is critical; fewer, more confident findings beat
 exhaustive noise.
 
@@ -148,7 +148,7 @@ exhaustive noise.
 Activates only when the diff touches test files — the tests themselves are the object of
 judgment. Judges whether assertions verify behavior or mirror implementation, whether tests
 would fail if the code were wrong, edge-case coverage, tautology. ("Tests missing or stale" for
-changed code is review's coverage-gaps lens — that's a judgment about the *code*.)
+changed code is review's coverage-gaps specialist — that's a judgment about the *code*.)
 
 ### Phase 5 — Behavioral verification (the proven core)
 
@@ -263,7 +263,7 @@ validated POC, so it ports early rather than last.
 | `deterministic-gates` | detection heuristics, gate execution, hygiene/drift findings |
 | `init` | exploration agent, config drafting, refresh |
 | `spec-compliance` | phase 2 rubric, context inputs, requirement mapping |
-| `code-review` | phase 3 lens set (bugs, security, patterns, quality, coverage-gaps), context windowing |
+| `code-review` | phase 3 specialist set (bugs, security, patterns, quality, coverage-gaps), context windowing |
 | `test-quality` | phase 4 rubric, no-tests findings |
 | `behavioral-engine` | rubric port, verdict contract, adapters, evidence ladder |
 | `start-service` / `pty-session` | lifecycle + raw-mode tools |
@@ -288,7 +288,7 @@ claims — warning finding when absent); `stet init` as an exploration agent tha
 behavioral config.
 
 The harness-PRD review round (2026-06-06) added: tier-based model routing with a user config
-layer and eval-earned qualification (`stet models test`); review as a lens panel (test-gap
+layer and eval-earned qualification (`stet models test`); review as a specialist panel (test-gap
 judgment moves there from Phase 4); budget presets; POSIX signal exit codes; streaming deferred.
 Details and rationale in `features/harness.md`.
 

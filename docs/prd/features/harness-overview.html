@@ -48,7 +48,7 @@
 
   /* owns vs contributes */
   .ovc { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
-  @media (max-width: 800px) { .ovc, .schema-grid, .split2, .lens-grid { grid-template-columns: 1fr !important; } }
+  @media (max-width: 800px) { .ovc, .schema-grid, .split2, .specialist-grid { grid-template-columns: 1fr !important; } }
   .ownbox { border: 1.5px solid #c9d6ea; background: linear-gradient(180deg, #f4f8fd, #edf2fa); border-radius: 12px; padding: 18px 20px; }
   .ownbox h4, .contribox h4 { font-size: 12.5px; letter-spacing: 1.5px; font-weight: 800; margin-bottom: 12px; color: var(--hx); }
   .own-grid { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -87,16 +87,16 @@
   .seq-body .g { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .6px; padding: 2px 9px; border-radius: 999px; background: #ecfdf5; color: #047857; border: 1px solid #6ee7b7; margin-left: 8px; }
   .seq-body .why { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
 
-  /* lenses */
-  .lensbox { border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); padding: 18px 20px; margin-top: 14px; }
-  .lens-parent { display: inline-block; font-weight: 750; font-size: 15px; padding: 8px 18px; border: 1.5px solid var(--p3); border-radius: 10px; background: #f8f5ff; color: #5b21b6; }
-  .lens-parent small { display: block; font-weight: 600; font-size: 11px; color: var(--muted); }
-  .lens-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 16px; }
-  .lens { border: 1.5px solid var(--line); border-top: 4px solid var(--p3); border-radius: 10px; background: #fdfcff; padding: 11px 12px; }
-  .lens .ln { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 12.5px; }
-  .lens .ld { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
-  .lens .la { font-size: 10.5px; font-weight: 700; color: var(--faint); margin-top: 6px; letter-spacing: .3px; }
-  .lens.hl { border-top-color: var(--p5); background: #f7fdfa; }
+  /* specialists */
+  .specialistbox { border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); padding: 18px 20px; margin-top: 14px; }
+  .specialist-parent { display: inline-block; font-weight: 750; font-size: 15px; padding: 8px 18px; border: 1.5px solid var(--p3); border-radius: 10px; background: #f8f5ff; color: #5b21b6; }
+  .specialist-parent small { display: block; font-weight: 600; font-size: 11px; color: var(--muted); }
+  .specialist-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 16px; }
+  .specialist { border: 1.5px solid var(--line); border-top: 4px solid var(--p3); border-radius: 10px; background: #fdfcff; padding: 11px 12px; }
+  .specialist .ln { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 12.5px; }
+  .specialist .ld { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .specialist .la { font-size: 10.5px; font-weight: 700; color: var(--faint); margin-top: 6px; letter-spacing: .3px; }
+  .specialist.hl { border-top-color: var(--p5); background: #f7fdfa; }
 
   /* gate classes */
   .classbox { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
@@ -199,7 +199,7 @@
         <span class="own-item">tier routing + qualification check</span>
         <span class="own-item">findings schema</span>
         <span class="own-item">output-as-tool + guards</span>
-        <span class="own-item">lens fan-out + roll-up</span>
+        <span class="own-item">specialist fan-out + roll-up</span>
         <span class="own-item">report aggregation</span>
         <span class="own-item">budgets &amp; presets</span>
         <span class="own-item">cost accounting</span>
@@ -218,13 +218,13 @@
         <li><b>model</b> — tier (robust | fast) or pin</li>
         <li><b>extension</b> — submit-schema additions</li>
         <li><b>budgets</b> — overrides of harness defaults</li>
-        <li><b>lenses</b> — optional parallel specialists (§04)</li>
+        <li><b>specialists</b> — optional parallel specialists (§04)</li>
       </ul>
     </div>
   </div>
   <div class="card rule-line" style="margin-top:16px;">
     <b>Mutation-free by construction:</b> the agent session's tool list <i>is</i> the phase allowlist — edit/write
-    tools are never registered, so no phase (or lens) has a code path to modify the repo. Verified by a test
+    tools are never registered, so no phase (or specialist) has a code path to modify the repo. Verified by a test
     asserting the registered tool list.
   </div>
 </section>
@@ -246,12 +246,12 @@
       <div class="sname">PhaseReport <span style="color:var(--faint); font-weight:400;">— one per configured phase, ALWAYS (skipped &amp; cancelled included)</span></div>
       <div class="fieldrow"><span class="fn">status</span><span class="fv"><span class="pillrow"><span class="pill ok">completed</span><span class="pill gray">skipped</span><span class="pill warn">cancelled</span><span class="pill err">error</span></span> + required reason for the last three</span></div>
       <div class="fieldrow"><span class="fn">audit</span><span class="fv"><b>first-class anti-silent-green:</b> examined[] · checks[] (every command run + evidence) · claims {derived / proven / unproven} — a green report always shows what was actually examined</span></div>
-      <div class="fieldrow"><span class="fn">cost</span><span class="fv">model · tokens in/out · duration · <b>per-lens breakdown</b> for composite phases</span></div>
+      <div class="fieldrow"><span class="fn">cost</span><span class="fv">model · tokens in/out · duration · <b>per-specialist breakdown</b> for composite phases</span></div>
 
       <div class="nest green">
         <div class="sname">Finding</div>
         <div class="fieldrow"><span class="fn">id</span><span class="fv">stable, phase-namespaced: <code>gates.no-linter-configured</code> · <code>behavioral.claim-failed</code> · <code>harness.unqualified-model</code></span></div>
-        <div class="fieldrow"><span class="fn">lens?</span><span class="fv">for composite phases: which lens emitted it</span></div>
+        <div class="fieldrow"><span class="fn">specialist?</span><span class="fv">for composite phases: which specialist emitted it</span></div>
         <div class="fieldrow"><span class="fn">severity</span><span class="fv"><span class="pillrow"><span class="pill err">error</span><span class="pill warn">warning</span><span class="pill info">info</span></span> the ONE gating vocabulary</span></div>
         <div class="fieldrow"><span class="fn">confidence</span><span class="fv">high | medium | low — deterministic &amp; evidence-backed findings are <b>high by construction</b></span></div>
         <div class="fieldrow"><span class="fn">evidence</span><span class="fv">command + output — a Phase 5 <code>failed</code> MUST carry its reproducing command here</span></div>
@@ -265,14 +265,14 @@
     <tr><th>finding origin</th><th>confidence</th><th>can cause exit 1?</th></tr>
     <tr><td>Deterministic (Phase 1 gate failure)</td><td><b>high</b> by construction — a failing test run is not an opinion</td><td>yes</td></tr>
     <tr><td>Evidence-backed (carries a reproducing command — Phase 5 <code>failed</code>)</td><td><b>high</b> by construction — proof bypasses the opinion filter</td><td>yes</td></tr>
-    <tr><td>AI judgment (phases 2–4 lenses, Phase 5 inconclusives)</td><td>model-assigned</td><td>only at <b>high</b> — sub-high AI findings never break automation</td></tr>
+    <tr><td>AI judgment (phases 2–4 specialists, Phase 5 inconclusives)</td><td>model-assigned</td><td>only at <b>high</b> — sub-high AI findings never break automation</td></tr>
   </table>
 </section>
 
 <!-- ============================================================ -->
 <section>
   <h2><span class="num">03</span>Output-as-tool — the agent completion contract</h2>
-  <p class="lede">Each agent run — phase or lens — has exactly one way to finish: a <code>submit_findings</code> tool whose
+  <p class="lede">Each agent run — phase or specialist — has exactly one way to finish: a <code>submit_findings</code> tool whose
   parameter schema is the findings schema + the phase's extension. Three guards, <strong>each earned by an observed failure in evals</strong>.</p>
   <div class="seq">
     <div class="seq-step"><div class="seq-num">1</div><div class="seq-body"><b>Agent works</b> — read / bash / grep / find / ls (+ Phase 5 execution tools). Freetext reasoning in, no parsing anywhere.</div></div>
@@ -285,26 +285,26 @@
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">04</span>Lenses — composite agent phases <span class="chip rev" style="font-size:11px;">NEW — review round 1</span></h2>
+  <h2><span class="num">04</span>Specialists — composite agent phases <span class="chip rev" style="font-size:11px;">NEW — review round 1</span></h2>
   <p class="lede">A panel of narrow specialists beats one generalist with a kitchen-sink rubric. A phase may declare
-  <strong>lenses</strong>: parallel sub-agents, each the same configuration shape (rubric + toolset + model + activation),
-  findings rolling up to the parent. <b>Phase = reporting unit; lens = execution unit.</b> All three §03 guards apply per lens;
-  one lens failing never loses the others' findings.</p>
-  <div class="lensbox">
-    <div class="lens-parent">Phase 3 — code review<small>the first composite phase · lens set defined in the code-review PRD</small></div>
-    <div class="lens-grid">
-      <div class="lens"><div class="ln">bugs</div><div class="ld">uncaught errors, logic, null/race</div><div class="la">always</div></div>
-      <div class="lens"><div class="ln">security</div><div class="ld">injection, secrets, log leaks</div><div class="la">always</div></div>
-      <div class="lens"><div class="ln">patterns</div><div class="ld">established pattern exists; diff invents a new one</div><div class="la">always</div></div>
-      <div class="lens"><div class="ln">quality</div><div class="ld">dead code, duplication, complexity</div><div class="la">always</div></div>
-      <div class="lens hl"><div class="ln">coverage-gaps</div><div class="ld">where tests should be added or <i>updated</i>, risk-weighted</div><div class="la">non-test code added/changed</div></div>
+  <strong>specialists</strong>: parallel sub-agents, each the same configuration shape (rubric + toolset + model + activation),
+  findings rolling up to the parent. <b>Phase = reporting unit; specialist = execution unit.</b> All three §03 guards apply per specialist;
+  one specialist failing never loses the others' findings.</p>
+  <div class="specialistbox">
+    <div class="specialist-parent">Phase 3 — code review<small>the first composite phase · specialist set defined in the code-review PRD</small></div>
+    <div class="specialist-grid">
+      <div class="specialist"><div class="ln">bugs</div><div class="ld">uncaught errors, logic, null/race</div><div class="la">always</div></div>
+      <div class="specialist"><div class="ln">security</div><div class="ld">injection, secrets, log leaks</div><div class="la">always</div></div>
+      <div class="specialist"><div class="ln">patterns</div><div class="ld">established pattern exists; diff invents a new one</div><div class="la">always</div></div>
+      <div class="specialist"><div class="ln">quality</div><div class="ld">dead code, duplication, complexity</div><div class="la">always</div></div>
+      <div class="specialist hl"><div class="ln">coverage-gaps</div><div class="ld">where tests should be added or <i>updated</i>, risk-weighted</div><div class="la">non-test code added/changed</div></div>
     </div>
     <p style="font-size:13px; color:var(--muted); margin-top:14px;">
       <b style="color:var(--ink)">Question-3 resolution lives here:</b> Phase 4 (test quality) activates only when the diff touches
       test files — it judges the <i>tests as artifacts</i> (tautology, mirroring, would-it-fail). "Tests missing or stale" is a
-      judgment about the <i>code</i> → the coverage-gaps lens, which rides the always-on review phase for zero extra activations.
-      Lenses inherit the phase tier unless overridden (security on <code>robust</code>, quality on <code>fast</code> is plausible).
-      <b style="color:var(--ink)">Fences:</b> custom user-defined lenses deferred (plugin system); no cross-lens dedup pass in v1.
+      judgment about the <i>code</i> → the coverage-gaps specialist, which rides the always-on review phase for zero extra activations.
+      Specialists inherit the phase tier unless overridden (security on <code>robust</code>, quality on <code>fast</code> is plausible).
+      <b style="color:var(--ink)">Fences:</b> custom user-defined specialists deferred (plugin system); no cross-specialist dedup pass in v1.
     </p>
   </div>
 </section>
@@ -361,7 +361,7 @@
     <tr><th>phase</th><th>activates when</th></tr>
     <tr><td>gates</td><td>always (unless <code>--skip gates</code> / config)</td></tr>
     <tr><td>spec compliance</td><td>spec context present</td></tr>
-    <tr><td>code review</td><td>diff non-empty — per-lens predicates may narrow (coverage-gaps: non-test code added/changed)</td></tr>
+    <tr><td>code review</td><td>diff non-empty — per-specialist predicates may narrow (coverage-gaps: non-test code added/changed)</td></tr>
     <tr><td>test quality</td><td>diff touches test files <b>only</b> — the tests themselves are the object of judgment</td></tr>
     <tr><td>behavioral</td><td>diff touches runnable surfaces <b>and</b> spec present — surfaces changed without a spec ⇒ <code>behavioral.not-run</code> warning</td></tr>
   </table>
@@ -463,7 +463,7 @@
     <tr><td>CLI cleanup</td><td class="dec-res"><span class="ok-dot">●</span> <code>--skip</code>/<code>--only</code> generalized; <code>--severity</code>→<code>--show</code>; <code>--model</code> repeatable + namespaced.</td></tr>
     <tr><td>Model routing</td><td class="dec-res"><span class="ok-dot">●</span> Capability tiers resolved against credentialed providers; 4 config layers; sparse init; CI is the binding run.</td></tr>
     <tr><td>Model qualification</td><td class="dec-res"><span class="ok-dot">●</span> <code>stet models test</code> + curated manifest + local cache; <code>harness.unqualified-model</code> warning.</td></tr>
-    <tr><td>Lenses</td><td class="dec-res"><span class="ok-dot">●</span> First-class composite phases; review = 5-lens panel; Phase 4 stays a phase, tests-only activation.</td></tr>
+    <tr><td>Specialists</td><td class="dec-res"><span class="ok-dot">●</span> First-class composite phases; review = 5-specialist panel; Phase 4 stays a phase, tests-only activation.</td></tr>
     <tr><td>Signal exit codes</td><td class="dec-res"><span class="ok-dot">●</span> SIGINT→130, SIGTERM→143, partial report written; 2 strictly tool error.</td></tr>
     <tr><td>Streaming</td><td class="dec-res"><span class="ok-dot">●</span> Deferred — run-then-read confirmed; NDJSON addable later without touching RunReport.</td></tr>
     <tr><td>SDK</td><td class="dec-res"><span class="ok-dot">●</span> Confirmed: <code>badlogic/pi-mono</code> → <code>earendil-works/pi</code> (repo transferred); old npm scope deprecated in favor of <code>@earendil-works/pi-coding-agent</code> 0.78.x — the POC already runs on it.</td></tr>
@@ -475,8 +475,8 @@
   <h2><span class="num">10</span>Still open (deliberately)</h2>
   <div class="ask"><div class="q">Caching</div><div class="c">Re-running on an unchanged scope could reuse phase reports (key: scope hash × phase config hash). v1.x; the schema's deterministic serialization already enables it.</div></div>
   <div class="ask"><div class="q">SARIF mapping</div><div class="c">v1.x — enabled by the stable Finding shape.</div></div>
-  <div class="ask"><div class="q">Custom lenses</div><div class="c">Deferred as part of the no-plugin-system line — revisit when the built-in lens set stabilizes.</div></div>
-  <div class="ask"><div class="q">Cross-lens dedup / adversarial verify</div><div class="c">Not in v1 — lenses are disjoint by rubric design. The known fix if overlap proves noisy in practice.</div></div>
+  <div class="ask"><div class="q">Custom specialists</div><div class="c">Deferred as part of the no-plugin-system line — revisit when the built-in specialist set stabilizes.</div></div>
+  <div class="ask"><div class="q">Cross-specialist dedup / adversarial verify</div><div class="c">Not in v1 — specialists are disjoint by rubric design. The known fix if overlap proves noisy in practice.</div></div>
 </section>
 
 <footer>

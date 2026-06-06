@@ -29,7 +29,7 @@ PhaseConfiguration = {
   model       capability tier ("robust" | "fast") or pinned "provider/id" (§5)
   extension   phase-specific additions to the submit-tool schema (e.g. Phase 5 claims/checks)
   budgets     overrides for time/turn defaults
-  lenses      optional: parallel specialized sub-agents, each itself a
+  specialists optional: parallel narrow sub-agents, each itself a
               (rubric, toolset, model, activation) tuple — see §5.1
 }
 ```
@@ -65,7 +65,7 @@ Finding = {
                                               // "test-quality.tautological", "behavioral.claim-failed",
                                               // "behavioral.not-run" …
   phase:      PhaseId
-  lens?:      string                          // composite phases: which lens emitted it
+  specialist?: string                         // composite phases: which specialist emitted it
   severity:   "error" | "warning" | "info"    // the gating vocabulary
   confidence: "high" | "medium" | "low"       // see 3.5 — deterministic and evidence-backed
                                               // findings are "high" by construction
@@ -118,7 +118,7 @@ PhaseReport = {
   findings: Finding[]
   audit:    Audit
   cost:     { model?: string, inputTokens?: number, outputTokens?: number, durationMs: number,
-              lenses?: Record<string, Cost> }  // composite phases: per-lens breakdown
+              specialists?: Record<string, Cost> }  // composite phases: per-specialist breakdown
 }
 ```
 
@@ -208,23 +208,23 @@ porting risk — the POC already runs on it. The runner:
 - Progress events (`tool_execution_start`) stream to stderr so a human sees liveness without
   corrupting machine-readable stdout.
 
-### 5.1 Lenses (composite agent phases)
+### 5.1 Specialists (composite agent phases)
 
-A phase may declare **lenses**: parallel specialized sub-agents — narrow specialists beat one
-generalist with a kitchen-sink rubric. Each lens is the same configuration shape (rubric +
-toolset + model + activation predicate); the phase stays the *reporting* unit, lenses are the
-*execution* unit. Mechanics are uniform: each lens is its own agent run with its own
-`submit_findings` (all three §4 guards apply per lens), per-lens cost in the phase report, the
-emitting lens recorded on each finding, and one lens failing (error/budget) never loses the
-other lenses' findings. Lenses inherit the phase's model/tier unless individually overridden,
-and may narrow activation (e.g. review's `coverage-gaps` lens — where tests should be added or
+A phase may declare **specialists**: parallel narrow sub-agents — a panel of specialists beats
+one generalist with a kitchen-sink rubric. Each specialist is the same configuration shape (rubric +
+toolset + model + activation predicate); the phase stays the *reporting* unit, specialists are the
+*execution* unit. Mechanics are uniform: each specialist is its own agent run with its own
+`submit_findings` (all three §4 guards apply per specialist), per-specialist cost in the phase report, the
+emitting specialist recorded on each finding, and one specialist failing (error/budget) never loses the
+other specialists' findings. Specialists inherit the phase's model/tier unless individually overridden,
+and may narrow activation (e.g. review's `coverage-gaps` specialist — where tests should be added or
 updated, risk-weighted — activates only when non-test code is added or changed).
 
-The review phase is the first composite phase; its concrete lens set (bugs, security, patterns,
-quality, coverage-gaps) is the code-review feature PRD's to define. Built-in lenses are
-enable/disable-able in config; **custom user-defined lenses are deferred** — a config-supplied
-rubric is the plugin system v1 explicitly excludes. No cross-lens dedup/verification pass in v1:
-lenses are disjoint by rubric design; an adversarial-verify stage is the known fix if overlap
+The review phase is the first composite phase; its concrete specialist set (bugs, security, patterns,
+quality, coverage-gaps) is the code-review feature PRD's to define. Built-in specialists are
+enable/disable-able in config; **custom user-defined specialists are deferred** — a config-supplied
+rubric is the plugin system v1 explicitly excludes. No cross-specialist dedup/verification pass in v1:
+specialists are disjoint by rubric design; an adversarial-verify stage is the known fix if overlap
 proves noisy in practice.
 
 ## 6. Scheduler
@@ -238,8 +238,8 @@ spec presence, config). Built-in rules:
 |---|---|
 | gates | always (unless `--skip-gates` / config) |
 | spec | spec context present |
-| review | diff non-empty (per-lens predicates may narrow further — `coverage-gaps` only when non-test code is added/changed) |
-| test-quality | diff touches test files — the tests themselves are the object of judgment; "tests missing/stale" belongs to review's `coverage-gaps` lens |
+| review | diff non-empty (per-specialist predicates may narrow further — `coverage-gaps` only when non-test code is added/changed) |
+| test-quality | diff touches test files — the tests themselves are the object of judgment; "tests missing/stale" belongs to review's `coverage-gaps` specialist |
 | behavioral | diff touches runnable surfaces AND spec present |
 
 Non-activated phases appear in the report as `skipped` with the rule named. Mandated visibility
@@ -349,7 +349,7 @@ phases:
     enabled: true|false
     tier: robust|fast       # or model: provider/id — the documented exception, not the norm
     budgets: { wallClockMs, turns }
-    lenses: { <lens>: { enabled: true|false } }
+    specialists: { <specialist>: { enabled: true|false } }
 gates:
   <name>: { cancel: true|false }   # cancellation class override
 output:
@@ -412,9 +412,9 @@ compatibility), not error.
 13. With no config at all, every agent phase resolves a model via tier defaults against whatever
     credentialed providers exist; with none available, preflight fails before any phase
     launches, with the actionable message.
-14. A composite phase's lenses run in parallel; each finding carries its lens; per-lens cost
-    appears in the phase report; one lens failing (error/budget) does not lose the other
-    lenses' findings.
+14. A composite phase's specialists run in parallel; each finding carries its specialist; per-specialist cost
+    appears in the phase report; one specialist failing (error/budget) does not lose the other
+    specialists' findings.
 15. Routing a tier to a model with no valid qualification yields the
     `harness.unqualified-model` warning finding; a valid local `stet models test` result
     suppresses it; a rubric/fixture-set version bump invalidates prior qualifications.

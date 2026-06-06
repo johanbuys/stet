@@ -14,10 +14,14 @@ Use the tdd skill.
 implementation. Start from the docs.
 
 **Documentation:** see `docs/README.md` for the doc map and workflow. Docs flow broad → specific:
-research/findings → **high-level PRD** (`docs/prd/stet-prd.md`, to be written) → per-feature PRDs
-(`docs/prd/features/`) → per-feature implementation plans (`docs/plans/`). Write them in that order.
-The original PRD (`docs/plans/stet-prd-v1.md`) is historical and being superseded by the fresh
-high-level PRD.
+research/findings → **high-level PRD** (`docs/prd/stet-prd.md`, drafted) → per-feature PRDs
+(`docs/prd/features/`, harness drafted) → per-feature implementation plans (`docs/plans/`). Write
+them in that order. The original PRD (`docs/plans/stet-prd-v1.md`) is historical, superseded by
+the fresh high-level PRD. Every PRD has a companion `<name>-overview.html` for visual review.
+
+**Terminology:** `docs/glossary.md` is the shared vocabulary (harness, phase, specialist,
+finding, tier, …). Use those terms exactly, and update the glossary in the same change that
+introduces or renames a term.
 
 **Behavioral verification (Phase 5) R&D is done.** A prototype in the sibling repo
 **`../validation-agent-poc`** proved a diff-blind, mutation-free behavioral validator. Findings are
@@ -25,12 +29,13 @@ captured in **`docs/research/behavioral-validation-findings.md`** — read it be
 behavioral-verification spec. Mine the POC for the engine/rubric/verdict schema, 14 fixtures + a
 content-aware grader, and the browser provisioning recipe.
 
-**Principle upgrades from that R&D** (carry into the fresh PRD): behavioral verification is
-**diff-blind** (derives claims from the spec, not the diff) and **mutation-free** (no edits during
-validation; `--fix` is separate); it reaches a **verdict** surfaced as **findings**; a **blunt
-conservative rubric beats a precise permissive one**; and the **browser must be provisioned**, never
-self-installed at validation time. Caveat: the R&D validated Phase 5 + cross-cutting principles, NOT
-the static phases 1–4. Open decisions are listed in the findings doc §10.
+**Principle upgrades from that R&D** (now baked into the fresh PRD): behavioral verification is
+**diff-blind** (derives claims from the spec, not the diff) and **mutation-free** (no write tools
+anywhere — `--fix` was cut from the product entirely; stet reports, the caller fixes); it reaches
+a **verdict** surfaced as **findings**; a **blunt conservative rubric beats a precise permissive
+one**; and the **browser must be provisioned**, never self-installed at validation time. Caveat:
+the R&D validated Phase 5 + cross-cutting principles, NOT the static phases 1–4. The findings doc
+§10 open decisions are all **resolved** — traceability table in `docs/prd/stet-prd.md` §12.
 
 <!--VITE PLUS START-->
 
