@@ -54,14 +54,23 @@ evidence ladder; robust tier.)*
    derivation stays independent (agent reads the full spec before any narrowing); the cut is
    deliberate and visible — same anti-silent-green ethos as hygiene findings. Maps onto the
    classic dev→ticket→QA workflow Johan anchored on. (user call, 2026-06-06)
+3. **Rubric composition — option C: judgment core verbatim + injected tool briefs.** The core
+   keeps ALL judgment from the POC rubric — independence, mutation-free, verdicts, evidence
+   sufficiency, anti-mock, **TTY honesty, SPA-needs-browser** — verbatim and always-on; only
+   operational how-to (agent-browser usage/`--no-sandbox`, pty_session usage, start_service
+   usage) splits into per-tool **briefs**, injected when the tool is available. Qualification
+   keys on the core version alone; tool briefs change without invalidating judgment
+   qualifications. *Ripples:* (a) one-time eval re-baseline of the slimmed core at port time;
+   (b) high-level PRD §4 architecture line softens to "no *operational* surface knowledge in
+   the rubric" — the TTY/SPA clauses are judgment, not surface mechanics, and must hold even
+   (especially) when the tool isn't provisioned. — *why:* the SPA-needs-browser rule protects
+   exactly the no-browser run from a false `passed` on curl; moving it out with the adapter
+   (option B) would remove it when it's load-bearing. (user call, 2026-06-06)
 
 ## Open questions
 
 ### Fork-level (must land before this brief settles)
 
-3. **Rubric composition** — POC rubric embeds browser/TTY specifics, but the architecture says
-   "nothing in the rubric names a surface." Verbatim monolith vs core + adapter-injected
-   clauses (affects rubric versioning, which keys model qualification).
 4. **Run isolation** — harness PRD §12 punts port collisions/concurrent runs to this PRD.
 5. **`behavioral` config schema shape** — multi-service, multi-surface repos, credentials
    handling (partly draft-level; the fork is the multi-service/surface shape).
@@ -89,7 +98,10 @@ mechanics (consumes the schema this PRD defines).
   drafted by `stet init`.
 - *out-of-scope-this-run* — claims derived from the spec that reach no selected surface;
   recorded in the audit as a deliberate, named cut (4th claims bucket). Decided: D2.
-- *adapter clause* — candidate term if rubric splits into core + per-adapter sections (decision 3).
+- *judgment core* — the always-on, POC-verbatim judgment rubric (one version; keys model
+  qualification). Decided: D3. Replaces the earlier "adapter clause" candidate term.
+- *tool brief* — per-tool operational prompt section (usage, env quirks), injected when the
+  tool is available; owned by the tool's feature PRD. Decided: D3.
 
 ## Evidence
 
