@@ -66,12 +66,25 @@ evidence ladder; robust tier.)*
    (especially) when the tool isn't provisioned. — *why:* the SPA-needs-browser rule protects
    exactly the no-browser run from a false `passed` on curl; moving it out with the adapter
    (option B) would remove it when it's load-bearing. (user call, 2026-06-06)
+4. **Run isolation — option A: in place, with three deterministic guards.** (1) **Port
+   templating:** init drafts `start: "PORT={{port}} npm start"` + `url: "…:{{port}}"`;
+   `start_service` resolves a free port per run. (2) **Per-repo run lock:** a second concurrent
+   behavioral run reports `blocked` ("another stet behavioral run holds the lock") — never a
+   flaky collision. (3) **Disk-state honesty:** scope behind the working tree ⇒ `blocked` with
+   reason; before/after `git status` snapshot ⇒ `behavioral.run-side-effects` warning naming
+   anything the product under test wrote. Workspace (git-worktree) isolation deferred; config
+   key shaped for it (`behavioral.isolation`). — *why:* every collision class becomes a free
+   port, an honest `blocked`, or a named warning — deterministic, in the loop; worktree mode's
+   per-run dependency install would routinely eat the 15-min budget. *Reference (Johan):*
+   [portless.sh](https://portless.sh/) — same mechanism proven in dev tooling (injects `PORT`
+   env, auto-adds `--port`/`--host` flags for frameworks that ignore it); its framework-aware
+   fallback is worth mining for init's start-command drafting; possible future integration,
+   not a dependency. (user call, 2026-06-06)
 
 ## Open questions
 
 ### Fork-level (must land before this brief settles)
 
-4. **Run isolation** — harness PRD §12 punts port collisions/concurrent runs to this PRD.
 5. **`behavioral` config schema shape** — multi-service, multi-surface repos, credentials
    handling (partly draft-level; the fork is the multi-service/surface shape).
 
