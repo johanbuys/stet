@@ -43,13 +43,22 @@ evidence ladder; robust tier.)*
    init/config hygiene finding. — *why:* this is the exact posture the 14-fixture POC evidence
    validates (zero author-bias leakage), and the harness's pre-launch activation contract
    requires a deterministic map regardless — one mechanism, not two. (user call, 2026-06-06)
+2. **Claim scoping — option B: derive from the whole provided spec; exercise what reaches the
+   selected surfaces; name the cut.** Claims that don't reach a selected surface land in a new
+   explicit audit bucket — **out-of-scope-this-run** — never silently dropped, never
+   fake-"unproven". When the spec is ticket-sized (the normal case, and the POC's only mode)
+   the bucket is empty and the run behaves exactly like the classic workflow: QA verifies the
+   ticket's AC. The rule only bites when a caller hands more than a ticket (whole product PRD).
+   *Ripple:* a fourth claims bucket (`outOfScope`) in the harness PRD's `Audit.claims` — amend
+   it in the same change as the engine PRD. — *why:* cost bounded by the change, not the spec;
+   derivation stays independent (agent reads the full spec before any narrowing); the cut is
+   deliberate and visible — same anti-silent-green ethos as hygiene findings. Maps onto the
+   classic dev→ticket→QA workflow Johan anchored on. (user call, 2026-06-06)
 
 ## Open questions
 
 ### Fork-level (must land before this brief settles)
 
-2. **Claim scoping** — claims derive from the spec; does a run derive claims for the *whole*
-   spec or only the spec ∩ selected surfaces? Who filters, at what cost?
 3. **Rubric composition** — POC rubric embeds browser/TTY specifics, but the architecture says
    "nothing in the rubric names a surface." Verbatim monolith vs core + adapter-injected
    clauses (affects rubric versioning, which keys model qualification).
@@ -78,6 +87,8 @@ mechanics (consumes the schema this PRD defines).
   path→surface map + heuristics); same mechanism as Phase 5 activation. Decided: D1.
 - *path→surface map* — the `behavioral` config section mapping repo paths to surfaces,
   drafted by `stet init`.
+- *out-of-scope-this-run* — claims derived from the spec that reach no selected surface;
+  recorded in the audit as a deliberate, named cut (4th claims bucket). Decided: D2.
 - *adapter clause* — candidate term if rubric splits into core + per-adapter sections (decision 3).
 
 ## Evidence
