@@ -1,7 +1,7 @@
 # behavioral-engine — brief
 
-**Status:** brainstorming — 2026-06-06
-**Next phase:** feature PRD (`behavioral-engine-prd.md`)
+**Status:** settled — 2026-06-06 (all five fork-level decisions landed; canvas brainstorm)
+**Next phase:** feature PRD (`behavioral-engine-prd.md`) — drafts from this brief
 **Depends on:** `docs/product/stet-prd.md` §5 (Phase 5), §12 · `features/harness/harness-prd.md` (all contracts)
 **Draws on:** `docs/research/behavioral-validation-findings.md` · POC `../validation-agent-poc` (`src/{schema,prompt,validate}.ts`, 14 fixtures)
 
@@ -80,13 +80,26 @@ evidence ladder; robust tier.)*
    env, auto-adds `--port`/`--host` flags for frameworks that ignore it); its framework-aware
    fallback is worth mining for init's start-command drafting; possible future integration,
    not a dependency. (user call, 2026-06-06)
+5. **Config schema shape — option B: named services + surfaces that reference them.**
+   `behavioral.services.<name>` = processes (start w/ `{{port}}`, url, ready, `mode: real|mock`);
+   `behavioral.surfaces.<name>` = interfaces (the D1 `paths` selection keys, backing `service`,
+   `browser: true` where needed); `credentials` as env-var **references only**, never values;
+   `isolation: in-place` (D4, `workspace` reserved). Single-service repos get shorthand sugar
+   (draft-level). — *why:* the settled vocabulary already separates services from surfaces; B is
+   the only shape where every decided mechanism has an obvious home (path→surface map = surfaces'
+   `paths`; `{{port}}` lives on the service; "mock stripe" is addressable by name). **portless
+   follow-up (Johan asked twice — answered):** integrate by *detection, not dependency* — if a
+   repo already uses portless, `init` detects it and drafts service URLs as the stable
+   `*.localhost` names; stet's own default stays `{{port}}` templating because the binding run
+   is headless CI where a global root-port-443 HTTPS proxy (Node 24+) is an extra moving part
+   stet must not require ("provisioned, never self-installed" applies to proxies too).
+   (user call, 2026-06-06)
 
 ## Open questions
 
 ### Fork-level (must land before this brief settles)
 
-5. **`behavioral` config schema shape** — multi-service, multi-surface repos, credentials
-   handling (partly draft-level; the fork is the multi-service/surface shape).
+*(none — all five landed; see Decided directions)*
 
 ### Detail (the PRD draft can propose answers)
 
@@ -95,6 +108,11 @@ evidence ladder; robust tier.)*
 - Adapter interface contract (what the engine assumes of `start_service`/`pty_session`/browser).
 - Readiness/teardown expectations; what `blocked` looks like for each adapter.
 - How run-instructions are rendered into the user prompt (POC `buildUserPrompt` shape).
+- Single-service config shorthand sugar (D5); portless detection in `init` (D4/D5 note).
+- Upstream amendments to carry with the PRD: harness PRD `Audit.claims` gains `outOfScope`
+  (D2); high-level PRD §4 architecture line softens to "no *operational* surface knowledge in
+  the rubric" (D3); GLOSSARY gains *judgment core*, *tool brief*, *out-of-scope-this-run*,
+  *path→surface map*.
 
 ## Scope instincts
 

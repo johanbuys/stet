@@ -60,6 +60,7 @@ docs/
 | `archive/stet-prd-v1.md` | (legacy PRD) | historical — superseded by the fresh high-level PRD |
 | `product/stet-prd.md` | high-level PRD | **draft** — fresh direction; resolves findings §10 (see its §12) |
 | `product/features/harness/harness-prd.md` | feature PRD | **draft** — the shared substrate; all other feature PRDs write against its contracts |
+| `product/features/behavioral-engine/behavioral-engine-brief.md` | brief (pre-PRD) | **settled** — five fork-level decisions landed (canvas brainstorm 2026-06-06); PRD drafts from it |
 | `product/features/*` (rest) | feature PRDs | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, behavioral-engine, start-service/pty-session, browser-execution, eval-suite |
 | `product/features/*/​*-plan.md` | impl plans | TODO — one per feature PRD |
 
