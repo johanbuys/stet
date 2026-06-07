@@ -155,14 +155,11 @@ landed as decided direction 8.)*
 
 ### Detail (the PRD draft can propose answers — tracked in `harness-prd.md` §8)
 
-- **#20** — where harness-emitted findings (`harness.unqualified-model`,
-  `<phase>.partial-coverage`, activation-time findings) attach; proposal: the concerned phase's
-  report, no harness pseudo-phase.
-- **#21** — how CI concretely carries pinned routing (user-layer file written by the workflow
-  vs env/flag override); needs an operational answer before the plan.
-- **#22** — per-phase turn-count defaults: uniform 50 vs scaled with the wall-clock class.
-- **#23** — whether `RunReport` carries stet's version + start timestamp alongside schema
-  `version`.
+*All four resolved in PRD review round 2 (canvas, 2026-06-07):* **#20** harness-emitted
+findings attach to the concerned phase's report (no pseudo-phase) · **#21** CI pins routing
+via `--model` flags in the workflow invocation (env-var layer deferred) · **#22** turn
+ceilings follow the wall-clock class (50 / 120) · **#23** `RunReport` carries `stet` semver +
+`startedAt` (cache key excludes the timestamp). Details and rationale: `harness-prd.md` §8.
 
 ## Scope instincts
 

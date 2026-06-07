@@ -23,44 +23,52 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   unqualified always means stet's. → `docs/better-planning/product/features/harness/harness-prd.md`
 - **phase** — one of the five validation dimensions: gates, spec, review, test-quality,
   behavioral. The **reporting unit**: every configured phase appears in every RunReport.
-  ⚠ phases run in *parallel* by default — "phase" does not imply sequence. → harness PRD §1, §6
+  ⚠ phases run in *parallel* by default — "phase" does not imply sequence. → harness PRD §1, §3.4
 - **specialist** — a parallel, narrowly-scoped sub-agent *inside* a phase (own rubric, own
   activation); findings roll up to the parent phase. The **execution unit**. Review is the first
   composite phase (bugs, security, patterns, quality, coverage-gaps). Formerly "lens" in early
-  drafts. ⚠ a specialist never gets its own PhaseReport — it rolls up. → harness PRD §5.1
+  drafts. ⚠ a specialist never gets its own PhaseReport — it rolls up. → harness PRD §3.3
 - **gate** — one deterministic Phase-1 check (tests, types, lint, build, …). ⚠ distinct from
-  *gating* (a finding causing exit 1) and from **`Check`** (an audit entry). → harness PRD §6.3
+  *gating* (a finding causing exit 1) and from **`Check`** (an audit entry). → harness PRD §3.4.3
 - **cancel class / report-only class** — gates whose *failure* cancels in-flight AI phases
   (tests/types/build: "the code doesn't function") vs. gates that only produce findings
-  (lint/format: "the code is untidy"). Gate **timeouts** are always report-only. → harness PRD §6.3
+  (lint/format: "the code is untidy"). Gate **timeouts** are always report-only. → harness PRD §3.4.3
 - **activation** — the predicate deciding whether a phase or specialist runs for this scope.
-  Non-activated ⇒ `skipped` with the rule named. → harness PRD §6.1
+  Non-activated ⇒ `skipped` with the rule named. → harness PRD §3.4.1
+- **stub phase** — one of two harness-owned trivial phases (`stub-det`, and `stub-agent` — a
+  *real* Pi SDK run with a trivial rubric) that prove every harness contract and remain as
+  permanent test fixtures; never in a released binary's default phase set. ⚠ not a mock of a
+  real phase — the agent stub makes real model calls. → harness PRD §3.9
+- **steel thread** — the harness's tracer bullet: zero-config `stet` end-to-end through the two
+  stub phases, proving every contract before any real phase exists. Real phases integrate later
+  via their own feature plans. ⚠ a build-scope decision (#24), not a runtime mode.
+  → harness PRD §3.9; harness brief direction 8
 - **scope** — what is being verified: staged | working | against `<ref>` | commit | commits;
-  auto-detected unless flagged. → harness PRD §8
+  auto-detected unless flagged. → harness PRD §3.6
 
 ## Findings & the report
 
 - **finding** — one structured observation (id, severity, confidence, message, evidence, …); the
-  unit every consumer acts on, and the input to whoever fixes. → harness PRD §3.1
+  unit every consumer acts on, and the input to whoever fixes. → harness PRD §4.2
 - **severity** — `error | warning | info`. The **one** gating vocabulary. ⚠ not confidence, not
-  priority. → harness PRD §3.1
+  priority. → harness PRD §4.2
 - **confidence** — `high | medium | low`: the opinion filter. Only high-confidence findings can
   gate. Deterministic and evidence-backed findings are high *by construction*. ⚠ not severity.
-  → harness PRD §3.5
+  → harness PRD §4.6
 - **priority** — Phase 5's finer `critical|high|medium|low` granularity, preserved in
-  `meta.priority`. Informational; never gates. ⚠ not severity. → harness PRD §3.1
+  `meta.priority`. Informational; never gates. ⚠ not severity. → harness PRD §4.2
 - **gating (a finding)** — causing exit 1: `severity ≥ failOn` **and** `confidence == high`.
-  The responsible findings are listed in `result.gating`. → harness PRD §10
+  The responsible findings are listed in `result.gating`. → harness PRD §4.8
 - **audit** — the per-phase record of what was actually examined (files, checks, claims). The
-  anti-silent-green mechanism: a green report always shows what was checked. → harness PRD §3.2
+  anti-silent-green mechanism: a green report always shows what was checked. → harness PRD §4.3
 - **`Check`** — one audit entry: a concrete command run, with status and evidence. ⚠ schema type;
-  not a gate, not a colloquial "check". → harness PRD §3.2
+  not a gate, not a colloquial "check". → harness PRD §4.3
 - **RunReport / PhaseReport** — the versioned aggregate (the only thing on stdout in JSON mode) /
   one phase's entry in it. Phase statuses: `completed | skipped | cancelled | error`, the last
-  three always with reasons. → harness PRD §3.3–3.4
+  three always with reasons. → harness PRD §4.4–4.5
 - **output-as-tool** — agent runs finish *only* by calling `submit_findings`, whose parameter
   schema is the findings schema (R&D D6). Three guards: validate-or-retry, idempotency,
-  no-submit fallback. → harness PRD §4
+  no-submit fallback. → harness PRD §3.1
 - **hygiene finding** — a finding about the project's *capacity to be verified* ("no test runner
   configured"), emitted at init and at run time. → stet PRD §5, §7
 
@@ -72,7 +80,7 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
 - **failed vs blocked vs inconclusive vs skipped** — *failed*: executable evidence contradicts a
   claim (must carry the reproducing command). *blocked*: couldn't reach a testable state (names
   exactly what's needed). *inconclusive*: ran, nothing decisively proved or disproved.
-  *skipped*: never activated (e.g. no spec provided). → harness PRD §3.3; findings doc §1
+  *skipped*: never activated (e.g. no spec provided). → harness PRD §4.4; findings doc §1
 - **claim** — a behavior derived **from the spec** that must be proven by running. Buckets:
   derived / proven / unproven. ⚠ a claim you cannot test is *unproven* — never silently passed.
 - **diff-blind** — the diff may select which *surfaces* to exercise; claims derive from the
@@ -95,26 +103,26 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
 
 - **tier** — the capability class a phase requires: `robust | fast`. Project config speaks
   tiers; run-time resolution picks a concrete model from the user's credentialed providers.
-  ⚠ not a model id. → harness PRD §5
+  ⚠ not a model id. → harness PRD §3.2
 - **qualification** — evidence (an eval-suite scorecard) that a model holds the line for a tier;
   keyed *(model × rubric version × fixture-set version)*. Running an unqualified model ⇒
-  `harness.unqualified-model` warning. → harness PRD §5; eval-suite PRD
+  `harness.unqualified-model` warning. → harness PRD §3.2; eval-suite PRD
 - **manifest** — the curated, shipped table of qualified models per tier — the tier preference
   table *with receipts*. No web service; community additions via PR.
 - **binding run** — the run whose exit code enforces the merge: **CI's run, with pinned
-  routing**. Local runs are advisory pre-flight. → harness PRD §9
+  routing**. Local runs are advisory pre-flight. → harness PRD §3.7
 
 ## Configuration
 
 - **project config / user config** — `stet.config.yml` (checked in: project facts + tier intent;
   never names providers) / `~/.config/stet` (machine facts: provider preferences, local
   qualifications). Precedence: flags > project > user > built-in defaults, resolved per-setting.
-  → harness PRD §9
+  → harness PRD §3.7
 - **sparse config** — init writes only facts that have no built-in default plus evidenced
   deviations; never restates defaults (which would freeze them), never pins models.
 - **budget / preset** — per-phase limits (wall clock, turns, bash timeout, output cap), bundled
   as `--budget fast|default|thorough`. A breach is always a named `error` — never a silent hang
-  or kill. → harness PRD §7
+  or kill. → harness PRD §3.5
 
 ## Quality discipline
 
@@ -131,7 +139,7 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
 
 - **Pi SDK** — `@earendil-works/pi-coding-agent`: the agent runtime stet builds on. Successor of
   `badlogic/pi-mono`'s coding-agent (repo transferred to `earendil-works/pi`; the old
-  `@mariozechner` npm scope is deprecated). → harness PRD §5
+  `@mariozechner` npm scope is deprecated). → harness PRD §3.2
 - **agent-browser** — the browser-automation CLI (built for agents) used for SPA validation.
   Provisioned ahead of time; never self-installed during validation.
 - **`start_service` / `pty_session`** — harness-provided execution tools: service lifecycle with
