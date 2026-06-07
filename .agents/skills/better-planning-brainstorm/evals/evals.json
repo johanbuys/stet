@@ -1,0 +1,51 @@
+{
+  "skill_name": "better-planning-brainstorm",
+  "evals": [
+    {
+      "id": 0,
+      "name": "greenfield-opening",
+      "prompt": "I want to start planning a new side project: a CLI tool called shelfwise that tracks my homelab server inventory — hardware specs, what services run where, warranty dates, that kind of thing. Let's plan this product.",
+      "expected_output": "Conversational opening, not a document dump: a short orientation (acknowledges greenfield), frames the fork-level questions, and ends by asking exactly ONE decision question with options, trade-offs, and a recommendation. Does NOT generate a full PRD unprompted, does NOT ask a battery of questions.",
+      "files": [
+        "empty git repo as working directory"
+      ],
+      "assertions": [
+        "asks-exactly-one-decision-question: the reply poses exactly one decision-level question to the user (rhetorical/quoted questions excluded) — not a battery of questions, not zero",
+        "no-unprompted-prd-dump: neither the reply nor the repo contains a full multi-section PRD document; the reply is conversational framing, not a finished spec",
+        "options-plus-recommendation: the single question is presented with 2+ options, their trade-offs, and an explicit recommendation",
+        "orients-before-asking: the reply acknowledges the starting state (greenfield/empty repo) before asking anything"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "brief-appended-as-decisions-land",
+      "prompt": "Let's keep planning shelfwise. To answer your earlier question: it's a local-first CLI, single user, no server component — data lives in a SQLite file in the home directory. What's next?",
+      "expected_output": "Records the just-made decision into a brief at docs/better-planning/product/shelfwise-brief.md (with rationale, in the same exchange — append-as-you-go), creates the space + README index + GLOSSARY if absent, and continues with exactly one next fork-level question. The brief stays structure-free (no PRD sections/schemas).",
+      "files": [
+        "fixtures/shelfwise-midbrainstorm — repo where one fork question was previously asked (transcript context in prompt)"
+      ],
+      "assertions": [
+        "brief-exists-and-captures-decision: docs/better-planning/product/shelfwise-brief.md exists and records the local-first/SQLite decision with a rationale",
+        "brief-is-structure-free: the brief contains no PRD-style sections (no acceptance criteria, schemas, or requirements sections)",
+        "space-scaffolding-created: docs/better-planning/README.md (with a status index row for the brief) and GLOSSARY.md exist",
+        "continues-with-one-question: the reply ends with exactly one next decision question (options + recommendation)"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "resume-existing-space",
+      "prompt": "Pick up the planning work in this repo — give me the state of things and let's figure out what to do next.",
+      "expected_output": "Reads docs/better-planning/README.md index and doc headers; presents a digest of state (PRD settled, pantry-sync in-review with one open question, shopping-list-gen next per roadmap); does NOT re-ask settled decisions (platform, recipe source, manual entry); recommends a concrete next step — which may be handing off to the prd sibling since the work is past brainstorm phase — and ends with at most one question.",
+      "files": [
+        "fixtures/mealmate — repo with an existing docs/better-planning/ space mid-flight"
+      ],
+      "assertions": [
+        "digest-reflects-actual-state: the reply's digest mentions the settled PRD, pantry-sync being in-review, AND its open barcode-scanning question",
+        "no-relitigating-settled-decisions: none of the already-settled decisions (PWA platform, user-entered recipes, manual pantry entry) are re-asked as questions",
+        "concrete-next-step-recommended: the reply recommends a specific next action (resolve the barcode question and/or start the shopping-list-gen PRD), with reasoning — routing to the prd phase/sibling counts",
+        "at-most-one-question: the reply ends with at most one question to the user",
+        "fixture-docs-unmodified: no files in docs/better-planning/ were modified (git status clean)"
+      ]
+    }
+  ]
+}

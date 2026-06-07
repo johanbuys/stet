@@ -1,6 +1,36 @@
 {
   "version": 1,
   "skills": {
+    "better-planning-brainstorm": {
+      "source": "johanbuys/skills",
+      "sourceType": "github",
+      "skillPath": "skills/better-planning-brainstorm/SKILL.md",
+      "computedHash": "69734dade0713a5b97134df0232a14268a86c9afd8e45096fb6befc357cecedc"
+    },
+    "better-planning-canvas": {
+      "source": "johanbuys/skills",
+      "sourceType": "github",
+      "skillPath": "skills/better-planning-canvas/SKILL.md",
+      "computedHash": "9f72ed7a14c9aa0a2717f5fc58ba2d9f93a283f1b1de72a8a93cd9d0fa4c1a15"
+    },
+    "better-planning-plan": {
+      "source": "johanbuys/skills",
+      "sourceType": "github",
+      "skillPath": "skills/better-planning-plan/SKILL.md",
+      "computedHash": "15d42aaeda07d43c7677e8d59a3afea916174a12a94b98107e110ce866e0164f"
+    },
+    "better-planning-prd": {
+      "source": "johanbuys/skills",
+      "sourceType": "github",
+      "skillPath": "skills/better-planning-prd/SKILL.md",
+      "computedHash": "cfd8c0154a8df9c758fc864cee8fdf5ea1616b734653a99e78e1c9ae0ac460d7"
+    },
+    "better-planning-tasks": {
+      "source": "johanbuys/skills",
+      "sourceType": "github",
+      "skillPath": "skills/better-planning-tasks/SKILL.md",
+      "computedHash": "0b1e2a5453ef48e283cf7855476715dfa04676475844ae4ee9fa8fa78777282f"
+    },
     "tdd": {
       "source": "mattpocock/skills",
       "sourceType": "github",
