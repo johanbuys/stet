@@ -3,10 +3,10 @@
 > **stet** — Latin: "let it stand." A proofreader's mark: it annotates the manuscript, it never
 > rewrites it.
 
-**Status:** draft — brainstormed 2026-06-05, supersedes `docs/plans/stet-prd-v1.md` (historical).
+**Status:** draft — brainstormed 2026-06-05, supersedes `docs/archive/stet-prd-v1.md` (historical).
 **Draws on:** `docs/research/behavioral-validation-findings.md` (the validated evidence base for
 Phase 5 and the cross-cutting principles; phases 1–4 carry forward on v1's original reasoning).
-**Defers to:** per-feature PRDs in `docs/prd/features/` for depth (contracts, schemas, edge cases).
+**Defers to:** per-feature PRDs in `docs/product/features/` for depth (contracts, schemas, edge cases).
 
 ---
 
@@ -278,7 +278,7 @@ validated POC, so it ports early rather than last.
 | Verdict vs findings, exit policy | Verdict internal; `failed→error / blocked→warning / inconclusive→info`; one `--fail-on` knob, default `error` (§3.5, §6). |
 | Anti-mock vs sandbox mocks | Mocks isolate peripherals; claims about a mocked service are `blocked`. Config encodes per-service `real|mock` (§5). |
 | Mutation-free vs `--fix` | Generalized: the whole product is mutation-free; `--fix` is cut (§1, §9). |
-| Pi SDK variant | **Resolved 2026-06-06:** `badlogic/pi-mono` transferred to `earendil-works/pi`; the old npm scope is deprecated in favor of `@earendil-works/pi-coding-agent` (actively released). stet standardizes on it — the POC already runs on it (`features/harness.md` §5). |
+| Pi SDK variant | **Resolved 2026-06-06:** `badlogic/pi-mono` transferred to `earendil-works/pi`; the old npm scope is deprecated in favor of `@earendil-works/pi-coding-agent` (actively released). stet standardizes on it — the POC already runs on it (`features/harness/harness-prd.md` §5). |
 | `behavioral` config schema | Shape stated (§5, §8); concrete schema in the `behavioral-engine` feature PRD, drafted by `init` (§7). |
 
 Decisions made beyond §10 during this PRD: no `--fix` at all (v1 had it); parallel scheduler with
@@ -290,7 +290,7 @@ behavioral config.
 The harness-PRD review round (2026-06-06) added: tier-based model routing with a user config
 layer and eval-earned qualification (`stet models test`); review as a specialist panel (test-gap
 judgment moves there from Phase 4); budget presets; POSIX signal exit codes; streaming deferred.
-Details and rationale in `features/harness.md`.
+Details and rationale in `features/harness/harness-prd.md`.
 
 ## 13. Success metrics
 
