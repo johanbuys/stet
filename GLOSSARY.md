@@ -14,13 +14,13 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
 
 - **stet** — the validation CLI itself. Latin "let it stand": a proofreader's mark that annotates
   the manuscript and never rewrites it. stet reports findings; it never fixes (no `--fix`).
-  → `docs/product/stet-prd.md`
+  → `docs/better-planning/product/stet-prd.md`
 - **POC** — the `validation-agent-poc` sibling repo: the R&D prototype that proved behavioral
-  verification. Evidence base, not product code. → `docs/research/behavioral-validation-findings.md`
+  verification. Evidence base, not product code. → `docs/better-planning/research/behavioral-validation-findings.md`
 - **harness** — the shared substrate all phases run on: scheduler, agent runner, findings schema,
   output-as-tool, budgets, output formats, exit codes. A phase is a *configuration* of the
   harness. ⚠ the Pi SDK also calls itself an "agent harness" — in stet docs, "the harness"
-  unqualified always means stet's. → `docs/product/features/harness/harness-prd.md`
+  unqualified always means stet's. → `docs/better-planning/product/features/harness/harness-prd.md`
 - **phase** — one of the five validation dimensions: gates, spec, review, test-quality,
   behavioral. The **reporting unit**: every configured phase appears in every RunReport.
   ⚠ phases run in *parallel* by default — "phase" does not imply sequence. → harness PRD §1, §6

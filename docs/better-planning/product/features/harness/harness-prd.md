@@ -1,8 +1,8 @@
 # Feature PRD: Harness
 
 **Status:** draft — 2026-06-06.
-**Depends on:** `docs/product/stet-prd.md` (high-level PRD §4, §6, §8).
-**Draws on:** `docs/research/behavioral-validation-findings.md` + proven contracts mined from the
+**Depends on:** `docs/better-planning/product/stet-prd.md` (high-level PRD §4, §6, §8).
+**Draws on:** `docs/better-planning/research/behavioral-validation-findings.md` + proven contracts mined from the
 `validation-agent-poc` repo (`src/{validate,prompt,schema}.ts`).
 **Companion overview:** `harness-prd-overview.html` (visual walkthrough for review).
 **Downstream:** every other feature PRD writes against the contracts defined here.

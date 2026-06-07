@@ -3,10 +3,10 @@
 > **stet** — Latin: "let it stand." A proofreader's mark: it annotates the manuscript, it never
 > rewrites it.
 
-**Status:** draft — brainstormed 2026-06-05, supersedes `docs/archive/stet-prd-v1.md` (historical).
-**Draws on:** `docs/research/behavioral-validation-findings.md` (the validated evidence base for
+**Status:** draft — brainstormed 2026-06-05, supersedes `docs/better-planning/archive/stet-prd-v1.md` (historical).
+**Draws on:** `docs/better-planning/research/behavioral-validation-findings.md` (the validated evidence base for
 Phase 5 and the cross-cutting principles; phases 1–4 carry forward on v1's original reasoning).
-**Defers to:** per-feature PRDs in `docs/product/features/` for depth (contracts, schemas, edge cases).
+**Defers to:** per-feature PRDs in `docs/better-planning/product/features/` for depth (contracts, schemas, edge cases).
 
 ---
 
