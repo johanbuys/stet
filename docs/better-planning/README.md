@@ -75,8 +75,8 @@ One row per artifact. The **Phase** column routes to the family skill that owns 
 | `archive/stet-prd-v1.md` | (legacy PRD) | historical — superseded by the fresh high-level PRD |
 | `product/stet-brief.md` | brainstorm | **to reconstruct** — product brainstorm (2026-06-05) predates the brief format; rebuild from `stet-prd.md` §12 + decision record |
 | `product/stet-prd.md` | prd | **draft** — fresh direction; resolves findings §10 (see its §12) |
-| `features/harness/harness-brief.md` | brainstorm | **in progress** — reconstruction from the harness PRD decision table (canvas walkthrough, 2026-06-06) |
-| `features/harness/harness-prd.md` | prd | **in-review** — round 1 resolved; the shared substrate all other feature PRDs write against |
+| `features/harness/harness-brief.md` | brainstorm | **settled** 2026-06-06 — reconstructed from the PRD decision record + canvas walkthrough; adds the steel-thread direction (harness-only, stub phases) |
+| `features/harness/harness-prd.md` | prd | **in-review** — round 1 resolved; needs alignment with brief direction 8 (harness-only steel thread) + open items #20–23 |
 | `features/behavioral-engine/behavioral-engine-brief.md` | brainstorm | **settled** 2026-06-06 — five fork-level decisions landed (canvas brainstorm) |
 | `features/behavioral-engine/behavioral-engine-prd.md` | prd | TODO — drafts from the settled brief |
 | `features/*` (rest) | prd | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, start-service/pty-session, browser-execution, eval-suite |
