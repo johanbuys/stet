@@ -8,6 +8,18 @@
 
 Use the tdd skill.
 
+## Error Handling: `better-result` (Required)
+
+The harness uses [`better-result`](https://better-result.dev) for typed error handling
+(`vp add better-result`). **Full discipline:** every function that can fail returns
+`Result<T, E>` and **never throws across a module boundary**; errors are a `TaggedError`
+taxonomy in `src/errors.ts`; compose with `Result.gen`; the **only** throw→exit boundary is the
+outermost CLI shell, which `matchError`s the top-level error union into an exit code + message
+(tool errors → exit 2). This makes stet's "nothing passes silently" principle compiler-enforced.
+Error variants are first-class TDD targets — assert `result.isErr()` and the tagged variant, not
+a thrown exception. Rationale and scope: `docs/better-planning/product/features/harness/harness-plan.md`
+§2a + decision P7.
+
 ## Project Direction & Documentation (read before starting)
 
 **Status:** greenfield — `src/cli.ts` is a stub. The project is being (re)specified before
