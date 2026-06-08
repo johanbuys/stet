@@ -77,7 +77,8 @@ One row per artifact. The **Phase** column routes to the family skill that owns 
 | `product/stet-prd.md` | prd | **draft** — fresh direction; resolves findings §10 (see its §12) |
 | `features/harness/harness-brief.md` | brainstorm | **settled** 2026-06-06 — reconstructed from the PRD decision record + canvas walkthrough; adds the steel-thread direction (harness-only, stub phases) |
 | `features/harness/harness-prd.md` | prd | **settled** 2026-06-07 — rounds 1+2 folded in; steel-thread scoping (#24), #20–23 closed, worked examples (§4.10) |
-| `features/harness/harness-plan.md` | plan | **settled** 2026-06-08 — 9 milestones (M1 det. tracer → M2 steel thread → …); cold-reader review passed; `better-result` methodology (P7); next: `harness-tasks.md` or build M1 |
+| `features/harness/harness-plan.md` | plan | **settled** 2026-06-08 — 9 milestones (M1 det. tracer → M2 steel thread → …); cold-reader review passed; `better-result` methodology (P7) |
+| `features/harness/harness-tasks.md` | tasks | **ready** 2026-06-08 — 26 tasks (T1–T26), one PR per milestone; exported to GitHub issues #6–#31, label `auto-tasks`; next: build T1 (#6) |
 | `features/behavioral-engine/behavioral-engine-brief.md` | brainstorm | **settled** 2026-06-06 — five fork-level decisions landed (canvas brainstorm) |
 | `features/behavioral-engine/behavioral-engine-prd.md` | prd | TODO — drafts from the settled brief |
 | `features/*` (rest) | prd | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, start-service/pty-session, browser-execution, eval-suite |
