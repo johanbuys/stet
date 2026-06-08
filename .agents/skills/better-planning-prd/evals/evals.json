@@ -1,0 +1,22 @@
+{
+  "skill_name": "better-planning-prd",
+  "evals": [
+    {
+      "id": 0,
+      "name": "draft-feature-prd-artifacts",
+      "prompt": "Let's plan a new feature for taskpilot: recurring tasks (daily/weekly schedules, with skip and pause). I've already made these calls: schedules are stored as RRULE strings on the task; occurrences are generated lazily when the app runs (no background jobs); lookahead is capped at 1 year. Use whatever doc structure you think is best and go ahead and draft the feature PRD now — don't wait for me.",
+      "expected_output": "Handles briefless entry gracefully (user brought their decisions): creates a namespaced planning space (docs/better-planning/...) without clobbering the existing docs/plans/old-roadmap.md; feature PRD at product/features/recurring-tasks/recurring-tasks-prd.md (stem-named) with status header, contracts, acceptance criteria, edge cases, and a decisions table containing the three given decisions marked as user-made; a self-contained companion recurring-tasks-prd-overview.html ending with a 'things to poke at' section; GLOSSARY.md and README.md map created/updated.",
+      "files": [
+        "fixtures/taskpilot — small CLI app with legacy docs/plans/old-roadmap.md"
+      ],
+      "assertions": [
+        "namespaced-stem-named-prd: a feature PRD exists at docs/better-planning/product/features/recurring-tasks/recurring-tasks-prd.md (namespaced layout, stem-named file)",
+        "companion-html-self-contained-with-poke-at: a companion *-prd-overview.html exists next to the PRD, contains no external http(s) resource references (self-contained), and ends with an open-questions / things-to-poke-at section",
+        "decisions-table-captures-user-calls: the PRD contains a decisions table including all three user-given decisions (RRULE storage, lazy on-run generation, 1-year lookahead cap)",
+        "legacy-docs-untouched: docs/plans/old-roadmap.md is byte-identical to the fixture version",
+        "glossary-and-map-exist: docs/better-planning/GLOSSARY.md and docs/better-planning/README.md (with a status index) both exist",
+        "prd-structure-complete: the PRD has a status header (Status/Depends/Companion) plus acceptance criteria and edge cases sections"
+      ]
+    }
+  ]
+}

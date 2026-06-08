@@ -176,18 +176,25 @@
   <div class="tagline">The shared substrate all five phases run on. A phase is reduced to a configuration;
   the harness owns everything common. <b>Every other feature PRD writes against the contracts on this page.</b></div>
   <div class="status-row">
-    <span class="chip draft">STATUS: DRAFT — updated 2026-06-06</span>
-    <span class="chip rev">REVIEW ROUND 1 RESOLVED — all 6 open questions</span>
+    <span class="chip proven">STATUS: SETTLED — 2026-06-07</span>
+    <span class="chip rev">ROUNDS 1 + 2 RESOLVED — #20–23 closed, steel thread landed (#24)</span>
     <span class="chip proven">contracts mined from validation-agent-poc</span>
-    <span class="chip">detail: docs/product/features/harness/harness-prd.md</span>
+    <span class="chip">detail: docs/better-planning/product/features/harness/harness-prd.md</span>
   </div>
 </header>
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">01</span>Division of labor — harness owns, phases contribute</h2>
+  <h2><span class="num">01</span>Division of labor — harness owns, phases contribute <span class="chip rev" style="font-size:11px;">NEW — round 2: steel thread</span></h2>
   <p class="lede">The boundary rule: <strong>needed by two or more phases → harness; needed by one → that phase's PRD.</strong>
   Adding a sixth phase must touch no harness code.</p>
+  <div class="card rule-line" style="margin-bottom:14px;">
+    <b>The harness ships with no real phase (#24, brief direction 8):</b> two <b>stub phases</b> — <code>stub-det</code>
+    and <code>stub-agent</code> (a <i>real</i> Pi SDK run, trivial rubric) — prove every contract end-to-end as the
+    <b>steel thread</b>: zero-config <code>stet</code> → scope detection → scheduler → both phase kinds → findings →
+    <code>RunReport</code> → exit code, before any real phase exists. Real phases integrate via their own feature plans,
+    each re-proving "touches no harness code". (PRD §3.9)
+  </div>
   <div class="ovc">
     <div class="ownbox">
       <h4>THE HARNESS OWNS</h4>
@@ -237,6 +244,7 @@
 
   <div class="schema">
     <div class="sname">RunReport <span style="color:var(--faint); font-weight:400;">— version-stamped aggregate, the only thing on stdout in JSON mode</span></div>
+    <div class="fieldrow"><span class="fn">stet · startedAt</span><span class="fv">producing binary's semver + run start (ISO-8601 UTC) — reports self-describe (#23); cache key excludes <code>startedAt</code></span></div>
     <div class="fieldrow"><span class="fn">scope</span><span class="fv">kind (staged | working | against | commit | commits) · ref · files[]</span></div>
     <div class="fieldrow"><span class="fn">spec</span><span class="fv">provided · sources[] — was there a spec, and from where</span></div>
     <div class="fieldrow"><span class="fn">result</span><span class="fv">exitCode · failOn · <b>gating[]</b> — exactly which findings caused exit 1, no parsing needed</span></div>
@@ -267,6 +275,7 @@
     <tr><td>Evidence-backed (carries a reproducing command — Phase 5 <code>failed</code>)</td><td><b>high</b> by construction — proof bypasses the opinion filter</td><td>yes</td></tr>
     <tr><td>AI judgment (phases 2–4 specialists, Phase 5 inconclusives)</td><td>model-assigned</td><td>only at <b>high</b> — sub-high AI findings never break automation</td></tr>
   </table>
+  <p style="font-size:13.5px; color:var(--muted); margin-top:12px;">Three full worked <code>RunReport</code> instances (clean / failing / cancelled) live in PRD <b>§4.10</b> — informative, added in round 2 for contract evaluation.</p>
 </section>
 
 <!-- ============================================================ -->
@@ -336,6 +345,7 @@
   <table>
     <tr><th>mechanism</th><th>contract</th></tr>
     <tr><td><code>stet models test &lt;provider/id&gt;</code></td><td>runs the fixture suite <b>N times (default 3)</b>; verdict per tier; <b>any false <code>passed</code> on an over-claim trap disqualifies</b>; conservative misses tolerated. User pays their own model's exam.</td></tr>
+    <tr><td>CI's pinned routing (#21)</td><td><code>--model</code> flags in the workflow invocation itself — visible &amp; versioned where the merge gate is defined; env-var layer deferred.</td></tr>
     <tr><td>Qualification key</td><td><i>(model × rubric version × fixture-set version)</i> — a rubric edit or new trap invalidates prior quals; stale quals downgrade to the warning, never silent acceptance.</td></tr>
     <tr><td>Registry</td><td>curated manifest shipped per release + local qual cache in the user layer + community PRs. <b>No web service, no self-reported scores.</b></td></tr>
     <tr><td>Unqualified model in use</td><td><code>harness.unqualified-model</code> <span class="pill warn">WARNING</span> finding — in the report, visible to loops; strict CI refuses unqualified judges via <code>--fail-on warning</code>; default runs anyway.</td></tr>
@@ -405,7 +415,7 @@
   <table>
     <tr><th>limit</th><th>default</th><th>on breach</th></tr>
     <tr><td>per-phase wall clock</td><td>5 min (static agents) · <b>15 min</b> (gates, behavioral)</td><td>phase <code>error</code>, reason "budget exceeded", partial audit preserved; <b>gate timeout never cancels other phases</b></td></tr>
-    <tr><td>per-phase turns</td><td>50</td><td>same</td></tr>
+    <tr><td>per-phase turns</td><td>follows the wall-clock class: <b>50</b> (5-min) · <b>120</b> (15-min) — #22</td><td>same</td></tr>
     <tr><td>bash command timeout</td><td>60 s — deliberate pressure toward <code>start_service</code> for anything long-lived</td><td>command killed; output-so-far returned to the agent so it can react</td></tr>
     <tr><td>bash output cap</td><td>32 KB per call</td><td>truncated, with a visible marker</td></tr>
   </table>
@@ -452,7 +462,7 @@
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">09</span>Decisions — original draft + review round 1</h2>
+  <h2><span class="num">09</span>Decisions — draft + round 1 + round 2</h2>
   <table>
     <tr><th>decision</th><th>call</th></tr>
     <tr><td>Severity vocabulary</td><td class="dec-res"><span class="ok-dot">●</span> One gating vocab (<code>error/warning/info</code>); POC granularity survives in <code>meta</code>.</td></tr>
@@ -467,21 +477,27 @@
     <tr><td>Signal exit codes</td><td class="dec-res"><span class="ok-dot">●</span> SIGINT→130, SIGTERM→143, partial report written; 2 strictly tool error.</td></tr>
     <tr><td>Streaming</td><td class="dec-res"><span class="ok-dot">●</span> Deferred — run-then-read confirmed; NDJSON addable later without touching RunReport.</td></tr>
     <tr><td>SDK</td><td class="dec-res"><span class="ok-dot">●</span> Confirmed: <code>badlogic/pi-mono</code> → <code>earendil-works/pi</code> (repo transferred); old npm scope deprecated in favor of <code>@earendil-works/pi-coding-agent</code> 0.78.x — the POC already runs on it.</td></tr>
+    <tr><td>Harness-emitted findings (#20)</td><td class="dec-res"><span class="ok-dot">●</span> Round 2: attach to the concerned phase's report; the id namespace records the emitter; no pseudo-phase.</td></tr>
+    <tr><td>CI pinned routing (#21)</td><td class="dec-res"><span class="ok-dot">●</span> Round 2: <code>--model</code> flags in the workflow invocation; env-var layer deferred.</td></tr>
+    <tr><td>Turn ceilings (#22)</td><td class="dec-res"><span class="ok-dot">●</span> Round 2: follow the wall-clock class — 50 (5-min) / 120 (15-min).</td></tr>
+    <tr><td>Report provenance (#23)</td><td class="dec-res"><span class="ok-dot">●</span> Round 2: <code>RunReport</code> carries <code>stet</code> semver + <code>startedAt</code>; cache key excludes the timestamp.</td></tr>
+    <tr><td>Steel thread (#24)</td><td class="dec-res"><span class="ok-dot">●</span> Brief direction 8: harness-only build scope; two stub phases prove every contract; real phases integrate via their own feature plans.</td></tr>
   </table>
 </section>
 
 <!-- ============================================================ -->
 <section>
   <h2><span class="num">10</span>Still open (deliberately)</h2>
-  <div class="ask"><div class="q">Caching</div><div class="c">Re-running on an unchanged scope could reuse phase reports (key: scope hash × phase config hash). v1.x; the schema's deterministic serialization already enables it.</div></div>
+  <div class="ask"><div class="q">Caching</div><div class="c">Re-running on an unchanged scope could reuse phase reports (key: scope hash × phase config hash, excluding <code>startedAt</code> — #23). v1.x.</div></div>
+  <div class="ask"><div class="q">Env-var routing layer</div><div class="c">#21 chose workflow <code>--model</code> flags; <code>STET_MODEL_*</code> is addable between flags and project config without breaking precedence, if wrapper tooling needs it.</div></div>
   <div class="ask"><div class="q">SARIF mapping</div><div class="c">v1.x — enabled by the stable Finding shape.</div></div>
   <div class="ask"><div class="q">Custom specialists</div><div class="c">Deferred as part of the no-plugin-system line — revisit when the built-in specialist set stabilizes.</div></div>
   <div class="ask"><div class="q">Cross-specialist dedup / adversarial verify</div><div class="c">Not in v1 — specialists are disjoint by rubric design. The known fix if overlap proves noisy in practice.</div></div>
 </section>
 
 <footer>
-  stet — harness feature PRD overview · generated from <code>docs/product/features/harness/harness-prd.md</code> (draft, updated 2026-06-06 after review round 1) ·
-  contracts mined from <code>validation-agent-poc</code> · parent: <code>docs/product/stet-prd.md</code>
+  stet — harness feature PRD overview · generated from <code>docs/better-planning/product/features/harness/harness-prd.md</code> (settled 2026-06-07 — rounds 1+2 folded in) ·
+  contracts mined from <code>validation-agent-poc</code> · parent: <code>docs/better-planning/product/stet-prd.md</code>
 </footer>
 
 </div>

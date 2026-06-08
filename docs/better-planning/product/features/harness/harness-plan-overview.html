@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Harness Plan — Overview</title>
+<style>
+  :root {
+    --ink: #1a2233; --muted: #5b6678; --faint: #8b94a6;
+    --bg: #fafbfd; --card: #ffffff; --line: #e3e8f0;
+    --accent: #0f62fe; --ok: #059669; --warn: #d97706; --err: #dc2626;
+    --c1: #64748b; --c2: #2563eb; --c3: #7c3aed; --crit: #0f766e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color: var(--ink); background: var(--bg); line-height: 1.55; font-size: 16px; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 28px 120px; }
+  header { padding: 52px 0 30px; border-bottom: 1px solid var(--line); margin-bottom: 40px; }
+  .crumb { font-size: 13px; color: var(--faint); font-weight: 600; letter-spacing: .5px; }
+  .crumb b { color: var(--ok); }
+  .brand { font-size: 42px; font-weight: 800; letter-spacing: -1.5px; margin-top: 4px; }
+  .tagline { font-size: 18px; color: var(--muted); margin-top: 8px; max-width: 780px; }
+  .tagline b { color: var(--ink); }
+  .status-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  .chip { font-size: 12.5px; font-weight: 600; padding: 4px 12px; border-radius: 999px;
+          border: 1px solid var(--line); background: var(--card); color: var(--muted); }
+  .chip.draft { background: #fff7ed; border-color: #fdba74; color: #c2410c; }
+  .chip.ok { background: #ecfdf5; border-color: #6ee7b7; color: #047857; }
+  .chip.tdd { background: #eef4ff; border-color: #93c5fd; color: #1d4ed8; }
+  section { margin-bottom: 56px; }
+  h2 { font-size: 25px; font-weight: 750; letter-spacing: -.5px; margin-bottom: 6px;
+       display: flex; align-items: baseline; gap: 12px; }
+  h2 .num { font-size: 14px; font-weight: 700; color: var(--faint); letter-spacing: 1px; }
+  h3 { font-size: 16.5px; font-weight: 700; margin: 22px 0 10px; }
+  .lede { color: var(--muted); margin-bottom: 22px; max-width: 860px; }
+  .lede b { color: var(--ink); }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .86em;
+         background: #eef1f6; padding: 1px 6px; border-radius: 4px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 18px 20px; box-shadow: 0 1px 2px rgba(20,30,60,.04); }
+  .pill { font-size: 11px; font-weight: 800; letter-spacing: .3px; padding: 2px 9px; border-radius: 999px; }
+  .pill.crit { background: #ccfbf1; color: #0f766e; }
+  .pill.ok { background: #d1fae5; color: #047857; }
+  .pill.gray { background: #f1f5f9; color: #475569; }
+
+  /* gantt */
+  .gantt .row { display: grid; grid-template-columns: 210px 1fr; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .gantt .lbl { font-size: 12.5px; font-weight: 600; text-align: right; color: var(--muted); }
+  .gantt .lbl b { color: var(--ink); }
+  .gantt .track { position: relative; height: 30px; background: #f1f4f9; border-radius: 6px; }
+  .gantt .bar { position: absolute; top: 0; height: 100%; border-radius: 6px; font-size: 11px;
+                font-weight: 700; color: #fff; display: flex; align-items: center; padding: 0 10px; white-space: nowrap; }
+  .gantt .axis { display: grid; grid-template-columns: 210px 1fr; gap: 14px; margin-top: 6px; font-size: 11px; color: var(--faint); }
+  .gantt .axis .ticks { display: flex; justify-content: space-between; }
+
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13.5px; }
+  th { text-align: left; font-size: 11.5px; color: var(--muted); border-bottom: 2px solid var(--line); padding: 7px 10px 7px 0; }
+  td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+
+  .ms { border-left: 4px solid var(--c2); border-radius: 0 10px 10px 0; background: var(--card);
+        border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+        padding: 16px 20px; margin-bottom: 14px; }
+  .ms.crit { border-left-color: var(--crit); }
+  .ms h3 { margin-top: 0; display: flex; align-items: center; gap: 10px; }
+  .ms .goal { color: var(--muted); font-size: 14px; margin-bottom: 10px; }
+  .ms .out { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 9px 13px;
+             font-size: 13px; margin-top: 10px; }
+  .ms .out b { color: var(--ok); }
+  .ms .steps { font-size: 13px; color: var(--ink); }
+  .ms .steps li { margin: 3px 0 3px 18px; }
+
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .ask { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 13px 16px; margin-bottom: 10px; }
+  .ask .q { font-weight: 700; color: #b45309; font-size: 14px; margin-bottom: 3px; }
+  .ask .c { font-size: 13.5px; color: var(--muted); }
+  .ok-dot { color: var(--ok); }
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 12.5px; color: var(--faint); }
+  @media (max-width: 760px) { .twocol { grid-template-columns: 1fr; } .gantt .row, .gantt .axis { grid-template-columns: 120px 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="crumb">stet / feature / <b>harness</b> / implementation plan</div>
+  <div class="brand">Harness — Build Plan</div>
+  <div class="tagline">Nine milestones, each ending in a runnable <b>"run X, see Y"</b>. The
+  deterministic spine first, the agent half through an owned seam, the contracts on top —
+  <b>TDD vertical slices throughout</b>.</div>
+  <div class="status-row">
+    <span class="chip draft">STATUS: DRAFT — 2026-06-07</span>
+    <span class="chip tdd">TDD: tracer bullets · public-interface tests</span>
+    <span class="chip tdd">better-result: Result&lt;T,E&gt;, no throws across modules</span>
+    <span class="chip ok">4 plan decisions landed on canvas</span>
+    <span class="chip">detail: harness-plan.md</span>
+  </div>
+</header>
+
+<section>
+  <h2><span class="num">01</span>Build order — risk &amp; proof, not document order</h2>
+  <p class="lede">The deterministic spine is the cheapest thing that produces observable output,
+  so it goes first; then the agent half (the project's core bet) through the
+  <code>AgentRunner</code> seam; then the contracts that ride on top. <b>M1→M2 is the critical
+  path — it closes the steel thread (PRD acceptance #17).</b></p>
+
+  <div class="card gantt">
+    <div class="row"><div class="lbl"><b>M1</b> · det. tracer <span class="pill crit">critical path</span></div>
+      <div class="track"><div class="bar" style="left:0;width:14%;background:var(--crit)">stub-det end-to-end</div></div></div>
+    <div class="row"><div class="lbl"><b>M2</b> · runner + guards <span class="pill crit">steel thread</span></div>
+      <div class="track"><div class="bar" style="left:14%;width:20%;background:var(--crit)">AgentRunner · stub-agent · 3 guards</div></div></div>
+    <div class="row"><div class="lbl"><b>M3</b> · budgets</div>
+      <div class="track"><div class="bar" style="left:34%;width:12%;background:var(--c2)">limits = named errors</div></div></div>
+    <div class="row"><div class="lbl"><b>M4</b> · scheduler/teardown</div>
+      <div class="track"><div class="bar" style="left:34%;width:16%;background:var(--c2)">cancel classes · signals</div></div></div>
+    <div class="row"><div class="lbl"><b>M5</b> · config</div>
+      <div class="track"><div class="bar" style="left:46%;width:12%;background:var(--c3)">4-layer precedence</div></div></div>
+    <div class="row"><div class="lbl"><b>M6</b> · routing</div>
+      <div class="track"><div class="bar" style="left:50%;width:14%;background:var(--c3)">tiers · qual check</div></div></div>
+    <div class="row"><div class="lbl"><b>M7</b> · specialists</div>
+      <div class="track"><div class="bar" style="left:50%;width:13%;background:var(--c3)">composite phases</div></div></div>
+    <div class="row"><div class="lbl"><b>M8</b> · spec context</div>
+      <div class="track"><div class="bar" style="left:58%;width:14%;background:var(--c3)">--prd/--task · partial-coverage</div></div></div>
+    <div class="row"><div class="lbl"><b>M9</b> · human output</div>
+      <div class="track"><div class="bar" style="left:80%;width:14%;background:var(--c1)">display polish (loops use JSON since M1)</div></div></div>
+    <div class="axis"><div></div><div class="ticks"><span>steel thread closes ↑ end of M2</span><span>M3–M8 parallelizable after M2</span><span>M9 last</span></div></div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">02</span>The two architectural seams</h2>
+  <div class="twocol">
+    <div class="card">
+      <h3>The <code>AgentRunner</code> interface <span class="pill ok">decision 1</span></h3>
+      <p style="font-size:13.5px;color:var(--muted)">A deep module: <code>(rubric, toolset, budgets, inputs) → {submission, cost, audit}</code>.
+      Harness tests drive a <b>scripted fake</b> — happy, duplicate-submit, never-submit, hang —
+      so the guards' eval-earned failure modes are <i>scriptable</i>, not hoped-for from a real model.
+      The Pi-SDK adapter (<code>PiAgentRunner</code>, lifted from the POC's <code>runValidation()</code>)
+      sits behind it, covered by a <b>keyed, skippable</b> suite + the steel-thread demo.</p>
+      <p style="font-size:13px;color:var(--faint);margin-top:8px">The tdd skill's own rule: mock at the boundary you own, never SDK internals.</p>
+    </div>
+    <div class="card">
+      <h3>Stub phases are product, not scaffolding <span class="pill ok">PRD #24</span></h3>
+      <p style="font-size:13.5px;color:var(--muted)"><code>stub-det</code> and <code>stub-agent</code>
+      live in <code>src/</code> permanently and <b>are</b> the surface the steel thread runs on —
+      never in a released binary's default phase set. The harness's definition of done can't
+      depend on a real phase shipping, so it proves itself on these.</p>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px;border-left:4px solid var(--c2)">
+    <h3 style="margin-top:0">Error handling — <code>better-result</code>, full discipline <span class="pill ok">decision P7</span></h3>
+    <p style="font-size:13.5px;color:var(--muted)">Every harness function that can fail returns
+    <code>Result&lt;T, E&gt;</code> and <b>never throws across a module boundary</b>. Errors are a
+    <code>TaggedError</code> taxonomy (<code>src/errors.ts</code>, established M1); the single
+    throw→exit boundary is the CLI shell, which <code>matchError</code>s into an exit code + message.
+    Turns stet's "nothing passes silently" principle into a <b>compiler-enforced guarantee</b> — and
+    makes error variants first-class TDD targets (<code>expect(r.isErr())</code> + the tagged variant).
+    The serialized <code>RunReport</code> contract is unaffected, so the PRD is untouched.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">03</span>Milestones — each ends in a demonstrable outcome</h2>
+
+  <div class="ms crit"><h3>M1 <span class="pill crit">critical path</span> Deterministic tracer</h3>
+    <div class="goal">Zero-config <code>stet</code> runs <code>stub-det</code> through the whole spine; emits a correct <code>RunReport</code>. No agent code yet.</div>
+    <ul class="steps"><li><code>better-result</code> dep + <code>src/errors.ts</code> taxonomy + CLI throw→exit shell</li><li>TypeBox schemas (Finding/Audit/PhaseReport/RunReport)</li><li>exit-code derivation (pure)</li><li>scope detection (real tmp git repos, returns <code>Result</code>)</li><li><code>stub-det</code> phase + registry</li><li>minimal scheduler + JSON output</li></ul>
+    <div class="out"><b>See:</b> <code>node dist/cli.mjs --format json</code> in the fixture repo → valid <code>RunReport</code>, one stub phase, exit 0/1. <code>vp test</code> green.</div>
+  </div>
+
+  <div class="ms crit"><h3>M2 <span class="pill crit">steel thread closes</span> AgentRunner + guards</h3>
+    <div class="goal">The agent half through the owned seam; the three output-as-tool guards; acceptance #17 closes here.</div>
+    <ul class="steps"><li><code>AgentRunner</code> interface + scripted <code>FakeAgentRunner</code></li><li>guard: validate-or-retry</li><li>guard: idempotency (first wins)</li><li>guard: no-submit fallback (synthesized error + <code>no-result</code>)</li><li><code>stub-agent</code> phase</li><li><code>PiAgentRunner</code> adapter (port POC) + keyed integration suite</li></ul>
+    <div class="out"><b>See:</b> zero-arg <code>stet</code> in the fixture runs <i>both</i> phase kinds → <code>RunReport</code> with <code>stet</code>+<code>startedAt</code>. <code>vp test</code> green; <code>PI_TEST_MODEL=… vp test</code> also green (real SDK).</div>
+  </div>
+
+  <div class="ms"><h3>M3 Budgets &amp; safety limits</h3>
+    <div class="goal">Every limit a named <code>error</code> — no silent hangs/kills (the POC's 300s failure mode).</div>
+    <div class="out"><b>See:</b> a phase scripted to hang 20s under a 1s budget → <code>error "budget exceeded"</code> with partial audit. <code>vp test</code> green.</div>
+  </div>
+
+  <div class="ms"><h3>M4 Scheduler — cancellation classes &amp; teardown</h3>
+    <div class="goal">Parallel execution; cancel vs report-only gates; total teardown; signal exits (130/143).</div>
+    <div class="out"><b>See:</b> a failing <code>stub-det</code> (cancel class) + slow <code>stub-agent</code> → agent phase <code>cancelled (gates failed: …)</code>, exit 1; SIGTERM → exit 143 + partial report on disk.</div>
+  </div>
+
+  <div class="ms"><h3>M5 Config loading &amp; precedence</h3>
+    <div class="goal"><code>flags &gt; project &gt; user &gt; built-in</code>, deep-merged per setting.</div>
+    <div class="out"><b>See:</b> a project <code>failOn: warning</code> flips a warning-only run 0→1; a malformed config exits 2 naming the line.</div>
+  </div>
+
+  <div class="ms"><h3>M6 Model routing — tiers &amp; qualification check</h3>
+    <div class="goal">Tier→model resolution against credentialed providers; preflight failure; <code>unqualified-model</code> warning.</div>
+    <div class="out"><b>See:</b> fake "only provider X" resolves the <code>robust</code> tier to X; no provider → preflight fails with the actionable message, exit 2, before any phase runs.</div>
+  </div>
+
+  <div class="ms"><h3>M7 Specialists — composite phases</h3>
+    <div class="goal">Parallel sub-agents roll up to one <code>PhaseReport</code>; per-specialist cost; one-fails-others-survive.</div>
+    <div class="out"><b>See:</b> <code>stub-composite</code> (3 specialists, 1 forced to error) → one report with the 2 survivors' findings, each tagged, per-specialist cost.</div>
+  </div>
+
+  <div class="ms"><h3>M8 Spec context &amp; large-diff visibility</h3>
+    <div class="goal"><code>--prd</code>/<code>--task</code> combine; <code>partial-coverage</code> warning when a diff exceeds budget.</div>
+    <div class="out"><b>See:</b> <code>--prd spec.md --task "X"</code> → both in <code>report.spec.sources</code>; an oversized diff → <code>partial-coverage</code> listing excluded files.</div>
+  </div>
+
+  <div class="ms"><h3>M9 Human output &amp; display polish</h3>
+    <div class="goal">The human surface (loops already work via JSON since M1).</div>
+    <div class="out"><b>See:</b> <code>stet</code> (no JSON) → grouped, colored, located findings + cost footer; <code>--quiet</code> suppresses passing phases; <code>--show error</code> filters display only.</div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">04</span>The v0 cut — what these milestones defer</h2>
+  <div class="twocol">
+    <div class="card"><h3 style="margin-top:0">Out of this plan</h3>
+      <ul style="font-size:13.5px;color:var(--muted);padding-left:18px">
+        <li><code>stet models test</code>, scorecards, the real manifest format → <b>eval-suite PRD</b> (M6 builds only the resolution-time check vs a fixture manifest)</li>
+        <li>Everything PRD §7 defers — NDJSON, caching, SARIF, custom specialists, dedup/verify, env-var routing layer</li>
+      </ul></div>
+    <div class="card"><h3 style="margin-top:0">Late within scope</h3>
+      <ul style="font-size:13.5px;color:var(--muted);padding-left:18px">
+        <li><code>--issue</code>/<code>gh</code> + <code>--auto-context</code> → after M8's core</li>
+        <li><code>sequential</code> policy → config sugar after M4</li>
+        <li>Budget presets → multiplier over M3's default set</li>
+        <li>Churn-ranked subsetting → M8 ships file-order + the warning</li>
+      </ul></div>
+  </div>
+  <p style="font-size:13px;color:var(--faint);margin-top:10px">Every deferral chosen because no other milestone depends on it.</p>
+</section>
+
+<section>
+  <h2><span class="num">05</span>Reality-disagrees protocol</h2>
+  <div class="card" style="border-left:4px solid var(--warn)">
+    <p style="font-size:14px">If implementation contradicts a PRD decision — a contract that can't be built as
+    specified, a budget default wrong in practice, an SDK API differing from the POC, a guard needing a fourth case —
+    <b>stop and surface it</b>: name the contradiction, bring it for a call (the PRD is amended + its decisions table
+    updated in the same change), only then continue. The docs follow reality deliberately; a silent deviation makes
+    every downstream doc lie.</p>
+    <p style="font-size:13px;color:var(--muted);margin-top:8px"><b>Watch points:</b> Pi SDK 0.78.x API vs the POC's usage ·
+    whether 120 turns suffices for <code>stub-agent</code> under budget · scope detection on detached HEAD / shallow clones.</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">06</span>Things to poke at</h2>
+  <div class="ask"><div class="q">Build order after M2</div><div class="c">M3/M5/M6/M8 are claimed mutually independent (parallelizable). Is M4-before-trusting-M3 the right coupling, or should M4 immediately follow M2?</div></div>
+  <div class="ask"><div class="q">Stub-agent rubric</div><div class="c">"Count TODO comments" — trivial enough to be deterministic-ish, real enough to exercise the SDK. Better trivial task?</div></div>
+  <div class="ask"><div class="q">M9 last</div><div class="c">Human polish deferred to the end since loops use JSON from M1. Acceptable to d-foot the human surface that long, or pull a minimal grouped view earlier?</div></div>
+  <div class="ask"><div class="q">Keyed integration suite</div><div class="c">Gated on <code>PI_TEST_MODEL</code>, skipped in keyless CI. Should CI run it on a schedule with a real key, or is the steel-thread demo + adapter unit coverage enough?</div></div>
+</section>
+
+<footer>
+  stet — harness implementation plan overview · generated from <code>harness-plan.md</code> (draft 2026-06-07) ·
+  derived from <code>harness-prd.md</code> (settled) · parent: <code>docs/better-planning/product/stet-prd.md</code>
+</footer>
+
+</div>
+</body>
+</html>

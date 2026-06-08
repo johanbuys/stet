@@ -2,8 +2,8 @@
 
 **Status:** settled — 2026-06-06 (all five fork-level decisions landed; canvas brainstorm)
 **Next phase:** feature PRD (`behavioral-engine-prd.md`) — drafts from this brief
-**Depends on:** `docs/product/stet-prd.md` §5 (Phase 5), §12 · `features/harness/harness-prd.md` (all contracts)
-**Draws on:** `docs/research/behavioral-validation-findings.md` · POC `../validation-agent-poc` (`src/{schema,prompt,validate}.ts`, 14 fixtures)
+**Depends on:** `docs/better-planning/product/stet-prd.md` §5 (Phase 5), §12 · `features/harness/harness-prd.md` (all contracts)
+**Draws on:** `docs/better-planning/research/behavioral-validation-findings.md` · POC `../validation-agent-poc` (`src/{schema,prompt,validate}.ts`, 14 fixtures)
 
 ## Problem
 
@@ -136,5 +136,5 @@ mechanics (consumes the schema this PRD defines).
 
 ## Evidence
 
-`docs/research/behavioral-validation-findings.md` §1–§6 · POC `src/prompt.ts` (rubric),
+`docs/better-planning/research/behavioral-validation-findings.md` §1–§6 · POC `src/prompt.ts` (rubric),
 `src/schema.ts` (verdict schema), `eval/` + `fixtures/` (the 14) · harness PRD §3–§5.

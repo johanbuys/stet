@@ -8,16 +8,31 @@
 
 Use the tdd skill.
 
+## Error Handling: `better-result` (Required)
+
+The harness uses [`better-result`](https://better-result.dev) for typed error handling
+(`vp add better-result`). **Full discipline:** every function that can fail returns
+`Result<T, E>` and **never throws across a module boundary**; errors are a `TaggedError`
+taxonomy in `src/errors.ts`; compose with `Result.gen`; the **only** throw→exit boundary is the
+outermost CLI shell, which `matchError`s the top-level error union into an exit code + message
+(tool errors → exit 2). This makes stet's "nothing passes silently" principle compiler-enforced.
+Error variants are first-class TDD targets — assert `result.isErr()` and the tagged variant, not
+a thrown exception. Rationale and scope: `docs/better-planning/product/features/harness/harness-plan.md`
+§2a + decision P7.
+
 ## Project Direction & Documentation (read before starting)
 
 **Status:** greenfield — `src/cli.ts` is a stub. The project is being (re)specified before
 implementation. Start from the docs.
 
-**Documentation:** see `docs/README.md` for the doc map and workflow. Docs flow broad → specific:
-research/findings → **high-level PRD** (`docs/product/stet-prd.md`, drafted) → per-feature PRDs →
-per-feature implementation plans. Write them in that order. A feature's artifacts all live
-together in `docs/product/features/<feature>/` (`<feature>-prd.md`, `<feature>-plan.md`; harness
-PRD drafted). The original PRD (`docs/archive/stet-prd-v1.md`) is historical, superseded by the
+**Documentation:** see `docs/better-planning/README.md` for the doc map, status index, and
+workflow — planning runs on the **better-planning skill family** (brainstorm → prd → plan →
+tasks, canvas for review) operating on that space. Docs flow broad → specific: research/findings
+→ brainstorm **briefs** → **high-level PRD** (`docs/better-planning/product/stet-prd.md`,
+drafted) → per-feature PRDs → per-feature implementation plans → task breakdowns. Write them in
+that order. A feature's artifacts all live together in
+`docs/better-planning/product/features/<feature>/` (`<feature>-brief.md`, `<feature>-prd.md`,
+`<feature>-plan.md`, `<feature>-tasks.md`; harness PRD drafted). The original PRD (`docs/better-planning/archive/stet-prd-v1.md`) is historical, superseded by the
 fresh high-level PRD. Every PRD has a companion `<name>-overview.html` for visual review.
 
 **Terminology:** `GLOSSARY.md` is the shared vocabulary (harness, phase, specialist,
@@ -26,7 +41,7 @@ introduces or renames a term.
 
 **Behavioral verification (Phase 5) R&D is done.** A prototype in the sibling repo
 **`../validation-agent-poc`** proved a diff-blind, mutation-free behavioral validator. Findings are
-captured in **`docs/research/behavioral-validation-findings.md`** — read it before writing any
+captured in **`docs/better-planning/research/behavioral-validation-findings.md`** — read it before writing any
 behavioral-verification spec. Mine the POC for the engine/rubric/verdict schema, 14 fixtures + a
 content-aware grader, and the browser provisioning recipe.
 
@@ -36,7 +51,7 @@ anywhere — `--fix` was cut from the product entirely; stet reports, the caller
 a **verdict** surfaced as **findings**; a **blunt conservative rubric beats a precise permissive
 one**; and the **browser must be provisioned**, never self-installed at validation time. Caveat:
 the R&D validated Phase 5 + cross-cutting principles, NOT the static phases 1–4. The findings doc
-§10 open decisions are all **resolved** — traceability table in `docs/product/stet-prd.md` §12.
+§10 open decisions are all **resolved** — traceability table in `docs/better-planning/product/stet-prd.md` §12.
 
 <!--VITE PLUS START-->
 
