@@ -36,8 +36,12 @@
     "test": "vp test",
     "prepare": "vp config"
   },
+  "dependencies": {
+    "better-result": "^2.9.2"
+  },
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "typescript": "^6.0.3",
     "vite-plus": "catalog:"
   },
   "packageManager": "pnpm@10.33.0"
