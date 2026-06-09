@@ -1,6 +1,6 @@
 import { Result } from "better-result";
 import { describe, expect, it } from "vite-plus/test";
-import { BudgetError, ConfigError, RoutingError, ScopeError } from "./errors.js";
+import { BudgetError, ConfigError, RoutingError, SchemaError, ScopeError } from "./errors.js";
 
 describe("error taxonomy", () => {
   it("ScopeError carries _tag and message", () => {
@@ -41,6 +41,34 @@ describe("error taxonomy", () => {
     expect(err._tag).toBe("BudgetError");
     expect(err.limit).toBe("wallClockMs");
     expect(err.message).toBe("phase exceeded 5-minute wall-clock budget");
+  });
+
+  it("SchemaError carries _tag, message, and errors array", () => {
+    const err = new SchemaError({
+      message: "RunReport validation failed — /version: expected 1",
+      errors: [{ path: "/version", message: "expected 1" }],
+    });
+    expect(err._tag).toBe("SchemaError");
+    expect(err.message).toBe("RunReport validation failed — /version: expected 1");
+    expect(err.errors).toHaveLength(1);
+    expect(err.errors[0]).toEqual({ path: "/version", message: "expected 1" });
+  });
+
+  it("SchemaError is detectable via isErr() and _tag in a Result", () => {
+    const fail = (): Result<string, SchemaError> =>
+      Result.err(
+        new SchemaError({
+          message: "bad schema",
+          errors: [{ path: "/phases", message: "not an array" }],
+        }),
+      );
+
+    const result = fail();
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("SchemaError");
+      expect(result.error.errors[0]?.path).toBe("/phases");
+    }
   });
 
   it("ScopeError is detectable via isErr() and _tag in a Result", () => {

@@ -18,6 +18,9 @@ importers:
 
   .:
     dependencies:
+      '@sinclair/typebox':
+        specifier: ^0.34.49
+        version: 0.34.49
       better-result:
         specifier: ^2.9.2
         version: 2.9.2
@@ -430,6 +433,9 @@ packages:
 
   '@rolldown/pluginutils@1.0.0-rc.13':
     resolution: {integrity: sha512-3ngTAv6F/Py35BsYbeeLeecvhMKdsKm4AoOETVhAA+Qc8nrA2I0kF7oa93mE9qnIurngOSpMnQ0x2nQY2FPviA==}
+
+  '@sinclair/typebox@0.34.49':
+    resolution: {integrity: sha512-brySQQs7Jtn0joV8Xh9ZV/hZb9Ozb0pmazDIASBkYKCjXrXU3mpcFahmK/z4YDhGkQvP9mWJbVyahdtU5wQA+A==}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -1054,6 +1060,8 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.0-rc.13': {}
+
+  '@sinclair/typebox@0.34.49': {}
 
   '@standard-schema/spec@1.1.0': {}
 

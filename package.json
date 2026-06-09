@@ -37,6 +37,7 @@
     "prepare": "vp config"
   },
   "dependencies": {
+    "@sinclair/typebox": "^0.34.49",
     "better-result": "^2.9.2"
   },
   "devDependencies": {

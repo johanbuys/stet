@@ -36,8 +36,18 @@ export class BudgetError extends TaggedError("BudgetError")<{
 }>() {}
 
 /**
+ * Runtime validation of a RunReport (or any schema) failed.
+ * `errors` carries the first N TypeBox error paths+messages for actionable output.
+ * Maps to exit 2.
+ */
+export class SchemaError extends TaggedError("SchemaError")<{
+  message: string;
+  errors: ReadonlyArray<{ path: string; message: string }>;
+}>() {}
+
+/**
  * Top-level error union for the CLI shell.
  * Every variant maps to exit 2 + a human message in M1.
  * Adding a new variant here is a compile error until the shell's matchError handles it.
  */
-export type StetError = ScopeError | ConfigError | RoutingError | BudgetError;
+export type StetError = ScopeError | ConfigError | RoutingError | BudgetError | SchemaError;

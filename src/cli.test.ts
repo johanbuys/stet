@@ -1,6 +1,13 @@
 import { Result } from "better-result";
 import { describe, expect, it } from "vite-plus/test";
-import { BudgetError, ConfigError, RoutingError, ScopeError, type StetError } from "./errors.js";
+import {
+  BudgetError,
+  ConfigError,
+  RoutingError,
+  SchemaError,
+  ScopeError,
+  type StetError,
+} from "./errors.js";
 import { resolveExit } from "./cli.js";
 
 describe("resolveExit", () => {
@@ -71,6 +78,17 @@ describe("resolveExit", () => {
       expect(out.exitCode).toBe(2);
       expect(out.stderr).toContain("wallClockMs");
       expect(out.stderr).toContain("phase exceeded 5-minute wall-clock budget");
+    });
+
+    it("SchemaError → exitCode 2, message in stderr", () => {
+      const err = new SchemaError({
+        message: "RunReport validation failed — /version: expected 1",
+        errors: [{ path: "/version", message: "expected 1" }],
+      });
+      const result: Result<{ exitCode: 0 | 1 }, StetError> = Result.err(err);
+      const out = resolveExit(result);
+      expect(out.exitCode).toBe(2);
+      expect(out.stderr).toContain("RunReport validation failed");
     });
   });
 });

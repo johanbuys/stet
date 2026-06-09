@@ -36,6 +36,7 @@ export function resolveExit(result: Result<{ exitCode: 0 | 1 }, StetError>): Exi
         ? `stet: routing error (tier: ${e.tier}) — ${e.message}`
         : `stet: routing error — ${e.message}`,
     BudgetError: (e) => `stet: budget exceeded (limit: ${e.limit}) — ${e.message}`,
+    SchemaError: (e) => `stet: schema validation error — ${e.message}`,
   });
 
   return { exitCode: 2, stderr };
