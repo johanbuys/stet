@@ -32,13 +32,18 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   *after* its specialists, reads all their findings, and dedups / drops convention-contradicted
   /speculative findings / re-ranks — its submission *replaces* the raw roll-up as the phase's
   findings. Harness machinery; the review coordinator's rubric is the code-review PRD's.
+  Authority is constrained: it cannot drop or downgrade deterministic / evidence-backed findings
+  (#30); its drops are recorded in `audit.coordinator.dropped` (#31); if its run fails the phase
+  falls back to the raw roll-up + a `coordinator-failed` warning (#29).
   ⚠ not a specialist (it runs after them and sees all their output); ⚠ never invents a phase.
-  → harness PRD §3.3a; decision #25; `research/cloudflare-ai-review-reference.md`
-- **risk classifier / level** — a deterministic harness step `classify(diff, paths, config) → level`
-  run once before fan-out; the `level` scales *how much* a composite phase spends (specialist
-  subset, coordinator on/off). Harness owns the mechanism + the level→fan-out wiring; the
-  thresholds/rules are the consuming feature PRD's. ⚠ not **activation** (on/off) — this is "how
-  much"; ⚠ deterministic, never an AI judgment. → harness PRD §3.4.1a; decision #26
+  → harness PRD §3.3a; decisions #25, #29–#31; `research/cloudflare-ai-review-reference.md`
+- **risk classifier / level** — a deterministic harness step `classify(diff, paths, rules) → level`
+  evaluated once per declaring phase before fan-out, over the pre-filtered diff; the `level`
+  scales *how much* a composite phase spends (specialist subset, coordinator on/off). Harness
+  owns the mechanism + the level→fan-out wiring; the rules/thresholds are declared per phase
+  (`riskRules`) and specced in the consuming feature PRD. ⚠ not **activation** (on/off) — this is
+  "how much"; ⚠ deterministic, never an AI judgment; ⚠ no run-global level — two phases may weigh
+  the same change differently. → harness PRD §3.4.1a; decisions #26, #32
 - **gate** — one deterministic Phase-1 check (tests, types, lint, build, …). ⚠ distinct from
   *gating* (a finding causing exit 1) and from **`Check`** (an audit entry). → harness PRD §3.4.3
 - **cancel class / report-only class** — gates whose *failure* cancels in-flight AI phases

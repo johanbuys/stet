@@ -92,6 +92,7 @@
     <span class="chip tdd">TDD: tracer bullets · public-interface tests</span>
     <span class="chip tdd">better-result: Result&lt;T,E&gt;, no throws across modules</span>
     <span class="chip draft">+M7.5 from the Cloudflare reference review (P8/P9)</span>
+    <span class="chip draft">SOUNDNESS PINS (P10) — budget layering · PI_TEST_MODEL pre-M6 stopgap · explicit stub registration; PRD #28–#33 folded into M7.5/M8</span>
     <span class="chip">detail: harness-plan.md</span>
   </div>
 </header>
@@ -145,7 +146,9 @@
       <p style="font-size:13.5px;color:var(--muted)"><code>stub-det</code> and <code>stub-agent</code>
       live in <code>src/</code> permanently and <b>are</b> the surface the steel thread runs on —
       never in a released binary's default phase set. The harness's definition of done can't
-      depend on a real phase shipping, so it proves itself on these.</p>
+      depend on a real phase shipping, so it proves itself on these. The steel-thread test
+      registers them <b>explicitly</b> via <code>registerPhase</code>, never via the default set
+      (P10) — so it survives real phases displacing the stubs.</p>
     </div>
   </div>
   <div class="card" style="margin-top:16px;border-left:4px solid var(--c2)">
@@ -172,7 +175,7 @@
   <div class="ms crit"><h3>M2 <span class="pill crit">steel thread closes</span> AgentRunner + guards</h3>
     <div class="goal">The agent half through the owned seam; the three output-as-tool guards; acceptance #17 closes here.</div>
     <ul class="steps"><li><code>AgentRunner</code> interface + scripted <code>FakeAgentRunner</code></li><li>guard: validate-or-retry</li><li>guard: idempotency (first wins)</li><li>guard: no-submit fallback (synthesized error + <code>no-result</code>)</li><li><code>stub-agent</code> phase</li><li><code>PiAgentRunner</code> adapter (port POC) + keyed integration suite</li></ul>
-    <div class="out"><b>See:</b> zero-arg <code>stet</code> in the fixture runs <i>both</i> phase kinds → <code>RunReport</code> with <code>stet</code>+<code>startedAt</code>. <code>vp test</code> green; <code>PI_TEST_MODEL=… vp test</code> also green (real SDK).</div>
+    <div class="out"><b>See:</b> zero-arg <code>stet</code> in the fixture (with <code>PI_TEST_MODEL</code> set — the pre-M6 model stopgap, P10) runs <i>both</i> phase kinds → <code>RunReport</code> with <code>stet</code>+<code>startedAt</code>. <code>vp test</code> green; <code>PI_TEST_MODEL=… vp test</code> also green (real SDK).</div>
   </div>
 
   <div class="ms"><h3>M3 Budgets &amp; safety limits</h3>
@@ -202,12 +205,12 @@
 
   <div class="ms crit"><h3>M7.5 <span class="pill crit">Cloudflare-validated</span> Coordinator judge stage + risk classifier</h3>
     <div class="goal">A composite phase can run an optional <b>coordinator</b> (judge pass) over its specialist roll-up, and a deterministic <b>risk classifier</b> scales fan-out + coordinator activation. The most load-bearing noise filter at scale, and its cost dial. <span class="pill gray">PRD #25/#26 · plan P8/P9</span></div>
-    <ul class="steps"><li>coordinator config + judge run through the existing <code>AgentRunner</code> seam — submission <b>replaces</b> the raw roll-up</li><li>provenance (survivors keep their <code>specialist</code>) + <code>cost.coordinator</code></li><li>deterministic <code>classify(diff, paths, config) → level</code> (pure; fixture rule only — real thresholds are the code-review PRD's)</li><li><code>level → (specialist subset, coordinator on/off)</code> wiring; inert with no rules declared</li></ul>
-    <div class="out"><b>See:</b> <code>stub-composite</code> with a coordinator + <code>riskLevels</code> → small diff runs 1 specialist / no judge; large diff runs all specialists + the judge, whose merged findings (one dedup, one drop) become the phase's <code>findings</code>, with <code>cost.coordinator</code> + the resolved <code>level</code> present. <code>vp test</code> green.</div>
+    <ul class="steps"><li>coordinator config + judge run through the existing <code>AgentRunner</code> seam — submission <b>replaces</b> the raw roll-up</li><li>provenance (survivors keep their <code>specialist</code>) + <code>cost.coordinator</code> + harness-computed <code>audit.coordinator.dropped</code> (PRD #31)</li><li><b>failure fallback</b> (PRD #29) — a failed judge run leaves the raw roll-up + a <code>coordinator-failed</code> warning</li><li><b>constrained authority</b> (PRD #30) — evidence-backed/deterministic findings survive drop/downgrade attempts, reinstated into <code>audit.coordinator.reinstated</code></li><li>deterministic <code>classify(diff, paths, rules) → level</code> (pure; per-phase <code>riskRules</code> over the pre-filtered diff, PRD #32; fixture rule only — real thresholds are the code-review PRD's)</li><li><code>level → (specialist subset, coordinator on/off)</code> wiring; inert with no rules declared</li></ul>
+    <div class="out"><b>See:</b> <code>stub-composite</code> with a coordinator + <code>riskRules</code>/<code>riskLevels</code> → small diff runs 1 specialist / no judge; large diff runs all specialists + the judge, whose merged findings (one dedup, one drop) become the phase's <code>findings</code>, with <code>cost.coordinator</code>, <code>audit.coordinator.dropped</code> + the resolved <code>level</code> present; a scripted judge failure leaves the raw roll-up + the warning. <code>vp test</code> green.</div>
   </div>
 
   <div class="ms"><h3>M8 Spec context &amp; large-diff visibility</h3>
-    <div class="goal"><code>--prd</code>/<code>--task</code> combine; <b>semantic diff pre-filtering</b> (strip lockfiles/minified/generated); <code>partial-coverage</code> warning when a diff exceeds budget.</div>
+    <div class="goal"><code>--prd</code>/<code>--task</code> combine; <b>semantic diff pre-filtering</b> (strip lockfiles/minified/generated; stripped paths in <code>scope.stripped</code>, PRD #33; the classifier consumes the filtered diff, #32); <code>partial-coverage</code> warning when a diff exceeds budget.</div>
     <div class="out"><b>See:</b> <code>--prd spec.md --task "X"</code> → both in <code>report.spec.sources</code>; an oversized diff → <code>partial-coverage</code> listing excluded files.</div>
   </div>
 
