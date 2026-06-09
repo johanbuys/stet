@@ -1,0 +1,258 @@
+/**
+ * stub-det — the deterministic stub phase (PRD §3.9).
+ *
+ * Permanent product surface: lives in src/, never in a released binary's default phase set,
+ * but always available for registration (the steel-thread test registers it explicitly).
+ *
+ * Responsibilities:
+ *   - Validate its config slice: { command: string } — missing/invalid ⇒ PhaseReport error.
+ *   - Run the configured command via `node:child_process` spawn with `shell: true`
+ *     (the user provides their own command line, e.g. "echo ok" or "vp test"; stet-imposed
+ *     bash execution limits arrive in M3 — for now the only cap is a generous output ceiling).
+ *   - Capture stdout + stderr (capped at ~4 KB per stream to keep evidence readable).
+ *   - Map exit code → one Check in audit.checks:
+ *       - exit 0 → status "passed", no findings, phase status "completed"
+ *       - non-zero → status "failed", one Finding (stub-det.command-failed, error, high),
+ *         phase status "completed" (the phase succeeded; the command did not)
+ *   - Spawn failure → phase status "error" (the phase could not run).
+ *   - cost.durationMs measured around the spawn.
+ *
+ * Why shell: true?
+ *   The user configures a full shell command line (may contain pipes, redirects, compound
+ *   commands). shell: true routes through /bin/sh, which is acceptable because:
+ *   (a) the command is the user's own, running in their own repo;
+ *   (b) stet is read-only by design (mutation-free — PRD §3.2); the shell is the user's
+ *   existing toolchain, not stet-imposed attack surface.
+ *   Stet-controlled bash limits (timeouts, output caps) arrive in M3.
+ *
+ * PRD references: §3.9 (stub phases), §4.1 (PhaseConfiguration), §4.2 (Finding),
+ * §4.3 (Check / Audit), §4.4 (PhaseReport), §4.6 (confidence rules — deterministic = high).
+ */
+
+import { spawn } from "node:child_process";
+import { type Static, Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+import type { Audit, Check, PhaseReport } from "../schema/report.js";
+import type { PhaseConfiguration } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Config validation
+// ---------------------------------------------------------------------------
+
+/** TypeBox schema for the config slice stub-det expects. */
+const StubDetConfigSchema = Type.Object({
+  command: Type.String({ minLength: 1 }),
+});
+
+/** The config slice stub-det expects from user/project config. */
+type StubDetConfig = Static<typeof StubDetConfigSchema>;
+
+/**
+ * Validate the phase's config slice via TypeBox Value.Check (narrows without assertions).
+ * Returns the typed config or a reason string for the error PhaseReport.
+ */
+function validateConfig(
+  config: unknown,
+): { ok: true; value: StubDetConfig } | { ok: false; reason: string } {
+  if (!Value.Check(StubDetConfigSchema, config)) {
+    return {
+      ok: false,
+      reason: "stub-det: no command configured — config must be { command: string }",
+    };
+  }
+  return { ok: true, value: config };
+}
+
+// ---------------------------------------------------------------------------
+// Output cap
+// ---------------------------------------------------------------------------
+
+/** Max bytes captured per stream before truncation. ~4 KB each. */
+const OUTPUT_CAP = 4096;
+
+function capOutput(buf: Buffer): string {
+  if (buf.length > OUTPUT_CAP) {
+    return buf.subarray(0, OUTPUT_CAP).toString("utf8") + "\n…[stet: output truncated at 4KB]";
+  }
+  return buf.toString("utf8");
+}
+
+// ---------------------------------------------------------------------------
+// Spawn helper — returns the exit code and combined captured output
+// ---------------------------------------------------------------------------
+
+interface SpawnResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  /** Set when the OS-level spawn itself failed (e.g. ENOENT on cwd); means the phase errored. */
+  spawnError?: string;
+}
+
+/**
+ * Run `command` via /bin/sh in `cwd`. Resolves with the exit code and captured output.
+ * Never rejects — spawn errors (e.g. bad cwd) set spawnError on the result instead.
+ */
+function runCommand(command: string, cwd: string): Promise<SpawnResult> {
+  return new Promise((resolve) => {
+    let stdoutBuf = Buffer.alloc(0);
+    let stderrBuf = Buffer.alloc(0);
+
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, [], { shell: true, cwd });
+    } catch (err) {
+      // Synchronous spawn failure (extremely rare)
+      const msg = err instanceof Error ? err.message : String(err);
+      resolve({ exitCode: -1, stdout: "", stderr: "", spawnError: msg });
+      return;
+    }
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const remaining = OUTPUT_CAP - stdoutBuf.length;
+      if (remaining > 0) {
+        stdoutBuf = Buffer.concat([stdoutBuf, chunk.subarray(0, remaining)]);
+      }
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      const remaining = OUTPUT_CAP - stderrBuf.length;
+      if (remaining > 0) {
+        stderrBuf = Buffer.concat([stderrBuf, chunk.subarray(0, remaining)]);
+      }
+    });
+
+    child.on("error", (err) => {
+      // The shell itself failed to launch — record spawnError so run() can surface a phase error.
+      resolve({
+        exitCode: -1,
+        stdout: capOutput(stdoutBuf),
+        stderr: capOutput(stderrBuf),
+        spawnError: err.message,
+      });
+    });
+
+    child.on("close", (code) => {
+      resolve({
+        exitCode: code ?? -1,
+        stdout: capOutput(stdoutBuf),
+        stderr: capOutput(stderrBuf),
+      });
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Error PhaseReport builder
+// ---------------------------------------------------------------------------
+
+function errorReport(reason: string, durationMs: number): PhaseReport {
+  return {
+    phase: "stub-det",
+    status: "error",
+    reason,
+    findings: [],
+    audit: {},
+    cost: { durationMs },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// stub-det PhaseConfiguration
+// ---------------------------------------------------------------------------
+
+export const stubDet: PhaseConfiguration = {
+  id: "stub-det",
+  kind: "deterministic",
+
+  /**
+   * Activation: always true (PRD §3.9 — stub phases declare trivial predicates).
+   * The harness scheduler uses the predicate; non-activated phases become "skipped" (T6).
+   */
+  activation: (_ctx) => true,
+
+  /**
+   * Run the configured command and map the outcome to a PhaseReport.
+   * INFALLIBLE BY CONTRACT: never throws, never rejects.
+   */
+  async run(ctx): Promise<PhaseReport> {
+    const start = Date.now();
+
+    // --- Config validation ---
+    const validated = validateConfig(ctx.config);
+    if (!validated.ok) {
+      return errorReport(validated.reason, Date.now() - start);
+    }
+    const { command } = validated.value;
+
+    // --- Run the command ---
+    let spawnResult: SpawnResult;
+    try {
+      spawnResult = await runCommand(command, ctx.cwd);
+    } catch (err) {
+      // runCommand should never reject, but be defensive
+      const msg = err instanceof Error ? err.message : String(err);
+      return errorReport(`stub-det: spawn error: ${msg}`, Date.now() - start);
+    }
+
+    const durationMs = Date.now() - start;
+    const { exitCode, stdout, stderr, spawnError } = spawnResult;
+
+    // --- Spawn failure: the shell itself could not start — phase error, not a command failure ---
+    if (spawnError !== undefined) {
+      return errorReport(`stub-det: failed to spawn command: ${spawnError}`, durationMs);
+    }
+
+    // --- Build combined output for evidence ---
+    const combinedOutput = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+    const exitLabel = `exit ${exitCode}`;
+    const evidenceText = [exitLabel, combinedOutput].filter(Boolean).join("\n").trim();
+
+    // --- Build Check ---
+    const checkStatus: Check["status"] = exitCode === 0 ? "passed" : "failed";
+    const check: Check = {
+      name: "stub-det command",
+      type: "test_command",
+      command,
+      status: checkStatus,
+      evidence: evidenceText,
+    };
+
+    const audit: Audit = { checks: [check] };
+
+    // --- Exit 0 → completed, no findings ---
+    if (exitCode === 0) {
+      return {
+        phase: "stub-det",
+        status: "completed",
+        findings: [],
+        audit,
+        cost: { durationMs },
+      };
+    }
+
+    // --- Non-zero → completed with one error Finding ---
+    return {
+      phase: "stub-det",
+      status: "completed",
+      findings: [
+        {
+          id: "stub-det.command-failed",
+          phase: "stub-det",
+          severity: "error",
+          /**
+           * confidence: "high" — deterministic findings are high by construction (PRD §4.6).
+           * A failing test command is not an opinion; it is evidence.
+           */
+          confidence: "high",
+          message: `stub-det command failed with exit ${exitCode}: ${command}`,
+          evidence: {
+            command,
+            output: combinedOutput,
+          },
+        },
+      ],
+      audit,
+      cost: { durationMs },
+    };
+  },
+};
