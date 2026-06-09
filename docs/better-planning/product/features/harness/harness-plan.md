@@ -1,9 +1,12 @@
 # Implementation Plan: Harness
 
-**Status:** settled — 2026-06-08. Derived from the settled harness PRD (2026-06-07) and brief
-(2026-06-06). Cold-reader adversarial review (2026-06-07) passed — its blocker findings folded
-into §2a and the milestone clarifications. `better-result` error-handling methodology added
-(P7, canvas 2026-06-08).
+**Status:** settled — 2026-06-08; **amended 2026-06-09** (Cloudflare reference review — adds
+milestone **M7.5**). Derived from the settled harness PRD (2026-06-07) and brief (2026-06-06).
+Cold-reader adversarial review (2026-06-07) passed — its blocker findings folded into §2a and the
+milestone clarifications. `better-result` error-handling methodology added (P7, canvas 2026-06-08).
+The 2026-06-09 amendment adds **M7.5 (coordinator judge stage + risk classifier)** from PRD
+decisions #25/#26 and folds semantic diff pre-filtering (#27) into M8 and the failback note into
+M6 — see `research/cloudflare-ai-review-reference.md` and plan decisions P8/P9.
 **Depends on:** `harness-prd.md` (contracts in §4, behavior in §3) · `harness-brief.md`
 (rationale).
 **Companion:** `harness-plan-overview.html` (milestone timeline + dependency lanes).
@@ -41,7 +44,8 @@ on top.
 | **M5** | Config loading & precedence | four-layer deep merge; malformed/unknown-key handling | "the same repo config behaves predictably across machines" |
 | **M6** | Model routing — tiers & qualification check | tier→provider resolution; preflight failure; `unqualified-model` warning | "a zero-config run resolves a model or fails fast with a useful message" |
 | **M7** | Specialists — composite phases | parallel sub-agents; roll-up; per-specialist cost; one-fails-others-survive | the review phase's machinery (first consumer is the code-review PRD) |
-| **M8** | Spec context & large-diff visibility | `--prd`/`--task` combining; `partial-coverage` warning | input plumbing the AI phases consume |
+| **M7.5** | Coordinator judge stage + risk classifier | the judge pass over the roll-up (dedup/drop/re-rank); deterministic `classify → level` scaling fan-out + coordinator | noise/false-positives at scale (Cloudflare's top filter); the cost dial for the expensive judge |
+| **M8** | Spec context & large-diff visibility | `--prd`/`--task` combining; `partial-coverage` warning; semantic diff pre-filtering | input plumbing the AI phases consume |
 | **M9** | Human output & display polish | grouping, severity color, `--quiet`/`--show`, cost footer | the human-facing surface (loops already work via JSON from M1) |
 
 **M1→M2 is the critical path** (the steel thread). M3–M8 each depend on the seam and report
@@ -324,6 +328,12 @@ tier is qualified iff an entry matches `(model, tier, current rubricVersion, cur
 fixtureSetVersion)`. A version bump ⇒ no match ⇒ the warning. The harness owns this contract;
 eval-suite later supplies the populated manifest and the `stet models test` writer.
 
+**Failback (added 2026-06-09, decision #27):** resolution returns an *ordered* list (the tier
+preference order, not a single model); on a *retryable* provider error the runner advances to the
+next qualified model before reporting `error`; non-retryable errors (auth/context-overflow) surface
+immediately. No new config — the chain is the existing preference order. One added test: a fake
+provider scripted to return a retryable error then succeed on the next model.
+
 **Files:** `src/routing/{resolve,qualify}.ts`, `src/routing/manifest.ts` (reader only) + tests.
 
 **Test plan:** routing tested with a fake provider/auth registry (the SDK's registry is an
@@ -356,15 +366,55 @@ specialist cost + emitting-specialist on each finding.
 **Verifiable outcome:** `stub-composite` with three specialists (one forced to error) yields one
 `PhaseReport` with the two survivors' findings, each tagged, with per-specialist cost.
 
+### M7.5 — Coordinator judge stage + risk classifier (added 2026-06-09)
+
+**Goal:** a composite phase can run an optional **coordinator** (judge pass) over its specialist
+roll-up, and a deterministic **risk classifier** can scale fan-out + coordinator activation (PRD
+§3.3a, §3.4.1a; decisions #25/#26). This is the Cloudflare-validated noise filter and its cost
+dial — see `research/cloudflare-ai-review-reference.md`.
+
+**Build order (behavior by behavior):**
+1. **Coordinator config + judge run** — extend the composite phase (M7) with an optional
+   `coordinator` ({rubric, model=robust}); after specialists submit, run a single agent through the
+   **existing `AgentRunner` seam** whose user prompt is the specialists' findings, whose
+   `submit_findings` output **replaces** the raw roll-up as the phase's `findings`. First test: a
+   `FakeAgentRunner`-scripted coordinator that merges two duplicate findings into one and drops a
+   planted nitpick → the phase report carries the merged set.
+2. **Provenance + cost** — surviving findings keep their originating `specialist`; coordinator
+   model/tokens land in `cost.coordinator` (PRD §4.4); a coordinator-raised finding carries no
+   `specialist`. The three §3.1 guards apply to the coordinator run unchanged.
+3. **Risk classifier mechanism** — a deterministic `classify(diff, paths, config) → level` (pure,
+   many small tests), evaluated once before fan-out; the resolved `level` echoed in the run output.
+   No real thresholds here — the **fixture rule set** is a trivial `lines > N ⇒ "full" else
+   "trivial"`; real rules are the code-review PRD's.
+4. **level → fan-out/coordinator wiring** — a phase declaring `riskLevels` runs a reduced
+   specialist subset and/or skips its coordinator at a lower level, the full set + coordinator at
+   the top. With no rules declared the mechanism is inert (full panel runs).
+
+**Files:** `src/phases/composite.ts` (coordinator extension), `src/phases/coordinator.ts`,
+`src/risk/classify.ts`, `src/phases/stub-composite.ts` (gains a coordinator + level rules) + tests.
+
+**Test plan:** coordinator tested against a scripted `FakeAgentRunner` (dedup/drop/re-rank are
+*scripted* outcomes, not hoped-for from a real model); classifier is pure-function table tests;
+wiring tested with `stub-composite` + two synthetic diffs (small/large) asserting the specialist
+subset and coordinator-on/off per level. A budget breach in the coordinator reuses M3's outcome.
+
+**Verifiable outcome:** `stub-composite` with a declared coordinator and `riskLevels` — on a small
+diff runs 1 specialist, no judge; on a large diff runs all specialists + the judge, whose merged
+findings (one dedup, one drop) are the phase's `findings`, with `cost.coordinator` present and the
+resolved `level` in the output. `vp test` green.
+
 ### M8 — Spec context & large-diff visibility
 
 **Goal:** `--prd`/`--task` combine and reach phases that consume spec; `partial-coverage`
 warning when a diff exceeds a phase's context budget (PRD §3.6).
 
 **Build order:** `--prd <file|-|literal>` + `--task` concatenation → handed to phases declaring
-spec consumption → over-budget diff ⇒ analyze highest-signal subset + emit
-`<phase>.partial-coverage` naming exclusions. *(`--issue`/`gh`, `--auto-context`, churn ranking
-deferred — §4; subset starts as file order.)*
+spec consumption → **semantic diff pre-filtering** (strip lockfiles/minified/sourcemaps/vendored/
+`@generated`-except-migrations, PRD §3.6, decision #27; stripped paths listed in the scope echo) →
+over-budget diff ⇒ analyze highest-signal subset + emit `<phase>.partial-coverage` naming
+exclusions. *(`--issue`/`gh`, `--auto-context`, churn ranking deferred — §4; subset starts as file
+order.)*
 
 **Files:** `src/spec-context.ts`, `src/phases/coverage.ts` (subset+warning) + tests.
 
@@ -421,6 +471,9 @@ steel thread, the guards, cancellation, budgets, config, routing, or specialists
   cancellation).
 - **M7 (specialists)** depends on M2 (the seam) for the happy/error cases, and on **M3** for
   the per-specialist budget-breach case (it reuses M3's outcome) — so schedule M7 after M3.
+- **M7.5 (coordinator + classifier)** depends on **M7** (it judges M7's roll-up) and reuses M2's
+  seam + M3's budget outcome; the classifier half depends only on M1 (pure function over scope
+  inputs) so it can land independently. Nothing earlier depends on M7.5.
 - **M9** depends on the `RunReport` shape (M1) and progress events (M2); do it last so it
   renders the final field set.
 
@@ -453,3 +506,5 @@ detached HEAD / shallow clones (PRD §6 edge cases).
 | P5 | Build M1→M2 critical path; M5/M6/M8 parallelizable after M2; M3 before M7; M4 ∥ M3 | draft | risk-and-proof order; the seam unblocks the independent contracts | draft — confirm in review |
 | P6 | §2a concrete contracts (AgentRunner signature, phase registration, stub-repo fixture, constants) pinned in the plan | cold-reader review (2026-06-07) | a cold builder was blocked without the interface signature, fixture state, and registration mechanism; budgets/guards sequencing was ambiguous | settled — fixed directly |
 | P7 | `better-result` adopted as the error-handling methodology — **full discipline**: every harness function returning `Result<T,E>`, a `TaggedError` taxonomy, one throw→exit boundary at the CLI shell | canvas 2026-06-08 (Johan) | stet's "nothing passes silently" principle becomes compiler-enforced not reviewer-policed; error variants become first-class TDD targets; a half-applied methodology is the worst of both. PRD untouched (methodology below the contract line) | settled |
+| P8 | New milestone **M7.5** (coordinator judge stage + risk classifier) after M7; coordinator runs through the existing AgentRunner seam, classifier is a pure function over scope inputs | Cloudflare reference review (Johan, 2026-06-09) | the judge layers naturally over M7's roll-up; reuses M2 seam + M3 budget outcome; blocks nothing earlier; implements PRD #25/#26 | settled |
+| P9 | Fixture rule sets only for M7.5's classifier + M8's pre-filtering; real thresholds/rules are the consuming feature PRD's (code-review) | Cloudflare reference review (Johan, 2026-06-09) | same harness-owns-mechanism / PRD-owns-rules split as activation and the manifest reader (M6); keeps #24 intact | settled |

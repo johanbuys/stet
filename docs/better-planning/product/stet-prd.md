@@ -5,7 +5,9 @@
 
 **Status:** draft — brainstormed 2026-06-05, supersedes `docs/better-planning/archive/stet-prd-v1.md` (historical).
 **Draws on:** `docs/better-planning/research/behavioral-validation-findings.md` (the validated evidence base for
-Phase 5 and the cross-cutting principles; phases 1–4 carry forward on v1's original reasoning).
+Phase 5 and the cross-cutting principles; phases 1–4 carry forward on v1's original reasoning) ·
+`docs/better-planning/research/cloudflare-ai-review-reference.md` (a production AI-review system as a
+reference impl — validated the specialist-panel + coordinator + risk-classifier shape at scale).
 **Defers to:** per-feature PRDs in `docs/better-planning/product/features/` for depth (contracts, schemas, edge cases).
 
 ---
@@ -83,7 +85,10 @@ documented this class repeatedly. The validator must be **independent** of the a
 
 The harness owns everything common: scope detection, config, the scheduler, the agent
 runner (Pi SDK), the findings schema, output-as-tool (submitting structured findings is the *only*
-way for an agent phase to finish — R&D D6), output formats, and the exit-code contract.
+way for an agent phase to finish — R&D D6), output formats, the exit-code contract, and — for
+composite phases — the **coordinator (judge pass)** and the deterministic **risk classifier** that
+sizes fan-out (harness owns these *mechanisms*; the rubrics and thresholds are the consuming
+feature PRD's).
 
 Each phase contributes only: **a rubric (system prompt) + a toolset + a default model.**
 
@@ -141,7 +146,12 @@ Inputs: the diff + enough surrounding context to judge patterns. Runs as a **pan
 specialists** in parallel — bugs, security, patterns, quality, coverage-gaps (where tests should
 be added or updated, risk-weighted) — narrow rubrics over one generalist rubric.
 High-signal over nitpicks; confidence scoring is critical; fewer, more confident findings beat
-exhaustive noise.
+exhaustive noise. The panel rolls up through an optional **coordinator (judge pass)** — a
+higher-tier agent that dedups, drops convention-contradicted/speculative findings, and re-ranks
+before the phase reports (harness machinery, §4; the review rubric is the code-review PRD's). A
+deterministic **risk classifier** may scale how many specialists fan out (and whether the
+coordinator runs) by the change's size and sensitivity — the cost dial. Both shapes are validated
+by a production reference system (`research/cloudflare-ai-review-reference.md`).
 
 ### Phase 4 — Test quality
 
@@ -254,6 +264,9 @@ validated POC, so it ports early rather than last.
   `pty_session`; provisioned `agent-browser` path; loop-integration docs (the ideoshi-code
   contract).
 - **v1.x — Polish.** SARIF, caching, routing presets, hardening from eval expansion.
+- **v1.x — GitHub integration *(follow-up feature)*.** A GH Action wrapper (the merge-gate recipe)
+  then a GH-App/webhook bot that posts findings as PR comments and turns PR comments into harness
+  invocations. Pure consumers of the `RunReport` contract — the harness needs no change for them.
 
 ## 11. Feature PRDs implied (the index below this doc)
 
@@ -263,12 +276,13 @@ validated POC, so it ports early rather than last.
 | `deterministic-gates` | detection heuristics, gate execution, hygiene/drift findings |
 | `init` | exploration agent, config drafting, refresh |
 | `spec-compliance` | phase 2 rubric, context inputs, requirement mapping |
-| `code-review` | phase 3 specialist set (bugs, security, patterns, quality, coverage-gaps), context windowing |
+| `code-review` | phase 3 specialist set (bugs, security, patterns, quality, coverage-gaps), the coordinator rubric, risk-level thresholds, context windowing |
 | `test-quality` | phase 4 rubric, no-tests findings |
 | `behavioral-engine` | rubric port, verdict contract, adapters, evidence ladder |
 | `start-service` / `pty-session` | lifecycle + raw-mode tools |
 | `browser-execution` | agent-browser integration + provisioning (baked image / remote / cloud) |
 | `eval-suite` | fixture port, content-aware grader, `stet models test` qualification + curated manifest |
+| `github-integration` *(follow-up)* | GH Action wrapper + GH-App/webhook bot that consumes the `RunReport`: PR-comment findings, comment-triggered runs (`break glass`, re-check, scoped review), re-review awareness. Out of the harness by the boundary rule |
 
 ## 12. Resolved decisions (traceability to findings §10)
 

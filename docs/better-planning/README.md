@@ -72,16 +72,18 @@ One row per artifact. The **Phase** column routes to the family skill that owns 
 |---|---|---|
 | `../../GLOSSARY.md` (repo root) | reference | **living** — update in the same PR as term changes |
 | `research/behavioral-validation-findings.md` | research | **done** — POC discoveries for behavioral verification |
+| `research/cloudflare-ai-review-reference.md` | research | **done** 2026-06-09 — Cloudflare's production AI-review system as a reference impl; validated the coordinator + risk-classifier; fed harness #25–27 / M7.5 |
 | `archive/stet-prd-v1.md` | (legacy PRD) | historical — superseded by the fresh high-level PRD |
 | `product/stet-brief.md` | brainstorm | **to reconstruct** — product brainstorm (2026-06-05) predates the brief format; rebuild from `stet-prd.md` §12 + decision record |
 | `product/stet-prd.md` | prd | **draft** — fresh direction; resolves findings §10 (see its §12) |
 | `features/harness/harness-brief.md` | brainstorm | **settled** 2026-06-06 — reconstructed from the PRD decision record + canvas walkthrough; adds the steel-thread direction (harness-only, stub phases) |
-| `features/harness/harness-prd.md` | prd | **settled** 2026-06-07 — rounds 1+2 folded in; steel-thread scoping (#24), #20–23 closed, worked examples (§4.10) |
-| `features/harness/harness-plan.md` | plan | **settled** 2026-06-08 — 9 milestones (M1 det. tracer → M2 steel thread → …); cold-reader review passed; `better-result` methodology (P7) |
-| `features/harness/harness-tasks.md` | tasks | **ready** 2026-06-08 — 26 tasks (T1–T26), one PR per milestone; exported to GitHub issues #6–#31, label `auto-tasks`; next: build T1 (#6) |
+| `features/harness/harness-prd.md` | prd | **settled** 2026-06-07, **amended 2026-06-09** — rounds 1+2 folded in; steel-thread scoping (#24), #20–23 closed, worked examples (§4.10); Cloudflare review added coordinator judge pass (#25), risk classifier (#26), pre-filtering/failback (#27) |
+| `features/harness/harness-plan.md` | plan | **settled** 2026-06-08, **amended 2026-06-09** — 10 milestones (M1 det. tracer → M2 steel thread → … → **M7.5 coordinator+classifier** → M9); cold-reader review passed; `better-result` (P7); M7.5 (P8/P9) |
+| `features/harness/harness-tasks.md` | tasks | **ready** 2026-06-08, **amended 2026-06-09** — 29 tasks (T1–T29), one PR per milestone; exported to GitHub issues #6–#31 + T27–T29, label `auto-tasks`; next: build T1 (#6) |
 | `features/behavioral-engine/behavioral-engine-brief.md` | brainstorm | **settled** 2026-06-06 — five fork-level decisions landed (canvas brainstorm) |
 | `features/behavioral-engine/behavioral-engine-prd.md` | prd | TODO — drafts from the settled brief |
 | `features/*` (rest) | prd | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, start-service/pty-session, browser-execution, eval-suite |
+| `features/github-integration` | brainstorm | **TODO — follow-up feature** (scoped 2026-06-09): a GH Action wrapper + GH-App/webhook bot that *consumes* the harness `RunReport` — posts findings as PR comments, turns PR comments (`break glass`, re-check, scoped review) into harness invocations. **Out of the harness** by the boundary rule (#24); the harness is already CI-ready. Owns re-review awareness. |
 | `features/*/*-plan.md` | plan | TODO — one per settled feature PRD |
 | `features/*/*-tasks.md` | tasks | TODO — one per settled plan |
 
