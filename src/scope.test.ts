@@ -1,0 +1,539 @@
+/**
+ * Tests for src/scope.ts — real temporary git repos, no mocks.
+ *
+ * Each describe block builds a throwaway repo under os.tmpdir() and tears it down
+ * in afterAll. Tests use real `git` commands via a local helper so that the behavior
+ * under test is exactly what detectScope() will encounter in production.
+ *
+ * Naming convention for the repo helper:
+ *   - `initRepo(dir)` — git init + identity config + initial commit
+ *   - Individual tests stage/commit further as needed
+ */
+
+import { execFile as execFileCb } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { promisify } from "node:util";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { detectScope } from "./scope.js";
+
+const execFile = promisify(execFileCb);
+
+// ---------------------------------------------------------------------------
+// Repo helper utilities
+// ---------------------------------------------------------------------------
+
+/** Run a git command in `dir`, resolving to stdout. */
+async function git(dir: string, ...args: string[]): Promise<string> {
+  const { stdout } = await execFile("git", args, { cwd: dir });
+  return stdout.trim();
+}
+
+/**
+ * Create a temp dir, git-init it, set a local identity + defaultBranch=main,
+ * and make one initial commit so HEAD exists.
+ *
+ * Returns the absolute path to the repo root.
+ */
+async function makeRepo(): Promise<string> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stet-scope-test-"));
+  await git(dir, "init", "-b", "main");
+  await git(dir, "config", "user.name", "Test User");
+  await git(dir, "config", "user.email", "test@example.com");
+  // Create an initial commit so HEAD resolves
+  const initFile = path.join(dir, "README.md");
+  fs.writeFileSync(initFile, "init\n");
+  await git(dir, "add", "README.md");
+  await git(dir, "commit", "-m", "initial commit");
+  return dir;
+}
+
+/** Write a file to `dir`, overwriting if it exists. */
+function writeFile(dir: string, name: string, content = "content\n"): void {
+  fs.writeFileSync(path.join(dir, name), content);
+}
+
+/** Remove a directory tree. */
+function removeDir(dir: string): void {
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
+// 1. Explicit --staged flag
+// ---------------------------------------------------------------------------
+
+describe("explicit --staged flag", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    writeFile(dir, "staged.ts");
+    await git(dir, "add", "staged.ts");
+    // Also leave an untracked file (should NOT appear under --staged)
+    writeFile(dir, "untracked.ts");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("returns kind staged with only the staged file", async () => {
+    const result = await detectScope(dir, { staged: true });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("staged");
+      expect(result.value.files).toContain("staged.ts");
+      expect(result.value.files).not.toContain("untracked.ts");
+    }
+  });
+
+  it("returns Ok with files:[] when nothing is staged (empty diff is valid)", async () => {
+    // Fresh repo — nothing staged in this one
+    const emptyDir = await makeRepo();
+    try {
+      const result = await detectScope(emptyDir, { staged: true });
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.kind).toBe("staged");
+        expect(result.value.files).toEqual([]);
+      }
+    } finally {
+      removeDir(emptyDir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2. Explicit --working flag
+// ---------------------------------------------------------------------------
+
+describe("explicit --working flag", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("detects tracked modifications", async () => {
+    writeFile(dir, "README.md", "modified\n");
+    const result = await detectScope(dir, { working: true });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("working");
+      expect(result.value.files).toContain("README.md");
+    }
+  });
+
+  it("detects untracked files", async () => {
+    // Restore README so only the untracked file is the change
+    writeFile(dir, "README.md", "init\n");
+    writeFile(dir, "new-untracked.ts");
+    const result = await detectScope(dir, { working: true });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("working");
+      expect(result.value.files).toContain("new-untracked.ts");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. Explicit --against flag
+// ---------------------------------------------------------------------------
+
+describe("explicit --against flag", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    // Feature branch with one commit
+    await git(dir, "checkout", "-b", "feature");
+    writeFile(dir, "feature.ts");
+    await git(dir, "add", "feature.ts");
+    await git(dir, "commit", "-m", "feature work");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("returns kind against with the feature file", async () => {
+    const result = await detectScope(dir, { against: "main" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("against");
+      expect(result.value.ref).toBe("main");
+      expect(result.value.files).toContain("feature.ts");
+    }
+  });
+
+  it("returns Ok with files:[] when no commits differ (empty diff is valid)", async () => {
+    // On same branch, against itself — merge-base with itself is empty
+    const result = await detectScope(dir, { against: "HEAD" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("against");
+      expect(result.value.files).toEqual([]);
+    }
+  });
+
+  it("returns Err when the ref does not exist", async () => {
+    const result = await detectScope(dir, { against: "nonexistent-branch-xyz" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ScopeError");
+      expect(result.error.message).toContain("nonexistent-branch-xyz");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 4. Explicit --commit flag
+// ---------------------------------------------------------------------------
+
+describe("explicit --commit flag", () => {
+  let dir: string;
+  let sha: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    writeFile(dir, "committed.ts");
+    await git(dir, "add", "committed.ts");
+    await git(dir, "commit", "-m", "add committed.ts");
+    sha = await git(dir, "rev-parse", "HEAD");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("returns kind commit with files of that commit", async () => {
+    const result = await detectScope(dir, { commit: sha });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("commit");
+      expect(result.value.ref).toBe(sha);
+      expect(result.value.files).toContain("committed.ts");
+    }
+  });
+
+  it("returns Err for a bad commit sha", async () => {
+    const result = await detectScope(dir, { commit: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ScopeError");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Explicit --commits flag (range)
+// ---------------------------------------------------------------------------
+
+describe("explicit --commits flag", () => {
+  let dir: string;
+  let firstSha: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    firstSha = await git(dir, "rev-parse", "HEAD");
+    writeFile(dir, "range-a.ts");
+    await git(dir, "add", "range-a.ts");
+    await git(dir, "commit", "-m", "range-a");
+    writeFile(dir, "range-b.ts");
+    await git(dir, "add", "range-b.ts");
+    await git(dir, "commit", "-m", "range-b");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("returns kind commits with files in the range", async () => {
+    const result = await detectScope(dir, { commits: `${firstSha}..HEAD` });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("commits");
+      expect(result.value.files).toContain("range-a.ts");
+      expect(result.value.files).toContain("range-b.ts");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Conflicting flags → Err
+// ---------------------------------------------------------------------------
+
+describe("conflicting flags", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("returns Err naming both flags when --staged and --working are both set", async () => {
+    const result = await detectScope(dir, { staged: true, working: true });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ScopeError");
+      expect(result.error.message).toMatch(/conflicting/i);
+      expect(result.error.message).toContain("--staged");
+      expect(result.error.message).toContain("--working");
+    }
+  });
+
+  it("returns Err when --staged and --against are both set", async () => {
+    const result = await detectScope(dir, { staged: true, against: "main" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ScopeError");
+      expect(result.error.message).toMatch(/conflicting/i);
+    }
+  });
+
+  it("returns Err when three flags are set", async () => {
+    const result = await detectScope(dir, { staged: true, working: true, against: "main" });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ScopeError");
+      expect(result.error.message).toMatch(/conflicting/i);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Not a git repo → Err
+// ---------------------------------------------------------------------------
+
+describe("not a git repo", () => {
+  it("returns Err with 'not a git repository'", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stet-not-a-repo-"));
+    try {
+      const result = await detectScope(dir, {});
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error._tag).toBe("ScopeError");
+        expect(result.error.message).toContain("not a git repository");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Auto-detection: staged beats working (both present)
+// ---------------------------------------------------------------------------
+
+describe("auto-detection: staged beats working", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    // Stage one file
+    writeFile(dir, "staged-auto.ts");
+    await git(dir, "add", "staged-auto.ts");
+    // Also leave a tracked modification (working tree change)
+    writeFile(dir, "README.md", "modified for working\n");
+    // And an untracked file
+    writeFile(dir, "untracked-auto.ts");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("resolves to staged when both staged and working changes exist", async () => {
+    const result = await detectScope(dir, {});
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("staged");
+      expect(result.value.files).toContain("staged-auto.ts");
+      // Working-tree-only files should NOT appear
+      expect(result.value.files).not.toContain("untracked-auto.ts");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 9. Auto-detection: working-tree (tracked edit)
+// ---------------------------------------------------------------------------
+
+describe("auto-detection: working-tree (tracked edit)", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    // Modify a tracked file without staging it
+    writeFile(dir, "README.md", "tracked modification\n");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("resolves to working when there are tracked modifications", async () => {
+    const result = await detectScope(dir, {});
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("working");
+      expect(result.value.files).toContain("README.md");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. Auto-detection: working-tree (untracked-only)
+// ---------------------------------------------------------------------------
+
+describe("auto-detection: working-tree (untracked only)", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    // Clean tracked files, add only an untracked file
+    writeFile(dir, "only-untracked.ts");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("resolves to working when only untracked files exist", async () => {
+    const result = await detectScope(dir, {});
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("working");
+      expect(result.value.files).toContain("only-untracked.ts");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. Auto-detection: feature branch → against default (merge-base files)
+// ---------------------------------------------------------------------------
+
+describe("auto-detection: feature branch vs default branch", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    // Create and switch to a feature branch, add a commit
+    await git(dir, "checkout", "-b", "feat/auto-detect");
+    writeFile(dir, "feature-auto.ts");
+    await git(dir, "add", "feature-auto.ts");
+    await git(dir, "commit", "-m", "feature commit");
+    // Leave working tree clean so we fall through staged + working rungs
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("resolves to against default branch with feature file", async () => {
+    const result = await detectScope(dir, {});
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("against");
+      expect(result.value.ref).toBe("main");
+      expect(result.value.files).toContain("feature-auto.ts");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. Auto-detection: detached HEAD → commit kind with HEAD files
+// ---------------------------------------------------------------------------
+
+describe("auto-detection: detached HEAD → commit kind", () => {
+  let dir: string;
+  let headSha: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    // Add a commit to detach from
+    writeFile(dir, "detached.ts");
+    await git(dir, "add", "detached.ts");
+    await git(dir, "commit", "-m", "commit for detach");
+    headSha = await git(dir, "rev-parse", "HEAD");
+    // Detach HEAD
+    await git(dir, "checkout", "--detach", headSha);
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("resolves to commit kind with HEAD sha and HEAD files", async () => {
+    const result = await detectScope(dir, {});
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("commit");
+      expect(result.value.ref).toBe(headSha);
+      expect(result.value.files).toContain("detached.ts");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. Auto-detection: clean tree on default branch → Err
+// ---------------------------------------------------------------------------
+
+describe("auto-detection: clean tree on default branch → Err", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    // Stay on main (default branch), leave clean working tree
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("returns Err with 'nothing detectable' message", async () => {
+    const result = await detectScope(dir, {});
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ScopeError");
+      expect(result.error.message).toContain("nothing detectable");
+      expect(result.error.message).toMatch(/default branch/i);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14. Shallow clone — explicit flags work where refs exist
+// ---------------------------------------------------------------------------
+
+describe("shallow clone: explicit flags work where refs exist", () => {
+  let originDir: string;
+  let cloneDir: string;
+
+  beforeAll(async () => {
+    // Build a source repo with a few commits
+    originDir = await makeRepo();
+    writeFile(originDir, "shallow-a.ts");
+    await git(originDir, "add", "shallow-a.ts");
+    await git(originDir, "commit", "-m", "shallow commit a");
+    writeFile(originDir, "shallow-b.ts");
+    await git(originDir, "add", "shallow-b.ts");
+    await git(originDir, "commit", "-m", "shallow commit b");
+
+    // Create a shallow clone (depth=1) via file:// protocol
+    cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), "stet-shallow-"));
+    await execFile("git", ["clone", "--depth=1", `file://${originDir}`, cloneDir]);
+    // Set local identity in the clone
+    await git(cloneDir, "config", "user.name", "Test User");
+    await git(cloneDir, "config", "user.email", "test@example.com");
+  });
+
+  afterAll(() => {
+    removeDir(originDir);
+    removeDir(cloneDir);
+  });
+
+  it("--commit HEAD works on a shallow clone (shallow tip exists)", async () => {
+    const sha = await git(cloneDir, "rev-parse", "HEAD");
+    const result = await detectScope(cloneDir, { commit: sha });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("commit");
+      expect(result.value.files).toContain("shallow-b.ts");
+    }
+  });
+
+  it("--staged with nothing staged returns Ok files:[] on shallow clone", async () => {
+    const result = await detectScope(cloneDir, { staged: true });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("staged");
+      expect(result.value.files).toEqual([]);
+    }
+  });
+});
