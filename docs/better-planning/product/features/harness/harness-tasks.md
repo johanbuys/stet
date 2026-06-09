@@ -50,14 +50,14 @@ review; see `research/cloudflare-ai-review-reference.md` and plan M7.5.)*
 
 ## M1 — Deterministic tracer (`stub-det` end-to-end) · PR1
 
-- [ ] **T1 · `better-result` foundation + error taxonomy + CLI throw→exit shell**  ([#6](https://github.com/johanbuys/stet/issues/6))
+- [x] **T1 · `better-result` foundation + error taxonomy + CLI throw→exit shell**  ([#6](https://github.com/johanbuys/stet/issues/6))
   Implements: plan §2a (error taxonomy), M1 step 0 · PRD §4.8 (exit codes) · decision P7
   Files: `package.json`, `src/errors.ts`, `src/cli.ts` (shell only)
   Accept: `vp add better-result` done; a unit test where a function returns
   `Err(new ConfigError(...))` is surfaced by the CLI shell as exit 2 + the message; an `Ok` path
   exits per the report. `vp test` green.
 
-- [ ] **T2 · Findings & report TypeBox schemas**  ([#7](https://github.com/johanbuys/stet/issues/7))
+- [x] **T2 · Findings & report TypeBox schemas**  ([#7](https://github.com/johanbuys/stet/issues/7))
   Implements: plan M1 step 1 · PRD §4.2–4.5 (Finding/Audit/PhaseReport/RunReport)
   Files: `src/schema/{finding,report}.ts` + tests
   Accept: `vp test schema` — a hand-built valid `RunReport` (incl. `stet`, `startedAt`)
@@ -65,26 +65,26 @@ review; see `research/cloudflare-ai-review-reference.md` and plan M7.5.)*
   pattern-validated identifier, not an enum — a report whose phase is `stub-det` validates
   (PRD #28).
 
-- [ ] **T3 · Exit-code derivation (pure)**  ([#8](https://github.com/johanbuys/stet/issues/8))
+- [x] **T3 · Exit-code derivation (pure)**  ([#8](https://github.com/johanbuys/stet/issues/8))
   Implements: plan M1 step 2 · PRD §4.6 (confidence), §4.8 (gating)
   Files: `src/exit-codes.ts` + tests
   Accept: `vp test exit` — a high-confidence error ⇒ 1; same at medium ⇒ 0;
   `--fail-on warning` gates warnings; `result.gating` names the responsible findings.
 
-- [ ] **T4 · Scope detection**  ([#9](https://github.com/johanbuys/stet/issues/9))
+- [x] **T4 · Scope detection**  ([#9](https://github.com/johanbuys/stet/issues/9))
   Implements: plan M1 step 3 · PRD §3.6, §6 (edge cases)
   Files: `src/scope.ts` + tests (real tmp git repos, no mocks)
   Accept: `vp test scope` — staged→working→branch→last-commit priority resolves correctly;
   conflicting flags and nothing-detectable each return `Err(ScopeError)`; detached HEAD /
   shallow clone degrade as PRD §6 specifies.
 
-- [ ] **T5 · `stub-det` phase + phase registry**  ([#10](https://github.com/johanbuys/stet/issues/10))
+- [x] **T5 · `stub-det` phase + phase registry**  ([#10](https://github.com/johanbuys/stet/issues/10))
   Implements: plan M1 step 4, §2a (phase registration) · PRD §3.9, §4.1, acceptance #1
   Files: `src/phases/stub-det.ts`, `src/phases/index.ts` (registry + default set) + tests
   Accept: `vp test phases` — `registerPhase(stubDet)` adds it to the set; `stub-det` runs a
   configured command and maps its exit code to a `Finding`+`Check` in its `PhaseReport`.
 
-- [ ] **T6 · Minimal scheduler + CLI JSON output (closes M1)**  ([#11](https://github.com/johanbuys/stet/issues/11))
+- [x] **T6 · Minimal scheduler + CLI JSON output (closes M1)**  ([#11](https://github.com/johanbuys/stet/issues/11))
   Implements: plan M1 steps 5–6 · PRD §3.4 (activation/aggregation), §4.5, §4.8
   Files: `src/scheduler.ts`, `src/report.ts`, `src/cli.ts`, `fixtures/stub-repo/` + an
   end-to-end integration test
