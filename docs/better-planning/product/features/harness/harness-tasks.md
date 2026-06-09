@@ -229,8 +229,8 @@ both phase kinds; mutation-free test passes.
 ## M7.5 — Coordinator judge stage + risk classifier · PR7.5 *(added 2026-06-09)*
 
 - [ ] **T27 · Coordinator judge pass (config + run + roll-up replacement)**  ([#33](https://github.com/johanbuys/stet/issues/33))
-  Implements: plan M7.5 steps 1–2 · PRD §3.3a, §4.1 (`coordinator`), §4.4 (`cost.coordinator`),
-  acceptance #18 · decision #25
+  Implements: plan M7.5 steps 1–3 · PRD §3.3a, §4.1 (`coordinator`), §4.4 (`cost.coordinator`),
+  acceptance #18 · decisions #25, #29
   Files: `src/phases/composite.ts`, `src/phases/coordinator.ts` + tests
   Accept: `vp test coordinator` — a composite phase with a declared `coordinator` runs its
   specialists, then a single `robust`-tier judge through the `AgentRunner` seam (FakeAgentRunner
@@ -243,7 +243,8 @@ both phase kinds; mutation-free test passes.
   keeps the plain roll-up unchanged.
 
 - [ ] **T28 · Coordinator rubric fixture + provenance/gating interaction**  ([#34](https://github.com/johanbuys/stet/issues/34))
-  Implements: plan M7.5 step 2 · PRD §3.3a, §4.2 (coordinator-emitted findings), §4.6/§4.8
+  Implements: plan M7.5 steps 2, 4 · PRD §3.3a, §4.2 (coordinator-emitted findings), §4.3
+  (`audit.coordinator`), §4.6/§4.8 · decisions #30, #31
   Files: `src/phases/coordinator.ts`, `src/phases/stub-composite.ts` (gains a coordinator) + tests
   Accept: `vp test` — a coordinator-raised finding (no single specialist owned it) carries no
   `specialist` and `phase ==` the composite phase; dropped findings vanish from `findings` but are
@@ -255,8 +256,8 @@ both phase kinds; mutation-free test passes.
   `audit.coordinator.reinstated` (PRD #30).
 
 - [ ] **T29 · Deterministic risk classifier + level→fan-out/coordinator wiring**  ([#35](https://github.com/johanbuys/stet/issues/35))
-  Implements: plan M7.5 steps 3–4 · PRD §3.4.1a (classifier), §4.1 (`riskLevels`), acceptance #19 ·
-  decision #26
+  Implements: plan M7.5 steps 5–6 · PRD §3.4.1a (classifier), §4.1 (`riskRules`/`riskLevels`),
+  acceptance #19 · decisions #26, #32
   Files: `src/risk/classify.ts`, `src/phases/composite.ts` (level wiring),
   `src/phases/stub-composite.ts` (level rules) + tests
   Accept: `vp test risk` — `classify(diff, paths, rules) → level` is a pure function (table tests,
