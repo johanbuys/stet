@@ -176,9 +176,9 @@
   <div class="tagline">The shared substrate all five phases run on. A phase is reduced to a configuration;
   the harness owns everything common. <b>Every other feature PRD writes against the contracts on this page.</b></div>
   <div class="status-row">
-    <span class="chip proven">STATUS: SETTLED — 2026-06-07</span>
+    <span class="chip proven">STATUS: SETTLED — 2026-06-07 · amended 2026-06-09</span>
     <span class="chip rev">ROUNDS 1 + 2 RESOLVED — #20–23 closed, steel thread landed (#24)</span>
-    <span class="chip proven">contracts mined from validation-agent-poc</span>
+    <span class="chip draft">CLOUDFLARE REVIEW — coordinator (#25), risk classifier (#26), pre-filter/failback (#27)</span>
     <span class="chip">detail: docs/better-planning/product/features/harness/harness-prd.md</span>
   </div>
 </header>
@@ -207,6 +207,8 @@
         <span class="own-item">findings schema</span>
         <span class="own-item">output-as-tool + guards</span>
         <span class="own-item">specialist fan-out + roll-up</span>
+        <span class="own-item" style="border-color:#0f766e;color:#0f766e">coordinator (judge pass)</span>
+        <span class="own-item" style="border-color:#0f766e;color:#0f766e">risk classifier (mechanism)</span>
         <span class="own-item">report aggregation</span>
         <span class="own-item">budgets &amp; presets</span>
         <span class="own-item">cost accounting</span>
@@ -226,6 +228,8 @@
         <li><b>extension</b> — submit-schema additions</li>
         <li><b>budgets</b> — overrides of harness defaults</li>
         <li><b>specialists</b> — optional parallel specialists (§04)</li>
+        <li><b>coordinator</b> — optional judge pass over the roll-up (§04)</li>
+        <li><b>riskLevels</b> — level → fan-out/coordinator rules (§04)</li>
       </ul>
     </div>
   </div>
@@ -294,7 +298,7 @@
 
 <!-- ============================================================ -->
 <section>
-  <h2><span class="num">04</span>Specialists — composite agent phases <span class="chip rev" style="font-size:11px;">NEW — review round 1</span></h2>
+  <h2><span class="num">04</span>Specialists, coordinator &amp; risk classifier — composite phases <span class="chip rev" style="font-size:11px;">round 1 + Cloudflare review</span></h2>
   <p class="lede">A panel of narrow specialists beats one generalist with a kitchen-sink rubric. A phase may declare
   <strong>specialists</strong>: parallel sub-agents, each the same configuration shape (rubric + toolset + model + activation),
   findings rolling up to the parent. <b>Phase = reporting unit; specialist = execution unit.</b> All three §03 guards apply per specialist;
@@ -313,8 +317,32 @@
       test files — it judges the <i>tests as artifacts</i> (tautology, mirroring, would-it-fail). "Tests missing or stale" is a
       judgment about the <i>code</i> → the coverage-gaps specialist, which rides the always-on review phase for zero extra activations.
       Specialists inherit the phase tier unless overridden (security on <code>robust</code>, quality on <code>fast</code> is plausible).
-      <b style="color:var(--ink)">Fences:</b> custom user-defined specialists deferred (plugin system); no cross-specialist dedup pass in v1.
+      <b style="color:var(--ink)">Fences:</b> custom user-defined specialists deferred (plugin system); a <i>per-finding</i> adversarial-verify panel beyond the coordinator stays deferred.
     </p>
+  </div>
+
+  <div class="split2" style="margin-top:18px;">
+    <div class="card" style="border-left:4px solid var(--crit, #0f766e);">
+      <h3 style="margin-top:0;">Coordinator (the judge pass) <span class="pill ok">#25 — amends #17</span></h3>
+      <p style="font-size:13.5px;color:var(--muted);">After the specialists submit, an optional <b>single
+      <code>robust</code>-tier judge</b> reads all their findings and <b>dedups</b>, <b>drops</b>
+      convention-contradicted/speculative/nitpick findings, and may <b>re-rank/re-categorise</b>. Its
+      submission <b>replaces</b> the raw roll-up as the phase's <code>findings</code> (runs through the same
+      <code>AgentRunner</code> seam + all three §03 guards). Survivors keep their <code>specialist</code>;
+      <code>cost.coordinator</code> records its model. <b style="color:var(--ink)">Validated by Cloudflare's
+      production system</b> as their most load-bearing noise filter — promoted from "deferred" to designed-in.
+      Opt-in per phase; the review rubric is the code-review PRD's.</p>
+    </div>
+    <div class="card" style="border-left:4px solid var(--crit, #0f766e);">
+      <h3 style="margin-top:0;">Risk classifier — the cost dial <span class="pill ok">#26</span></h3>
+      <p style="font-size:13.5px;color:var(--muted);">Activation answers <i>whether</i> a phase runs;
+      a deterministic <code>classify(diff, paths, config) → level</code> answers <i>how much</i>. The
+      <code>level</code> scales <b>which specialists fan out</b> and <b>whether the (expensive) coordinator
+      runs</b>. <b style="color:var(--ink)">Harness owns the mechanism + the level→fan-out wiring; the
+      thresholds/rules are the consuming feature PRD's</b> — the same split as activation, keeping #24 intact.
+      Deterministic (a <code>high</code>-confidence input, never an AI judgment); inert until a phase declares
+      <code>riskLevels</code>.</p>
+    </div>
   </div>
 </section>
 
@@ -482,6 +510,9 @@
     <tr><td>Turn ceilings (#22)</td><td class="dec-res"><span class="ok-dot">●</span> Round 2: follow the wall-clock class — 50 (5-min) / 120 (15-min).</td></tr>
     <tr><td>Report provenance (#23)</td><td class="dec-res"><span class="ok-dot">●</span> Round 2: <code>RunReport</code> carries <code>stet</code> semver + <code>startedAt</code>; cache key excludes the timestamp.</td></tr>
     <tr><td>Steel thread (#24)</td><td class="dec-res"><span class="ok-dot">●</span> Brief direction 8: harness-only build scope; two stub phases prove every contract; real phases integrate via their own feature plans.</td></tr>
+    <tr><td>Coordinator judge pass (#25)</td><td class="dec-res"><span class="ok-dot">●</span> Cloudflare review: first-class composite machinery — dedup/drop/re-rank, replacing the roll-up. <b>Supersedes #17</b> (the deferred dedup pass).</td></tr>
+    <tr><td>Risk classifier (#26)</td><td class="dec-res"><span class="ok-dot">●</span> Cloudflare review: deterministic <code>classify → level</code> scales fan-out + coordinator; harness owns mechanism, feature PRD owns thresholds.</td></tr>
+    <tr><td>Pre-filter + failback (#27)</td><td class="dec-res"><span class="ok-dot">●</span> Cloudflare review: strip lockfiles/minified/generated-except-migrations; model failback on retryable errors only.</td></tr>
   </table>
 </section>
 
@@ -492,12 +523,14 @@
   <div class="ask"><div class="q">Env-var routing layer</div><div class="c">#21 chose workflow <code>--model</code> flags; <code>STET_MODEL_*</code> is addable between flags and project config without breaking precedence, if wrapper tooling needs it.</div></div>
   <div class="ask"><div class="q">SARIF mapping</div><div class="c">v1.x — enabled by the stable Finding shape.</div></div>
   <div class="ask"><div class="q">Custom specialists</div><div class="c">Deferred as part of the no-plugin-system line — revisit when the built-in specialist set stabilizes.</div></div>
-  <div class="ask"><div class="q">Cross-specialist dedup / adversarial verify</div><div class="c">Not in v1 — specialists are disjoint by rubric design. The known fix if overlap proves noisy in practice.</div></div>
+  <div class="ask"><div class="q">Per-finding adversarial-verify panel</div><div class="c">The cross-specialist dedup pass is now <b>in scope</b> (the coordinator, #25). A separate N-skeptic refutation vote <i>per finding</i> beyond it stays deferred — the known fix if the judge proves insufficient.</div></div>
+  <div class="ask"><div class="q">Re-review awareness</div><div class="c">Skipping already-resolved findings on a re-run — caller-side in v1 (the <code>github-integration</code> feature filters output); a harness input is a later option.</div></div>
+  <div class="ask"><div class="q">GitHub / CI integration</div><div class="c">The harness is already CI-ready (headless CLI, JSON, exit codes). A GH Action wrapper + GH-App/webhook bot (PR-comment findings, comment-triggered runs) is a <b>separate follow-up feature</b>, not harness machinery — boundary rule (#24).</div></div>
 </section>
 
 <footer>
-  stet — harness feature PRD overview · generated from <code>docs/better-planning/product/features/harness/harness-prd.md</code> (settled 2026-06-07 — rounds 1+2 folded in) ·
-  contracts mined from <code>validation-agent-poc</code> · parent: <code>docs/better-planning/product/stet-prd.md</code>
+  stet — harness feature PRD overview · generated from <code>docs/better-planning/product/features/harness/harness-prd.md</code> (settled 2026-06-07, amended 2026-06-09 — rounds 1+2 + Cloudflare review) ·
+  contracts mined from <code>validation-agent-poc</code> · reference: <code>research/cloudflare-ai-review-reference.md</code> · parent: <code>docs/better-planning/product/stet-prd.md</code>
 </footer>
 
 </div>

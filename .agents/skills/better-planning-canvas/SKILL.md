@@ -74,6 +74,19 @@ On wake, walk the comments **one at a time** in review-id order — same discipl
 family's review rounds — batch the artifact edits at the end, then either regenerate the page
 for another round or close it out. Empty boxes mean "fine as is."
 
+## Live doc review
+
+When the user should read the *actual source* of an artifact — a PRD, a plan, any markdown —
+not a summary mirror of it: `assets/docview-template.html` renders the real file live with a
+comment box per `##` section and an agent-replies panel. Copy it once into the workspace, copy
+the `.md` next to it, open as `docview.html?md=<file>.md`. On wake: answer questions via
+`answers.json`, apply requested edits to the real document (the repo file stays canonical),
+re-copy the `.md`, bump the version — the reader watches the document change in place. It
+deliberately keeps scroll position and never blocks with an overlay; it pairs with a
+decision/review page on the same server (watch both wake markers). Full protocol in
+`references/canvas-pages.md` → Doc-review page. Offer it whenever a review round starts or the
+user asks to "see the full document", "read the source", or comment while reading.
+
 ## Page quality bar
 
 Canvas pages follow the family's design language (`assets/overview-template.html`, component

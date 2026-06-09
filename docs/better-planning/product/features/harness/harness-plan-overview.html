@@ -84,14 +84,14 @@
 <header>
   <div class="crumb">stet / feature / <b>harness</b> / implementation plan</div>
   <div class="brand">Harness — Build Plan</div>
-  <div class="tagline">Nine milestones, each ending in a runnable <b>"run X, see Y"</b>. The
-  deterministic spine first, the agent half through an owned seam, the contracts on top —
-  <b>TDD vertical slices throughout</b>.</div>
+  <div class="tagline">Ten milestones (M1–M9 + <b>M7.5</b>), each ending in a runnable
+  <b>"run X, see Y"</b>. The deterministic spine first, the agent half through an owned seam, the
+  contracts on top — <b>TDD vertical slices throughout</b>.</div>
   <div class="status-row">
-    <span class="chip draft">STATUS: DRAFT — 2026-06-07</span>
+    <span class="chip ok">SETTLED — 2026-06-08 · amended 2026-06-09</span>
     <span class="chip tdd">TDD: tracer bullets · public-interface tests</span>
     <span class="chip tdd">better-result: Result&lt;T,E&gt;, no throws across modules</span>
-    <span class="chip ok">4 plan decisions landed on canvas</span>
+    <span class="chip draft">+M7.5 from the Cloudflare reference review (P8/P9)</span>
     <span class="chip">detail: harness-plan.md</span>
   </div>
 </header>
@@ -118,8 +118,10 @@
       <div class="track"><div class="bar" style="left:50%;width:14%;background:var(--c3)">tiers · qual check</div></div></div>
     <div class="row"><div class="lbl"><b>M7</b> · specialists</div>
       <div class="track"><div class="bar" style="left:50%;width:13%;background:var(--c3)">composite phases</div></div></div>
+    <div class="row"><div class="lbl"><b>M7.5</b> · coordinator <span class="pill crit">judge + classifier</span></div>
+      <div class="track"><div class="bar" style="left:63%;width:15%;background:var(--crit)">judge pass · risk classifier</div></div></div>
     <div class="row"><div class="lbl"><b>M8</b> · spec context</div>
-      <div class="track"><div class="bar" style="left:58%;width:14%;background:var(--c3)">--prd/--task · partial-coverage</div></div></div>
+      <div class="track"><div class="bar" style="left:58%;width:14%;background:var(--c3)">--prd/--task · pre-filter · partial-coverage</div></div></div>
     <div class="row"><div class="lbl"><b>M9</b> · human output</div>
       <div class="track"><div class="bar" style="left:80%;width:14%;background:var(--c1)">display polish (loops use JSON since M1)</div></div></div>
     <div class="axis"><div></div><div class="ticks"><span>steel thread closes ↑ end of M2</span><span>M3–M8 parallelizable after M2</span><span>M9 last</span></div></div>
@@ -198,8 +200,14 @@
     <div class="out"><b>See:</b> <code>stub-composite</code> (3 specialists, 1 forced to error) → one report with the 2 survivors' findings, each tagged, per-specialist cost.</div>
   </div>
 
+  <div class="ms crit"><h3>M7.5 <span class="pill crit">Cloudflare-validated</span> Coordinator judge stage + risk classifier</h3>
+    <div class="goal">A composite phase can run an optional <b>coordinator</b> (judge pass) over its specialist roll-up, and a deterministic <b>risk classifier</b> scales fan-out + coordinator activation. The most load-bearing noise filter at scale, and its cost dial. <span class="pill gray">PRD #25/#26 · plan P8/P9</span></div>
+    <ul class="steps"><li>coordinator config + judge run through the existing <code>AgentRunner</code> seam — submission <b>replaces</b> the raw roll-up</li><li>provenance (survivors keep their <code>specialist</code>) + <code>cost.coordinator</code></li><li>deterministic <code>classify(diff, paths, config) → level</code> (pure; fixture rule only — real thresholds are the code-review PRD's)</li><li><code>level → (specialist subset, coordinator on/off)</code> wiring; inert with no rules declared</li></ul>
+    <div class="out"><b>See:</b> <code>stub-composite</code> with a coordinator + <code>riskLevels</code> → small diff runs 1 specialist / no judge; large diff runs all specialists + the judge, whose merged findings (one dedup, one drop) become the phase's <code>findings</code>, with <code>cost.coordinator</code> + the resolved <code>level</code> present. <code>vp test</code> green.</div>
+  </div>
+
   <div class="ms"><h3>M8 Spec context &amp; large-diff visibility</h3>
-    <div class="goal"><code>--prd</code>/<code>--task</code> combine; <code>partial-coverage</code> warning when a diff exceeds budget.</div>
+    <div class="goal"><code>--prd</code>/<code>--task</code> combine; <b>semantic diff pre-filtering</b> (strip lockfiles/minified/generated); <code>partial-coverage</code> warning when a diff exceeds budget.</div>
     <div class="out"><b>See:</b> <code>--prd spec.md --task "X"</code> → both in <code>report.spec.sources</code>; an oversized diff → <code>partial-coverage</code> listing excluded files.</div>
   </div>
 
@@ -215,7 +223,8 @@
     <div class="card"><h3 style="margin-top:0">Out of this plan</h3>
       <ul style="font-size:13.5px;color:var(--muted);padding-left:18px">
         <li><code>stet models test</code>, scorecards, the real manifest format → <b>eval-suite PRD</b> (M6 builds only the resolution-time check vs a fixture manifest)</li>
-        <li>Everything PRD §7 defers — NDJSON, caching, SARIF, custom specialists, dedup/verify, env-var routing layer</li>
+        <li>Everything PRD §7 defers — NDJSON, caching, SARIF, custom specialists, env-var routing layer, re-review awareness, and the GitHub/CI integration surface (its own follow-up feature)</li>
+        <li><b>Now in scope (M7.5):</b> the cross-specialist dedup/judge pass — promoted from "deferred" to the coordinator after the Cloudflare review. A <i>per-finding adversarial-verify panel</i> beyond it stays deferred.</li>
       </ul></div>
     <div class="card"><h3 style="margin-top:0">Late within scope</h3>
       <ul style="font-size:13.5px;color:var(--muted);padding-left:18px">
@@ -250,8 +259,9 @@
 </section>
 
 <footer>
-  stet — harness implementation plan overview · generated from <code>harness-plan.md</code> (draft 2026-06-07) ·
-  derived from <code>harness-prd.md</code> (settled) · parent: <code>docs/better-planning/product/stet-prd.md</code>
+  stet — harness implementation plan overview · generated from <code>harness-plan.md</code> (settled 2026-06-08, amended 2026-06-09) ·
+  derived from <code>harness-prd.md</code> (settled, amended) · Cloudflare reference: <code>research/cloudflare-ai-review-reference.md</code> ·
+  parent: <code>docs/better-planning/product/stet-prd.md</code>
 </footer>
 
 </div>

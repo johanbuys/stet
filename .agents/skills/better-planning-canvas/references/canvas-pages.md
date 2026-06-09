@@ -154,6 +154,26 @@ stays canonical), regenerate with the next decision, bump the version.
 pipeline. Comment boxes on each section invite reactions; the live loop turns reactions into a
 conversation.
 
+**Doc-review page** — the full markdown source of a real artifact (a PRD, a plan, any doc),
+rendered live with a comment box per `##` section. Built from `assets/docview-template.html`
+(self-contained: embedded minimal markdown renderer — headings, nested lists, tables, fences,
+quotes, inline). Protocol:
+
+1. Copy the template once into the workspace (e.g. as `docview.html`) — never edit it.
+2. Copy the source `.md` next to it; open as `docview.html?md=<file>.md` (optional `&doc=`,
+   `&title=` params; the feedback key defaults to `<stem>-doc`, so it never collides with a
+   decision-loop page on the same server).
+3. On wake: answer questions in `answers.json` (`{"round":"…","replies":[{"where":"…","html":"…"}]}`
+   — rendered as a green "Agent responses" panel at the top), apply requested edits to the
+   REAL document (the repo file stays canonical), then re-copy the `.md` into the workspace
+   and bump `version.json`.
+
+Two deliberate UX deviations from the brainstorm template: no full-page overlay after submit
+(reading continues while the agent works) and no scroll reset on redraw (the reader keeps
+their place; new replies appear at the top). Pairs naturally with a decision page on the same
+server — the structured loop carries the round, the doc view carries "let me read the real
+thing and poke at it"; watch BOTH wake markers.
+
 ## Reaching the page
 
 Bind is `0.0.0.0`, so the page is reachable from other machines — find an address the *user*

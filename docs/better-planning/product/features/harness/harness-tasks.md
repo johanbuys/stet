@@ -1,9 +1,11 @@
 # harness — tasks
 
-**Status:** ready — 2026-06-08
-**Derived from:** `harness-plan.md` (M1–M9) · contracts in `harness-prd.md` §4 · methodology in
-plan §2a + decisions P1/P7
-**Exported:** GitHub issues, label `auto-tasks` (issue numbers recorded per task after export)
+**Status:** ready — 2026-06-08; **amended 2026-06-09** (Cloudflare reference review: +M7.5,
+T27–T29; pre-filtering folded into T24, failback into T19) — 29 tasks.
+**Derived from:** `harness-plan.md` (M1–M9, M7.5) · contracts in `harness-prd.md` §4 · methodology
+in plan §2a + decisions P1/P7/P8/P9 · `research/cloudflare-ai-review-reference.md`
+**Exported:** GitHub issues, label `auto-tasks` (issue numbers recorded per task after export;
+T27–T29 exported 2026-06-09)
 
 One task ≈ one focused agent session. Tasks are grouped by milestone and ordered by what
 unblocks what. Each carries Implements-links to exact plan/PRD sections, the files it touches,
@@ -30,11 +32,15 @@ point** below if the diff runs large; everything else is one PR.
 | PR5 · M5 config | T17–T18 | M5 Accept |
 | PR6 · M6 routing | T19–T20 | M6 Accept |
 | PR7 · M7 specialists | T21–T22 | M7 Accept |
+| PR7.5 · M7.5 coordinator + classifier | T27–T29 | M7.5 Accept |
 | PR8 · M8 spec context | T23–T24 | M8 Accept |
 | PR9 · M9 human output | T25–T26 | M9 Accept |
 
 After M2, PR3/PR5/PR6/PR8 are mutually independent (plan §5) and may branch off M2 in parallel
 rather than strictly stacking; PR7 (specialists) stacks on PR3 (reuses M3's budget outcome).
+**PR7.5 (M7.5) stacks on PR7** — the coordinator judges M7's roll-up; its classifier half depends
+only on M1 and could split out if the PR runs large. *(Added 2026-06-09 — Cloudflare reference
+review; see `research/cloudflare-ai-review-reference.md` and plan M7.5.)*
 
 ---
 
@@ -184,7 +190,9 @@ both phase kinds; mutation-free test passes.
   Accept: `vp test routing` — a tier resolves to a model from the credentialed providers;
   no-provider-for-tier ⇒ `Err(RoutingError)` surfaced as a preflight exit-2 before any phase
   launches; a single phase's resolution failure ⇒ that phase `error`, others run;
-  `--model [<phase>=]<id>` overrides, specific beats general.
+  `--model [<phase>=]<id>` overrides, specific beats general. **Failback (#27):** resolution returns
+  the ordered tier-preference list; a retryable provider error advances to the next model;
+  non-retryable (auth/context-overflow) surfaces immediately — one fake-provider test covers it.
 
 - [ ] **T20 · Qualification check + manifest reader**  ([#25](https://github.com/johanbuys/stet/issues/25))
   Implements: plan M6 (b), §2a (fixture manifest) · PRD §3.2, acceptance #15
@@ -208,6 +216,43 @@ both phase kinds; mutation-free test passes.
   Accept: `vp test` — with one specialist forced to error (and one to a budget breach, reusing
   M3's outcome), the surviving specialists' findings are preserved in the report.
 
+## M7.5 — Coordinator judge stage + risk classifier · PR7.5 *(added 2026-06-09)*
+
+- [ ] **T27 · Coordinator judge pass (config + run + roll-up replacement)**  ([#33](https://github.com/johanbuys/stet/issues/33))
+  Implements: plan M7.5 steps 1–2 · PRD §3.3a, §4.1 (`coordinator`), §4.4 (`cost.coordinator`),
+  acceptance #18 · decision #25
+  Files: `src/phases/composite.ts`, `src/phases/coordinator.ts` + tests
+  Accept: `vp test coordinator` — a composite phase with a declared `coordinator` runs its
+  specialists, then a single `robust`-tier judge through the `AgentRunner` seam (FakeAgentRunner
+  scripted to merge two duplicate findings and drop a planted nitpick); the judge's submission
+  **replaces** the raw roll-up as the phase's `findings`; survivors keep their `specialist`;
+  `cost.coordinator` is populated; the three §3.1 guards apply to the judge run. A composite phase
+  with no coordinator keeps the plain roll-up unchanged.
+
+- [ ] **T28 · Coordinator rubric fixture + provenance/gating interaction**  ([#34](https://github.com/johanbuys/stet/issues/34))
+  Implements: plan M7.5 step 2 · PRD §3.3a, §4.2 (coordinator-emitted findings), §4.6/§4.8
+  Files: `src/phases/coordinator.ts`, `src/phases/stub-composite.ts` (gains a coordinator) + tests
+  Accept: `vp test` — a coordinator-raised finding (no single specialist owned it) carries no
+  `specialist` and `phase ==` the composite phase; dropped findings vanish from `findings` while the
+  `audit` still reflects what specialists examined; re-ranked severity/confidence flow into
+  `result.gating` correctly (the judge can downgrade a specialist's `error` and it stops gating).
+
+- [ ] **T29 · Deterministic risk classifier + level→fan-out/coordinator wiring**  ([#35](https://github.com/johanbuys/stet/issues/35))
+  Implements: plan M7.5 steps 3–4 · PRD §3.4.1a (classifier), §4.1 (`riskLevels`), acceptance #19 ·
+  decision #26
+  Files: `src/risk/classify.ts`, `src/phases/composite.ts` (level wiring),
+  `src/phases/stub-composite.ts` (level rules) + tests
+  Accept: `vp test risk` — `classify(diff, paths, config) → level` is a pure function (table tests,
+  fixture rule `lines > N ⇒ "full" else "trivial"`); a phase declaring `riskLevels` runs a reduced
+  specialist subset and/or skips its coordinator at the low level, the full set + coordinator at the
+  top; the resolved `level` appears in the run output; with no `riskLevels` declared the mechanism is
+  inert (full panel runs). Real thresholds are the code-review PRD's, not built here (plan P9).
+
+**M7.5 verifiable outcome (PR7.5 merge gate):** `stub-composite` with a declared coordinator and
+`riskLevels` runs 1 specialist / no judge on a small diff and all specialists + judge on a large
+diff, the judge's merged findings (one dedup, one drop) becoming the phase's `findings`, with
+`cost.coordinator` and the resolved `level` present; `vp test` green.
+
 ## M8 — Spec context & large-diff visibility · PR8
 
 - [ ] **T23 · Spec-context combining**  ([#28](https://github.com/johanbuys/stet/issues/28))
@@ -216,11 +261,13 @@ both phase kinds; mutation-free test passes.
   Accept: `vp test spec` — `--prd <file|-|literal>` + `--task` concatenate and reach phases
   declaring spec consumption; `report.spec.sources` lists each source.
 
-- [ ] **T24 · Large-diff visibility**  ([#29](https://github.com/johanbuys/stet/issues/29))
-  Implements: plan M8, §2a (context budget) · PRD §3.6, acceptance (partial-coverage)
-  Files: `src/phases/coverage.ts` + tests
-  Accept: `vp test` — a diff over the 200k-char budget is reduced to a `git diff --stat`-order
-  subset; a `<phase>.partial-coverage` warning names the excluded files (no silent truncation).
+- [ ] **T24 · Large-diff visibility + semantic pre-filtering**  ([#29](https://github.com/johanbuys/stet/issues/29))
+  Implements: plan M8, §2a (context budget) · PRD §3.6, acceptance (partial-coverage) · decision #27
+  Files: `src/phases/coverage.ts`, `src/diff-filter.ts` + tests
+  Accept: `vp test` — semantic pre-filtering strips lockfiles/minified/sourcemaps/vendored/
+  `@generated`-except-migrations and lists stripped paths in the scope echo; then a diff over the
+  200k-char budget is reduced to a `git diff --stat`-order subset; a `<phase>.partial-coverage`
+  warning names the excluded files (no silent truncation). *(Pre-filtering added 2026-06-09, #27.)*
 
 ## M9 — Human output & display polish · PR9
 

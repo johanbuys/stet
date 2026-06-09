@@ -1,6 +1,6 @@
 ---
 name: better-planning-tasks
-description: Phase ④ of the better-planning family — break a settled implementation plan into agent-executable tasks, each self-contained with links back to the exact PRD/plan sections it implements, files likely touched, and its own acceptance check, as <feature>-tasks.md (canonical), optionally exported to GitHub issues under a user-chosen label. Use this whenever the user wants work broken down into executable units — "break this into tasks", "create the tickets", "make GitHub issues for this", "split this up so agents can build it" — and whenever docs/better-planning/ shows a settled plan without a task breakdown.
+description: Phase ④ of the better-planning family — break a settled implementation plan into agent-executable tasks, each self-contained with links back to the exact PRD/plan sections it implements, files likely touched, and its own acceptance check, as <feature>-tasks.md (canonical), optionally exported to GitHub issues (one batch label) + native GitHub Milestones (one per plan milestone, one PR per milestone). Use this whenever the user wants work broken down into executable units — "break this into tasks", "create the tickets", "make GitHub issues for this", "split this up so agents can build it" — and whenever docs/better-planning/ shows a settled plan without a task breakdown.
 ---
 
 # Better Planning · ④ Task breakdown
@@ -40,10 +40,13 @@ be a sentence in another task, merge it. Each task is self-contained:
 # <feature> — tasks
 **Status:** ready | in-progress | done — <date>
 **Derived from:** <feature>-plan.md (M1–M3)
-**Exported:** GitHub issues, label `<label>` (only if exported)
+**Exported:** GitHub issues #<lo>–#<hi>, label `<label>`, milestones per PR (only if exported)
 
-## M1 — <milestone goal>
-- [ ] **T1 · <imperative title>**
+## PR strategy — one PR per milestone, stacked
+<the table mapping each PR → its tasks → its merge gate; see PR strategy below>
+
+## M1 — <milestone goal> · PR1
+- [ ] **T1 · <imperative title>**  (#<issue>)
   Implements: plan §M1 steps 1–2 · PRD §"occurrence contract"
   Files: `src/schedule/rrule.ts`, `tests/schedule/`
   Accept: `vp test schedule` passes; creating a daily task generates 7 occurrences for the next week
@@ -63,21 +66,67 @@ The builder updates the checkboxes and status header as work lands — the tasks
 live record. The plan's reality-disagrees protocol applies during building: contradictions
 surface upstream, never get silently absorbed into a task.
 
-## GitHub issues export — offer, don't assume
+## PR strategy — one PR per milestone, stacked
 
-After the tasks file is written, if `gh` is available and the repo has a GitHub remote, offer
-the export. If the user takes it:
+The plan already cut the work into milestones, each ending in a verifiable "run X, see Y"
+outcome — and that outcome is *exactly* what makes a coherent, reviewable PR. So the default is
+**one PR per milestone**, stacked (M2's branch off M1, etc., following the plan's dependency
+order). This isn't inventing process; it's mapping the plan's existing milestone boundaries onto
+the tracker. The reasoning, worth stating to the user because the extremes are tempting:
 
-1. **Prompt for the label** to stamp on every issue in the batch — suggest the feature name as
-   the default, but the user picks. The label is what makes the batch findable and filterable
-   in the tracker. Create the label if it doesn't exist.
-2. One issue per task: title from the task, body carrying the Implements-links, files, and
-   acceptance check, plus a link back to `<feature>-tasks.md`.
-3. Record the export (label, issue numbers) in the tasks file header.
+- **All tasks in one PR** — the whole feature in one diff; unreviewable. No.
+- **One PR per task** — too granular: a single task is often a red→green step mid-milestone (a
+  guard without its runner, a schema without its consumer) that isn't independently meaningful.
+  Floods the reviewer with half-built states. No.
+- **One PR per milestone** ✓ — coherent, green at the boundary (the milestone's Accept *is* the
+  merge gate), and it stacks naturally. Split a milestone's PR only if its diff runs large; note
+  the split point in the tasks file.
 
-The markdown file stays **canonical** — the tracker is a view. If they drift, the file wins;
-offer to re-sync rather than letting two truths coexist. The skill works fully without the
-export; never require GitHub.
+Record it as a table in the tasks file (PR → its tasks → its merge gate), and note which PRs can
+branch in parallel vs. must stack (straight from the plan's dependency section). Don't open a PR
+mid-milestone.
+
+## GitHub export — issues + milestones, offer don't assume
+
+After the tasks file is written, if `gh` is available and the repo has a GitHub remote, offer the
+export. The tracker mirrors the file's two-level structure with its two native primitives:
+
+- **One label for the whole batch** (`<label>`, user picks — feature name is a good default):
+  batch identity, so every task for this effort is findable with one filter. Create it if absent.
+- **One native GitHub *Milestone* per plan milestone** — *not* labels. Tasks are one-to-many
+  (each task in exactly one milestone), which is precisely what Milestones model and labels
+  don't; you also get a free per-milestone progress bar as issues close, and it pairs 1:1 with
+  the one-PR-per-milestone strategy. Title each milestone to encode its PR (e.g. `M1 ·
+  <goal> (PR1)`).
+
+Export steps:
+
+1. Create the label and the milestones (`gh api repos/:owner/:repo/milestones -f title=...`).
+2. **Create issues in task order** — so issue number ascends with task order, and
+   `sort_by(.number)` *is* the dependency/build order with no extra metadata. One issue per task:
+   title from the task, body carrying PR/milestone, Implements-links, files, the Accept line, and
+   a link back to `<feature>-tasks.md`. Stamp the label; assign the milestone
+   (`gh issue edit <n> --milestone "<title>"`).
+3. Record the export in the tasks file header (label, issue range, "milestones per PR") and the
+   issue number on each task line.
+
+The markdown file stays **canonical** — issues and milestones are a view. If they drift, the file
+wins; offer to re-sync. The skill works fully without the export; never require GitHub.
+
+### Pointing agents at the work
+
+Milestones are the unit you hand to an agent. The shape that holds up:
+
+- **One agent per milestone, not per task.** A milestone is one coherent session + one PR; its
+  tasks share scaffolding (the guards build on the runner the same session built), so a per-task
+  agent would thrash re-deriving shared context. The agent's brief: "work milestone M<n> in
+  order, TDD per each Accept line, open one PR for the milestone, close each issue as it lands,
+  and surface anything that contradicts the plan (reality-disagrees protocol)."
+- **The query that feeds it** (build order = issue-number order):
+  `gh issue list --milestone "<title>" --json number,title,body --jq 'sort_by(.number)'`.
+- **Respect the stacking.** Fan parallel agents out *only* across milestones the plan marks
+  independent, and only once their shared prerequisite PR has merged — encode each milestone's
+  prerequisites in its description so a cold agent sees them without reading the plan.
 
 ## Handoff
 
@@ -90,5 +139,7 @@ via its accept line."
 
 - Not a scoping tool: scope lives in the PRD and plan; this phase only re-shapes settled work.
 - Not a project manager: no estimates, no assignees, no sprint ceremonies — those belong to the
-  team's tracker and process, not the planning space.
+  team's tracker and process, not the planning space. (Milestones and PR boundaries are the
+  exception that proves the rule: they aren't invented process, they're the plan's own milestone
+  structure projected onto the tracker — so they carry no scheduling, only grouping.)
 - Not the builder: it ends where execution begins, on purpose.

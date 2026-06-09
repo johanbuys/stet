@@ -28,6 +28,17 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   activation); findings roll up to the parent phase. The **execution unit**. Review is the first
   composite phase (bugs, security, patterns, quality, coverage-gaps). Formerly "lens" in early
   drafts. ⚠ a specialist never gets its own PhaseReport — it rolls up. → harness PRD §3.3
+- **coordinator (judge pass)** — an optional `robust`-tier agent on a composite phase that runs
+  *after* its specialists, reads all their findings, and dedups / drops convention-contradicted
+  /speculative findings / re-ranks — its submission *replaces* the raw roll-up as the phase's
+  findings. Harness machinery; the review coordinator's rubric is the code-review PRD's.
+  ⚠ not a specialist (it runs after them and sees all their output); ⚠ never invents a phase.
+  → harness PRD §3.3a; decision #25; `research/cloudflare-ai-review-reference.md`
+- **risk classifier / level** — a deterministic harness step `classify(diff, paths, config) → level`
+  run once before fan-out; the `level` scales *how much* a composite phase spends (specialist
+  subset, coordinator on/off). Harness owns the mechanism + the level→fan-out wiring; the
+  thresholds/rules are the consuming feature PRD's. ⚠ not **activation** (on/off) — this is "how
+  much"; ⚠ deterministic, never an AI judgment. → harness PRD §3.4.1a; decision #26
 - **gate** — one deterministic Phase-1 check (tests, types, lint, build, …). ⚠ distinct from
   *gating* (a finding causing exit 1) and from **`Check`** (an audit entry). → harness PRD §3.4.3
 - **cancel class / report-only class** — gates whose *failure* cancels in-flight AI phases
@@ -145,5 +156,9 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
 - **`start_service` / `pty_session`** — harness-provided execution tools: service lifecycle with
   readiness + guaranteed teardown / raw-mode TTY driving. → their feature PRDs
 - **ideoshi-code** — the autonomous coding loop that is stet's first target integration.
+- **github-integration** — a planned **follow-up feature** (not the harness): a GH Action wrapper +
+  GH-App/webhook bot that *consumes* the harness `RunReport` — posts findings as PR comments and
+  turns PR comments (`break glass`, re-check, scoped review) into harness invocations. ⚠ out of the
+  harness by the boundary rule (#24); the harness is already CI-ready. → README status index
 - **vp / Vite+** — the project's own toolchain (`vp test`, `vp check`); also where the eval
   suite runs.
