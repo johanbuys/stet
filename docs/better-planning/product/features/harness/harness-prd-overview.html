@@ -179,6 +179,7 @@
     <span class="chip proven">STATUS: SETTLED — 2026-06-07 · amended 2026-06-09</span>
     <span class="chip rev">ROUNDS 1 + 2 RESOLVED — #20–23 closed, steel thread landed (#24)</span>
     <span class="chip draft">CLOUDFLARE REVIEW — coordinator (#25), risk classifier (#26), pre-filter/failback (#27)</span>
+    <span class="chip draft">SOUNDNESS REVIEW — open PhaseId (#28), coordinator fallback/authority/drops (#29–#31), per-phase risk rules (#32), scope.stripped (#33)</span>
     <span class="chip">detail: docs/better-planning/product/features/harness/harness-prd.md</span>
   </div>
 </header>
@@ -229,7 +230,7 @@
         <li><b>budgets</b> — overrides of harness defaults</li>
         <li><b>specialists</b> — optional parallel specialists (§04)</li>
         <li><b>coordinator</b> — optional judge pass over the roll-up (§04)</li>
-        <li><b>riskLevels</b> — level → fan-out/coordinator rules (§04)</li>
+        <li><b>riskRules / riskLevels</b> — per-phase risk rules + level → fan-out/coordinator mapping (§04)</li>
       </ul>
     </div>
   </div>
@@ -331,17 +332,24 @@
       <code>AgentRunner</code> seam + all three §03 guards). Survivors keep their <code>specialist</code>;
       <code>cost.coordinator</code> records its model. <b style="color:var(--ink)">Validated by Cloudflare's
       production system</b> as their most load-bearing noise filter — promoted from "deferred" to designed-in.
-      Opt-in per phase; the review rubric is the code-review PRD's.</p>
+      Opt-in per phase; the review rubric is the code-review PRD's.
+      <b style="color:var(--ink)">Soundness review (#29–#31):</b> a failed judge run <b>falls back to the raw
+      roll-up</b> + a <code>coordinator-failed</code> warning — specialist findings are never forfeited; the judge
+      <b>may not drop or downgrade</b> deterministic / evidence-backed findings (harness reinstates them,
+      visible in <code>audit.coordinator.reinstated</code>); drops are recorded in
+      <code>audit.coordinator.dropped</code> — never silent.</p>
     </div>
     <div class="card" style="border-left:4px solid var(--crit, #0f766e);">
       <h3 style="margin-top:0;">Risk classifier — the cost dial <span class="pill ok">#26</span></h3>
       <p style="font-size:13.5px;color:var(--muted);">Activation answers <i>whether</i> a phase runs;
-      a deterministic <code>classify(diff, paths, config) → level</code> answers <i>how much</i>. The
+      a deterministic <code>classify(diff, paths, rules) → level</code> answers <i>how much</i>. The
       <code>level</code> scales <b>which specialists fan out</b> and <b>whether the (expensive) coordinator
       runs</b>. <b style="color:var(--ink)">Harness owns the mechanism + the level→fan-out wiring; the
-      thresholds/rules are the consuming feature PRD's</b> — the same split as activation, keeping #24 intact.
-      Deterministic (a <code>high</code>-confidence input, never an AI judgment); inert until a phase declares
-      <code>riskLevels</code>.</p>
+      rules/thresholds are declared per phase (<code>riskRules</code>, #32) and specced in that phase's feature
+      PRD</b> — the same split as activation, keeping #24 intact. No run-global level: each declaring phase's
+      rules are evaluated once before fan-out, over the <b>pre-filtered</b> diff (lockfile churn can't inflate
+      risk). Deterministic (a <code>high</code>-confidence input, never an AI judgment); inert until a phase
+      declares <code>riskRules</code>.</p>
     </div>
   </div>
 </section>
@@ -511,8 +519,14 @@
     <tr><td>Report provenance (#23)</td><td class="dec-res"><span class="ok-dot">●</span> Round 2: <code>RunReport</code> carries <code>stet</code> semver + <code>startedAt</code>; cache key excludes the timestamp.</td></tr>
     <tr><td>Steel thread (#24)</td><td class="dec-res"><span class="ok-dot">●</span> Brief direction 8: harness-only build scope; two stub phases prove every contract; real phases integrate via their own feature plans.</td></tr>
     <tr><td>Coordinator judge pass (#25)</td><td class="dec-res"><span class="ok-dot">●</span> Cloudflare review: first-class composite machinery — dedup/drop/re-rank, replacing the roll-up. <b>Supersedes #17</b> (the deferred dedup pass).</td></tr>
-    <tr><td>Risk classifier (#26)</td><td class="dec-res"><span class="ok-dot">●</span> Cloudflare review: deterministic <code>classify → level</code> scales fan-out + coordinator; harness owns mechanism, feature PRD owns thresholds.</td></tr>
-    <tr><td>Pre-filter + failback (#27)</td><td class="dec-res"><span class="ok-dot">●</span> Cloudflare review: strip lockfiles/minified/generated-except-migrations; model failback on retryable errors only.</td></tr>
+    <tr><td>Risk classifier (#26)</td><td class="dec-res"><span class="ok-dot">●</span> Cloudflare review: deterministic <code>classify → level</code> scales fan-out + coordinator; harness owns mechanism, feature PRD owns thresholds. <b>Amended by #32.</b></td></tr>
+    <tr><td>Pre-filter + failback (#27)</td><td class="dec-res"><span class="ok-dot">●</span> Cloudflare review: strip lockfiles/minified/generated-except-migrations; model failback on retryable errors only. <b>Extended by #33.</b></td></tr>
+    <tr><td>Open <code>PhaseId</code> (#28)</td><td class="dec-res"><span class="ok-dot">●</span> Soundness review: kebab-case pattern, not a closed union — the closed enum contradicted "sixth phase touches no harness code" and couldn't validate the stub phases' own reports.</td></tr>
+    <tr><td>Coordinator fallback (#29)</td><td class="dec-res"><span class="ok-dot">●</span> Soundness review: a failed judge run leaves the raw specialist roll-up + a <code>coordinator-failed</code> warning — findings are never forfeited to a failed filter.</td></tr>
+    <tr><td>Constrained authority (#30)</td><td class="dec-res"><span class="ok-dot">●</span> Soundness review: the judge may not drop/downgrade deterministic or evidence-backed findings; the harness reinstates them (<code>audit.coordinator.reinstated</code>) — proof is not an AI judge's to overrule.</td></tr>
+    <tr><td>Drops recorded (#31)</td><td class="dec-res"><span class="ok-dot">●</span> Soundness review: harness-computed <code>audit.coordinator.dropped</code> — "why didn't stet flag X?" stays answerable from the artifact.</td></tr>
+    <tr><td>Per-phase risk rules (#32)</td><td class="dec-res"><span class="ok-dot">●</span> Soundness review: <code>riskRules</code> declared per phase, evaluated per declaring phase over the pre-filtered diff — no run-global level.</td></tr>
+    <tr><td>Stripped paths in report (#33)</td><td class="dec-res"><span class="ok-dot">●</span> Soundness review: <code>scope.stripped</code> in the <code>RunReport</code> — machine consumers see pre-filter exclusions, not just the human echo.</td></tr>
   </table>
 </section>
 

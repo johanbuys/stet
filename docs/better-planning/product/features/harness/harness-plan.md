@@ -6,7 +6,11 @@ Cold-reader adversarial review (2026-06-07) passed — its blocker findings fold
 milestone clarifications. `better-result` error-handling methodology added (P7, canvas 2026-06-08).
 The 2026-06-09 amendment adds **M7.5 (coordinator judge stage + risk classifier)** from PRD
 decisions #25/#26 and folds semantic diff pre-filtering (#27) into M8 and the failback note into
-M6 — see `research/cloudflare-ai-review-reference.md` and plan decisions P8/P9.
+M6 — see `research/cloudflare-ai-review-reference.md` and plan decisions P8/P9. A second
+2026-06-09 amendment (architecture soundness review; PRD #28–#33) pins budget-enforcement
+layering (§2a), the steel thread's pre-M6 model stopgap and explicit stub registration (§2, §2a,
+M2), coordinator fallback/constrained-authority/drop-audit and per-phase risk rules (M7.5), and
+`scope.stripped` (M8) — plan decision P10.
 **Depends on:** `harness-prd.md` (contracts in §4, behavior in §3) · `harness-brief.md`
 (rationale).
 **Companion:** `harness-plan-overview.html` (milestone timeline + dependency lanes).
@@ -63,7 +67,12 @@ primary consumer — read JSON from M1; humans get progress on stderr from M2 on
   `tdd` skill's own rule: mock at the architectural boundary you own, never at SDK internals.
 - **Stub phases are real product surface (PRD §3.9), not test scaffolding-only.** `stub-det`
   and `stub-agent` live in `src/`, ship in the codebase permanently, and are the fixtures the
-  steel thread runs on — never in a released binary's default phase set.
+  steel thread runs on — never in a released binary's default phase set. **Registration
+  forward-compat (pinned 2026-06-09):** the steel-thread integration test registers the stubs
+  *explicitly* via `registerPhase` (in-process CLI invocation), never by relying on the default
+  phase set — so the thread keeps passing unchanged when real phases later displace the stubs
+  from that set. (While the harness is the only thing built, the default set may well *be* the
+  stubs; the test must not depend on that coincidence.)
 
 ## 2a. Concrete contracts the milestones assume
 
@@ -120,6 +129,19 @@ the `AgentError` union exhaustively into the corresponding `PhaseReport` status/
 `FakeAgentRunner` is constructed with a script (an ordered list of tool-call/submission/timing
 events) and needs no SDK or key.
 
+**Budget-enforcement layering (M3; pinned 2026-06-09, soundness review).** The budgets in
+`AgentRunInputs` are enforced at two layers, split by who can see the resource:
+- The **phase wrapper** owns the per-phase **wall clock** — a race against the runner promise;
+  on expiry it aborts via `signal` and reports the breach. Tested with a fake that simply
+  delays past the test budget.
+- The **runner** owns what only it can observe: the **turn count** and the **bash-level limits**
+  (60 s timeout, 32 KB output cap), surfacing breaches as `Err(BudgetError)`. In wrapper tests
+  these are exercised by a fake *scripted to return* `Err(BudgetError)` — the fake doesn't
+  re-implement enforcement; the real enforcement is covered in `PiAgentRunner`'s own tests and
+  the keyed suite.
+Either way the wrapper's `matchError` produces the same `PhaseReport{ status: "error", reason:
+"budget exceeded" }` with partial audit — one outcome, two enforcement homes.
+
 **Phase registration (M1; satisfies acceptance #1).** A phase is a `PhaseConfiguration` value
 (PRD §4.1). The harness exposes `registerPhase(config)` writing to an internal registry; the
 default phase set is an explicit array in `src/phases/index.ts`. A test repo's stub phases are
@@ -144,7 +166,11 @@ give the pass and fail cases.
   rest. (Churn ranking sharpens this later — §4.)
 - **`PI_TEST_MODEL`** — opt-in env var holding a `provider/id` (e.g.
   `anthropic/claude-haiku-4-5`). Unset ⇒ the keyed integration suite **skips** (expected in
-  local/keyless CI, not a failure); set ⇒ those tests run against the real SDK.
+  local/keyless CI, not a failure); set ⇒ those tests run against the real SDK. **It is also the
+  steel thread's model source until M6** (pinned 2026-06-09): tier routing doesn't exist before
+  M6, so from M2 the CLI resolves an agent phase's model from `PI_TEST_MODEL` when no `--model`
+  is given — the documented stopgap M6's resolution replaces. Unset at the CLI ⇒ the agent phase
+  reports `error` ("no model available", named reason) and the deterministic half still runs.
 - **severity colors (M9)** — error = red, warning = yellow, info = dim/grey, via a tiny ANSI
   helper; auto-disabled when stdout isn't a TTY or `NO_COLOR` is set. Tests assert on the
   rendered text content, not the escape codes.
@@ -234,8 +260,9 @@ are *scripted*, not hoped-for from a real model). The adapter has the keyed/skip
 **mutation-free assertion test**: the registered toolset for any agent phase contains no
 edit/write tool (PRD acceptance #2).
 
-**Verifiable outcome:** **the steel thread (acceptance #17)** — `cd fixtures/stub-repo && node
-../../dist/cli.mjs` (zero args, both stubs registered) runs both phase kinds end-to-end and
+**Verifiable outcome:** **the steel thread (acceptance #17)** — `cd fixtures/stub-repo &&
+PI_TEST_MODEL=anthropic/claude-haiku-4-5 node ../../dist/cli.mjs` (zero args, both stubs
+registered; the env var is the pre-M6 model stopgap, §2a) runs both phase kinds end-to-end and
 prints a `RunReport` with `stet` + `startedAt`, correct exit code. `vp test` green (fake-driven);
 `PI_TEST_MODEL=anthropic/claude-haiku-4-5 vp test` additionally green (real SDK round-trip).
 
@@ -244,9 +271,11 @@ prints a `RunReport` with `stet` + `startedAt`, correct exit code. `vp test` gre
 **Goal:** every limit (PRD §3.5) is a named `error` outcome — no silent hangs/kills.
 
 **Build order:** per-phase wall-clock (5/15-min class) → turn count (50/120 by class, PRD #22)
-→ bash timeout (60s, output-so-far returned) → bash output cap (32KB, truncation marked). Each:
-a deliberately-hanging/over-budget `FakeAgentRunner` script → phase `error` with reason "budget
-exceeded", partial audit preserved (PRD acceptance #7).
+→ bash timeout (60s, output-so-far returned) → bash output cap (32KB, truncation marked).
+Enforcement layering per §2a: the wrapper owns the wall clock (race + abort); the runner owns
+turns + bash limits (`Err(BudgetError)`). Each: a deliberately-hanging/over-budget
+`FakeAgentRunner` script → phase `error` with reason "budget exceeded", partial audit preserved
+(PRD acceptance #7).
 
 **Files:** `src/agent/budgets.ts`, wired into the runner; `src/phases/*` budget overrides.
 
@@ -380,29 +409,46 @@ dial — see `research/cloudflare-ai-review-reference.md`.
    `submit_findings` output **replaces** the raw roll-up as the phase's `findings`. First test: a
    `FakeAgentRunner`-scripted coordinator that merges two duplicate findings into one and drops a
    planted nitpick → the phase report carries the merged set.
-2. **Provenance + cost** — surviving findings keep their originating `specialist`; coordinator
-   model/tokens land in `cost.coordinator` (PRD §4.4); a coordinator-raised finding carries no
-   `specialist`. The three §3.1 guards apply to the coordinator run unchanged.
-3. **Risk classifier mechanism** — a deterministic `classify(diff, paths, config) → level` (pure,
-   many small tests), evaluated once before fan-out; the resolved `level` echoed in the run output.
-   No real thresholds here — the **fixture rule set** is a trivial `lines > N ⇒ "full" else
-   "trivial"`; real rules are the code-review PRD's.
-4. **level → fan-out/coordinator wiring** — a phase declaring `riskLevels` runs a reduced
+2. **Provenance + cost + drop audit** — surviving findings keep their originating `specialist`;
+   coordinator model/tokens land in `cost.coordinator` (PRD §4.4); a coordinator-raised finding
+   carries no `specialist`; the harness records roll-up-minus-survivors in
+   `audit.coordinator.dropped` (PRD #31 — computed by the harness, never judge-self-reported).
+   The three §3.1 guards apply to the coordinator run unchanged.
+3. **Failure fallback (PRD #29)** — a coordinator run failing (scripted `Err(NoSubmitError)`,
+   budget breach reusing M3's outcome, model error) leaves the phase with the **raw roll-up** as
+   its `findings` plus a `<phase>.coordinator-failed` warning naming the reason — specialist
+   findings are never forfeited to a failed judge.
+4. **Constrained authority (PRD #30)** — a planted deterministic / evidence-backed finding
+   (carrying `evidence.command`) survives a coordinator scripted to drop or downgrade it: the
+   harness reinstates it unchanged post-submission and records it in
+   `audit.coordinator.reinstated`.
+5. **Risk classifier mechanism** — a deterministic `classify(diff, paths, rules) → level` (pure,
+   many small tests), evaluated once per `riskRules`-declaring phase before fan-out, over the
+   **pre-filtered** diff (PRD #32; until M8 lands, the fixture diffs are trivially "already
+   filtered" — the contract is pinned now, the filter arrives in M8); each resolved `level`
+   echoed in the run output. No real thresholds here — the **fixture rule set** is a trivial
+   `lines > N ⇒ "full" else "trivial"` declared on `stub-composite`; real rules are the
+   code-review PRD's.
+6. **level → fan-out/coordinator wiring** — a phase declaring `riskLevels` runs a reduced
    specialist subset and/or skips its coordinator at a lower level, the full set + coordinator at
-   the top. With no rules declared the mechanism is inert (full panel runs).
+   the top. With no `riskRules` declared the mechanism is inert (full panel runs).
 
 **Files:** `src/phases/composite.ts` (coordinator extension), `src/phases/coordinator.ts`,
 `src/risk/classify.ts`, `src/phases/stub-composite.ts` (gains a coordinator + level rules) + tests.
 
-**Test plan:** coordinator tested against a scripted `FakeAgentRunner` (dedup/drop/re-rank are
-*scripted* outcomes, not hoped-for from a real model); classifier is pure-function table tests;
-wiring tested with `stub-composite` + two synthetic diffs (small/large) asserting the specialist
-subset and coordinator-on/off per level. A budget breach in the coordinator reuses M3's outcome.
+**Test plan:** coordinator tested against a scripted `FakeAgentRunner` (dedup/drop/re-rank,
+failure modes, and the drop/downgrade attempt on a protected finding are all *scripted* outcomes,
+not hoped-for from a real model); classifier is pure-function table tests; wiring tested with
+`stub-composite` + two synthetic diffs (small/large) asserting the specialist subset and
+coordinator-on/off per level. A budget breach in the coordinator reuses M3's outcome — and lands
+in the #29 fallback, not a phase `error`.
 
-**Verifiable outcome:** `stub-composite` with a declared coordinator and `riskLevels` — on a small
-diff runs 1 specialist, no judge; on a large diff runs all specialists + the judge, whose merged
-findings (one dedup, one drop) are the phase's `findings`, with `cost.coordinator` present and the
-resolved `level` in the output. `vp test` green.
+**Verifiable outcome:** `stub-composite` with a declared coordinator, `riskRules`, and
+`riskLevels` — on a small diff runs 1 specialist, no judge; on a large diff runs all specialists +
+the judge, whose merged findings (one dedup, one drop) are the phase's `findings`, with
+`cost.coordinator` present, the drop recorded in `audit.coordinator.dropped`, and the resolved
+`level` in the output; a scripted judge failure leaves the raw roll-up + the
+`coordinator-failed` warning. `vp test` green.
 
 ### M8 — Spec context & large-diff visibility
 
@@ -411,7 +457,9 @@ warning when a diff exceeds a phase's context budget (PRD §3.6).
 
 **Build order:** `--prd <file|-|literal>` + `--task` concatenation → handed to phases declaring
 spec consumption → **semantic diff pre-filtering** (strip lockfiles/minified/sourcemaps/vendored/
-`@generated`-except-migrations, PRD §3.6, decision #27; stripped paths listed in the scope echo) →
+`@generated`-except-migrations, PRD §3.6, decision #27; stripped paths recorded in
+`report.scope.stripped` (#33) and the human scope echo; the classifier consumes the filtered
+diff — PRD #32) →
 over-budget diff ⇒ analyze highest-signal subset + emit `<phase>.partial-coverage` naming
 exclusions. *(`--issue`/`gh`, `--auto-context`, churn ranking deferred — §4; subset starts as file
 order.)*
@@ -508,3 +556,4 @@ detached HEAD / shallow clones (PRD §6 edge cases).
 | P7 | `better-result` adopted as the error-handling methodology — **full discipline**: every harness function returning `Result<T,E>`, a `TaggedError` taxonomy, one throw→exit boundary at the CLI shell | canvas 2026-06-08 (Johan) | stet's "nothing passes silently" principle becomes compiler-enforced not reviewer-policed; error variants become first-class TDD targets; a half-applied methodology is the worst of both. PRD untouched (methodology below the contract line) | settled |
 | P8 | New milestone **M7.5** (coordinator judge stage + risk classifier) after M7; coordinator runs through the existing AgentRunner seam, classifier is a pure function over scope inputs | Cloudflare reference review (Johan, 2026-06-09) | the judge layers naturally over M7's roll-up; reuses M2 seam + M3 budget outcome; blocks nothing earlier; implements PRD #25/#26 | settled |
 | P9 | Fixture rule sets only for M7.5's classifier + M8's pre-filtering; real thresholds/rules are the consuming feature PRD's (code-review) | Cloudflare reference review (Johan, 2026-06-09) | same harness-owns-mechanism / PRD-owns-rules split as activation and the manifest reader (M6); keeps #24 intact | settled |
+| P10 | Soundness-review pins: budget layering (wrapper = wall clock; runner = turns + bash limits, §2a); `PI_TEST_MODEL` doubles as the steel thread's pre-M6 model source; the steel-thread test registers stubs explicitly, never via the default phase set | soundness review (2026-06-09) | the M3 builder would stall on which layer enforces what (the plan said both "wired into the runner" and "wrapper wiring"); the M2 zero-arg demo had no model source before M6 routing exists; the thread must survive real phases displacing the stubs from the default set | settled |

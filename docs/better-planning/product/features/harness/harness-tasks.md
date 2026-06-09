@@ -1,7 +1,11 @@
 # harness — tasks
 
 **Status:** ready — 2026-06-08; **amended 2026-06-09** (Cloudflare reference review: +M7.5,
-T27–T29; pre-filtering folded into T24, failback into T19) — 29 tasks.
+T27–T29; pre-filtering folded into T24, failback into T19); **amended 2026-06-09 (b)**
+(architecture soundness review, PRD #28–#33 / plan P10: open `PhaseId` into T2, model stopgap +
+explicit stub registration into T11, budget layering into T12, `scope.stripped` into T24,
+coordinator fallback/authority/drop-audit into T27–T28, per-phase `riskRules` into T29) — 29
+tasks.
 **Derived from:** `harness-plan.md` (M1–M9, M7.5) · contracts in `harness-prd.md` §4 · methodology
 in plan §2a + decisions P1/P7/P8/P9 · `research/cloudflare-ai-review-reference.md`
 **Exported:** GitHub issues, label `auto-tasks` (issue numbers recorded per task after export;
@@ -36,7 +40,7 @@ point** below if the diff runs large; everything else is one PR.
 | PR8 · M8 spec context | T23–T24 | M8 Accept |
 | PR9 · M9 human output | T25–T26 | M9 Accept |
 
-After M2, PR3/PR5/PR6/PR8 are mutually independent (plan §5) and may branch off M2 in parallel
+After M2, PR3/PR4/PR5/PR6/PR8 are mutually independent (plan §5) and may branch off M2 in parallel
 rather than strictly stacking; PR7 (specialists) stacks on PR3 (reuses M3's budget outcome).
 **PR7.5 (M7.5) stacks on PR7** — the coordinator judges M7's roll-up; its classifier half depends
 only on M1 and could split out if the PR runs large. *(Added 2026-06-09 — Cloudflare reference
@@ -57,7 +61,9 @@ review; see `research/cloudflare-ai-review-reference.md` and plan M7.5.)*
   Implements: plan M1 step 1 · PRD §4.2–4.5 (Finding/Audit/PhaseReport/RunReport)
   Files: `src/schema/{finding,report}.ts` + tests
   Accept: `vp test schema` — a hand-built valid `RunReport` (incl. `stet`, `startedAt`)
-  validates; a malformed one yields `Err(SchemaError)` (not a throw).
+  validates; a malformed one yields `Err(SchemaError)` (not a throw). `PhaseId` is an open
+  pattern-validated identifier, not an enum — a report whose phase is `stub-det` validates
+  (PRD #28).
 
 - [ ] **T3 · Exit-code derivation (pure)**  ([#8](https://github.com/johanbuys/stet/issues/8))
   Implements: plan M1 step 2 · PRD §4.6 (confidence), §4.8 (gating)
@@ -120,11 +126,14 @@ correct exit code; `vp test` green.
 - [ ] **T11 · Keyed integration suite + mutation-free test + steel thread (closes M2)**  ([#16](https://github.com/johanbuys/stet/issues/16))
   Implements: plan M2 step 7 · PRD acceptance #2, #17, §3.9
   Files: `src/agent/pi-runner.integration.test.ts`, a mutation-free assertion test
-  Accept: **the steel thread** — `cd fixtures/stub-repo && node ../../dist/cli.mjs` (zero args,
-  both stubs registered) runs both phase kinds end-to-end → `RunReport` with `stet`+`startedAt`,
-  correct exit code. `vp test` green (fake-driven); `PI_TEST_MODEL=anthropic/claude-haiku-4-5
-  vp test` additionally green (real SDK round-trip). A test asserts no agent phase's registered
-  toolset contains an edit/write tool.
+  Accept: **the steel thread** — `cd fixtures/stub-repo &&
+  PI_TEST_MODEL=anthropic/claude-haiku-4-5 node ../../dist/cli.mjs` (zero args, both stubs
+  registered; the env var is the pre-M6 model stopgap, plan §2a/P10) runs both phase kinds
+  end-to-end → `RunReport` with `stet`+`startedAt`, correct exit code. The integration test
+  registers the stubs **explicitly** via `registerPhase`, never via the default phase set (plan
+  §2/P10). `vp test` green (fake-driven); `PI_TEST_MODEL=anthropic/claude-haiku-4-5 vp test`
+  additionally green (real SDK round-trip). A test asserts no agent phase's registered toolset
+  contains an edit/write tool.
 
 **M2 verifiable outcome (PR2 merge gate):** acceptance #17 holds — the zero-arg steel thread runs
 both phase kinds; mutation-free test passes.
@@ -134,9 +143,10 @@ both phase kinds; mutation-free test passes.
 - [ ] **T12 · Phase-level budgets (wall-clock + turns)**  ([#17](https://github.com/johanbuys/stet/issues/17))
   Implements: plan M3 · PRD §3.5, acceptance #7, decision #22
   Files: `src/agent/budgets.ts`, wrapper wiring + tests
-  Accept: `vp test budgets` — a `FakeAgentRunner` scripted to exceed wall-clock (5/15-min class)
-  or turn count (50/120 by class) yields `PhaseReport{ status:"error", reason:"budget exceeded" }`
-  with partial audit preserved.
+  Accept: `vp test budgets` — a `FakeAgentRunner` that delays past the wall clock (wrapper-
+  enforced: race + abort) or returns a scripted `Err(BudgetError)` for the turn count (runner-
+  enforced — layering per plan §2a/P10) yields `PhaseReport{ status:"error", reason:"budget
+  exceeded" }` with partial audit preserved.
 
 - [ ] **T13 · Bash-level limits (timeout + output cap)**  ([#18](https://github.com/johanbuys/stet/issues/18))
   Implements: plan M3 · PRD §3.5, plan §2a (truncation marker)
@@ -226,32 +236,43 @@ both phase kinds; mutation-free test passes.
   specialists, then a single `robust`-tier judge through the `AgentRunner` seam (FakeAgentRunner
   scripted to merge two duplicate findings and drop a planted nitpick); the judge's submission
   **replaces** the raw roll-up as the phase's `findings`; survivors keep their `specialist`;
-  `cost.coordinator` is populated; the three §3.1 guards apply to the judge run. A composite phase
-  with no coordinator keeps the plain roll-up unchanged.
+  `cost.coordinator` is populated; the three §3.1 guards apply to the judge run. A judge run that
+  **fails** (scripted `Err(NoSubmitError)` / budget breach / model error) leaves the phase with
+  the **raw roll-up** plus a `<phase>.coordinator-failed` warning naming the reason (PRD #29) —
+  specialist findings are never lost to a failed judge. A composite phase with no coordinator
+  keeps the plain roll-up unchanged.
 
 - [ ] **T28 · Coordinator rubric fixture + provenance/gating interaction**  ([#34](https://github.com/johanbuys/stet/issues/34))
   Implements: plan M7.5 step 2 · PRD §3.3a, §4.2 (coordinator-emitted findings), §4.6/§4.8
   Files: `src/phases/coordinator.ts`, `src/phases/stub-composite.ts` (gains a coordinator) + tests
   Accept: `vp test` — a coordinator-raised finding (no single specialist owned it) carries no
-  `specialist` and `phase ==` the composite phase; dropped findings vanish from `findings` while the
-  `audit` still reflects what specialists examined; re-ranked severity/confidence flow into
-  `result.gating` correctly (the judge can downgrade a specialist's `error` and it stops gating).
+  `specialist` and `phase ==` the composite phase; dropped findings vanish from `findings` but are
+  recorded in `audit.coordinator.dropped` ({id, specialist, message} — harness-computed as roll-up
+  minus survivors, PRD #31); re-ranked severity/confidence flow into `result.gating` correctly
+  (the judge can downgrade a specialist's **AI-judgment** `error` and it stops gating). A planted
+  **deterministic / evidence-backed** finding (carrying `evidence.command`) survives a judge
+  scripted to drop or downgrade it — reinstated unchanged by the harness and recorded in
+  `audit.coordinator.reinstated` (PRD #30).
 
 - [ ] **T29 · Deterministic risk classifier + level→fan-out/coordinator wiring**  ([#35](https://github.com/johanbuys/stet/issues/35))
   Implements: plan M7.5 steps 3–4 · PRD §3.4.1a (classifier), §4.1 (`riskLevels`), acceptance #19 ·
   decision #26
   Files: `src/risk/classify.ts`, `src/phases/composite.ts` (level wiring),
   `src/phases/stub-composite.ts` (level rules) + tests
-  Accept: `vp test risk` — `classify(diff, paths, config) → level` is a pure function (table tests,
-  fixture rule `lines > N ⇒ "full" else "trivial"`); a phase declaring `riskLevels` runs a reduced
-  specialist subset and/or skips its coordinator at the low level, the full set + coordinator at the
-  top; the resolved `level` appears in the run output; with no `riskLevels` declared the mechanism is
-  inert (full panel runs). Real thresholds are the code-review PRD's, not built here (plan P9).
+  Accept: `vp test risk` — `classify(diff, paths, rules) → level` is a pure function (table tests,
+  fixture rule `lines > N ⇒ "full" else "trivial"` declared as `riskRules` on `stub-composite` —
+  rules are per-phase, evaluated once per declaring phase before fan-out, PRD #32); a phase
+  declaring `riskLevels` runs a reduced specialist subset and/or skips its coordinator at the low
+  level, the full set + coordinator at the top; each resolved `level` appears in the run output;
+  with no `riskRules` declared the mechanism is inert (full panel runs). Real thresholds are the
+  code-review PRD's, not built here (plan P9).
 
-**M7.5 verifiable outcome (PR7.5 merge gate):** `stub-composite` with a declared coordinator and
-`riskLevels` runs 1 specialist / no judge on a small diff and all specialists + judge on a large
-diff, the judge's merged findings (one dedup, one drop) becoming the phase's `findings`, with
-`cost.coordinator` and the resolved `level` present; `vp test` green.
+**M7.5 verifiable outcome (PR7.5 merge gate):** `stub-composite` with a declared coordinator,
+`riskRules`, and `riskLevels` runs 1 specialist / no judge on a small diff and all specialists +
+judge on a large diff, the judge's merged findings (one dedup, one drop) becoming the phase's
+`findings`, with `cost.coordinator`, `audit.coordinator.dropped`, and the resolved `level`
+present; a scripted judge failure leaves the raw roll-up + the `coordinator-failed` warning;
+`vp test` green.
 
 ## M8 — Spec context & large-diff visibility · PR8
 
@@ -265,9 +286,11 @@ diff, the judge's merged findings (one dedup, one drop) becoming the phase's `fi
   Implements: plan M8, §2a (context budget) · PRD §3.6, acceptance (partial-coverage) · decision #27
   Files: `src/phases/coverage.ts`, `src/diff-filter.ts` + tests
   Accept: `vp test` — semantic pre-filtering strips lockfiles/minified/sourcemaps/vendored/
-  `@generated`-except-migrations and lists stripped paths in the scope echo; then a diff over the
-  200k-char budget is reduced to a `git diff --stat`-order subset; a `<phase>.partial-coverage`
-  warning names the excluded files (no silent truncation). *(Pre-filtering added 2026-06-09, #27.)*
+  `@generated`-except-migrations and records stripped paths in `report.scope.stripped` (PRD #33)
+  plus the human scope echo; the risk classifier consumes the filtered diff (PRD #32); then a diff
+  over the 200k-char budget is reduced to a `git diff --stat`-order subset; a
+  `<phase>.partial-coverage` warning names the excluded files (no silent truncation).
+  *(Pre-filtering added 2026-06-09, #27; report field + classifier input 2026-06-09 (b).)*
 
 ## M9 — Human output & display polish · PR9
 

@@ -1,13 +1,18 @@
 # Feature PRD: Harness
 
-**Status:** settled — 2026-06-07; **amended 2026-06-09** (Cloudflare reference review). Review
-round 1 (2026-06-06) and round 2 (2026-06-07, canvas) resolved and folded in. Round 2 landed the
-harness-only steel-thread scoping (brief direction 8, decision #24), closed #20–23, and added the
-worked contract examples (§4.10). The 2026-06-09 amendment folds in two mechanisms validated by
-Cloudflare's production system (`research/cloudflare-ai-review-reference.md`): a **coordinator
-judge pass** on composite phases (§3.3a, amends #17 deferred→designed-in) and a **deterministic
-risk classifier** mechanism (§3.4.1a), plus semantic diff pre-filtering (§3.6). Restructured to
-the standard feature-PRD shape along the way.
+**Status:** settled — 2026-06-07; **amended 2026-06-09** (Cloudflare reference review); **amended
+2026-06-09 (b)** (architecture soundness review). Review round 1 (2026-06-06) and round 2
+(2026-06-07, canvas) resolved and folded in. Round 2 landed the harness-only steel-thread scoping
+(brief direction 8, decision #24), closed #20–23, and added the worked contract examples (§4.10).
+The first 2026-06-09 amendment folds in two mechanisms validated by Cloudflare's production system
+(`research/cloudflare-ai-review-reference.md`): a **coordinator judge pass** on composite phases
+(§3.3a, amends #17 deferred→designed-in) and a **deterministic risk classifier** mechanism
+(§3.4.1a), plus semantic diff pre-filtering (§3.6). Restructured to the standard feature-PRD shape
+along the way. The second 2026-06-09 amendment closes gaps found in a four-doc soundness review:
+`PhaseId` opened to an extensible identifier (#28), coordinator failure fallback (#29) +
+constrained authority over evidence-backed findings (#30) + drops recorded in the audit (#31),
+per-phase risk rules over the pre-filtered diff (#32), and stripped paths carried in the report
+(#33).
 **Brief:** `harness-brief.md` (settled 2026-06-06) — the alignment record this PRD drafts from.
 **Depends on:** `docs/better-planning/product/stet-prd.md` (high-level PRD §4, §6, §8).
 **Draws on:** `docs/better-planning/research/behavioral-validation-findings.md` + proven contracts mined from the
@@ -226,8 +231,24 @@ it as designed-in harness machinery rather than a v1.x "if it proves noisy" fix.
   itself an agent run through the same `AgentRunner` seam with all three §3.1 guards; its own
   `submit_findings` payload *replaces* the raw specialist roll-up as the phase's `findings`.
 - **Provenance is preserved:** a surviving finding keeps its originating `specialist`; the
-  coordinator records its own model in `cost` (a `coordinator` sub-entry, §4.4). A dropped finding
-  is gone from `findings` but the audit still shows what was examined — no silent green.
+  coordinator records its own model in `cost` (a `coordinator` sub-entry, §4.4).
+- **Drops are recorded, not silent (decision #31):** the harness computes the set difference
+  between the raw specialist roll-up and the coordinator's surviving set, and records each dropped
+  finding's summary (`id`, `specialist`, `message`) in the phase's `audit.coordinator.dropped`
+  (§4.3). Computed by the harness, never self-reported by the judge — "why didn't stet flag X?"
+  stays answerable from the artifact without resurrecting the noise into `findings`.
+- **Constrained authority (decision #30):** the coordinator may not drop, nor lower the severity
+  or confidence of, **deterministic findings or findings carrying executable evidence**
+  (`evidence.command`) — §4.6 makes those high-confidence *by construction*, and proof is not the
+  judge's to overrule. Enforced by the harness after the judge submits: a protected finding
+  missing or downgraded in the submission is reinstated unchanged (and the reinstatement is
+  visible in `audit.coordinator`). The judge's authority covers AI-judgment findings — the ones
+  the confidence filter exists for.
+- **Failure falls back, never forfeits (decision #29):** if the coordinator run itself fails —
+  no-submit, budget breach, model error — the phase keeps the **raw specialist roll-up** as its
+  `findings`, plus a `<phase>.coordinator-failed` warning naming the reason. §3.3's guarantee
+  ("one specialist failing never loses the others' findings") extends to the judge: a failed
+  filter degrades to an unfiltered report, visibly — it never discards what the specialists found.
 - Is **opt-in per phase**: solo (non-composite) phases never run a coordinator; a composite phase
   without a declared coordinator keeps the plain roll-up (§3.3). Whether `review` uses one, and its
   rubric, is the **code-review feature PRD's** to define — the harness owns the *mechanism*.
@@ -261,21 +282,27 @@ the harness at activation time.
 #### 3.4.1a Risk classification — amended 2026-06-09
 
 Activation answers *whether* a phase runs (on/off). A **risk classifier** answers *how much* it
-runs. The harness owns a deterministic step `classify(diff, paths, config) → level` evaluated once
-per run, before fan-out; its output (an opaque ordered `level`, e.g. `trivial | standard | full`)
-is passed to each phase so a composite phase can scale **which specialists fan out** and **whether
-its coordinator (§3.3a) runs**. This is the cost dial Cloudflare's system pivots on — a
-deterministic rule engine (line/file thresholds, path sensitivity) sized the AI budget *before any
-model ran* (`research/cloudflare-ai-review-reference.md`).
+runs. The harness owns a deterministic step `classify(diff, paths, rules) → level` whose output
+(an opaque ordered `level`, e.g. `trivial | standard | full`) lets a composite phase scale **which
+specialists fan out** and **whether its coordinator (§3.3a) runs**. This is the cost dial
+Cloudflare's system pivots on — a deterministic rule engine (line/file thresholds, path
+sensitivity) sized the AI budget *before any model ran*
+(`research/cloudflare-ai-review-reference.md`).
 
 The split is the same one activation uses: **the harness owns the classifier *mechanism* and the
-`level → (specialist subset, coordinator on/off)` wiring; the consuming phase's feature PRD owns
-the actual *rules and thresholds*.** Baking "≥100 lines or touches `auth/`" into the substrate
-would violate the boundary rule (#24) — those are review-specific. The classifier is deterministic
-(so a `high`-confidence input, never an AI judgment), cheap, and reuses the same `(diff, paths,
-config)` inputs as scope detection and activation. The resolved `level` is echoed in the run output
-for diagnosability. Default with no phase rules: a single `level` ⇒ the full panel runs (today's
-behavior), so the mechanism is inert until a phase declares level rules.
+`level → (specialist subset, coordinator on/off)` wiring; the consuming phase owns the actual
+*rules and thresholds***, declared per phase as `riskRules` in its `PhaseConfiguration` (§4.1) and
+specced in that phase's feature PRD (decision #32). Baking "≥100 lines or touches `auth/`" into
+the substrate would violate the boundary rule (#24) — those are review-specific; and two phases
+may legitimately weigh the same change differently, so there is no single run-global level — the
+harness evaluates each declaring phase's rules once, before fan-out (the function is pure and
+cheap; per-phase evaluation costs nothing). Like activation predicates, the rules are part of the
+phase's registered configuration — the same change that registers the phase declares its risk
+sensitivity. The classifier is deterministic (so a `high`-confidence input, never an AI judgment),
+and its diff input is the **pre-filtered** diff (§3.6) — lockfile or generated-file churn must not
+inflate a change's risk. Each phase's resolved `level` is echoed in the run output for
+diagnosability. Default with no `riskRules`: a single `level` ⇒ the full panel runs (today's
+behavior), so the mechanism is inert until a phase declares rules.
 
 #### 3.4.2 Execution policies
 
@@ -347,12 +374,14 @@ Carried from v1/high-level PRD, owned by the harness:
 - Nothing detectable (clean tree on the default branch) ⇒ clear message, exit 2.
 - Spec context: `--prd <file|-|literal>`, `--task <string>`, `--issue <n>` (delegates to `gh`),
   combinable; concatenated and handed to phases that declare they consume spec context.
-- **Semantic diff pre-filtering** (added 2026-06-09): before any phase sees the diff, the harness
-  strips files that are noise to a reviewer — lock files, minified assets, source maps, vendored
-  dependencies, and `// @generated` files **except** database migrations (which are reviewable).
-  Validated by Cloudflare's system (`research/cloudflare-ai-review-reference.md`); it both reduces
-  token waste and removes a class of false positives. Stripped paths are listed in the scope echo,
-  never silently dropped; the rule set is config-overridable (`ignore` / an allow-back list).
+- **Semantic diff pre-filtering** (added 2026-06-09): before any phase — or the risk classifier
+  (§3.4.1a) — sees the diff, the harness strips files that are noise to a reviewer — lock files,
+  minified assets, source maps, vendored dependencies, and `// @generated` files **except**
+  database migrations (which are reviewable). Validated by Cloudflare's system
+  (`research/cloudflare-ai-review-reference.md`); it both reduces token waste and removes a class
+  of false positives. Stripped paths are carried in the report (`scope.stripped`, §4.5 — machine
+  consumers see them too, decision #33) and listed in the human scope echo, never silently
+  dropped; the rule set is config-overridable (`ignore` / an allow-back list).
 - **Large diffs:** v1 left this open; decision — **degrade with visibility, don't chunk** (v1
   scope). When the (pre-filtered) diff exceeds a phase's context budget, the phase analyzes the
   highest-signal subset (changed files ranked by churn) and the harness emits
@@ -437,7 +466,9 @@ validation is what makes output-as-tool enforceable).
 
 ```
 PhaseConfiguration = {
-  id          "gates" | "spec" | "review" | "test-quality" | "behavioral"
+  id          PhaseId — open kebab-case identifier (see below). Built-in product set:
+              "gates" | "spec" | "review" | "test-quality" | "behavioral";
+              stub phases register "stub-det" | "stub-agent" | "stub-composite" (§3.9)
   kind        "deterministic" | "agent"
   activation  predicate over (diff, spec presence, config)
   — agent phases only —
@@ -450,12 +481,22 @@ PhaseConfiguration = {
               (rubric, toolset, model, activation) tuple — see §3.3
   coordinator optional (composite phases): a judge-pass config
               { rubric, model (default tier robust) } — see §3.3a. When present, its
-              submission replaces the raw specialist roll-up as the phase's findings.
-  riskLevels  optional: rules mapping the harness risk `level` (§3.4.1a) to
-              { specialists: subset, coordinator: on|off }. Thresholds/rules are the
-              consuming feature PRD's; the harness only applies the mapping.
+              submission replaces the raw specialist roll-up as the phase's findings;
+              if its run fails, the phase falls back to the raw roll-up (#29).
+  riskRules   optional: the phase's deterministic risk rules (§3.4.1a) —
+              (diff, paths) → level. Thresholds are the consuming feature PRD's;
+              the harness evaluates them once before fan-out (#32).
+  riskLevels  optional: mapping of the resolved `level` to
+              { specialists: subset, coordinator: on|off }. The harness applies the mapping.
 }
 ```
+
+**`PhaseId` is an open identifier, not a closed union (decision #28).** The schema validates a
+kebab-case pattern (`/^[a-z][a-z0-9-]*$/`), not an enum: the five product phases are the
+documented built-in set, and the stub phases (§3.9) are equally valid registrations. A closed
+union would make every new phase a schema edit — contradicting acceptance #1 ("adding a sixth
+phase touches no harness code") and unable to even validate the steel thread's own reports.
+`Finding.phase` and `PhaseReport.phase` use the same open `PhaseId`.
 
 ### 4.2 Finding
 
@@ -509,6 +550,13 @@ Audit = {
   examined?: string[]                         // files/surfaces/requirements considered
   checks?:   Check[]                          // every concrete command run
   claims?:   { derived: string[], proven: string[], unproven: string[] }   // Phase 5
+  coordinator?: {                             // composite phases that ran a judge (§3.3a) —
+                                              // harness-computed, never judge-self-reported
+    received:   number                        // findings in the raw specialist roll-up
+    dropped:    { id: string, specialist?: string, message: string }[]  // roll-up minus survivors (#31)
+    reinstated: { id: string, specialist?: string }[]                   // protected findings the judge
+                                              // tried to drop/downgrade, restored by the harness (#30)
+  }
 }
 
 Check = {
@@ -527,6 +575,8 @@ amendment lands in the same change as the behavioral-engine PRD.
 ### 4.4 PhaseReport
 
 ```ts
+Cost = { model?: string, inputTokens?: number, outputTokens?: number, durationMs: number }
+
 PhaseReport = {
   phase:    PhaseId
   status:   "completed"      // ran to the end and submitted (may contain findings)
@@ -536,7 +586,7 @@ PhaseReport = {
   reason?:  string            // required for skipped | cancelled | error
   findings: Finding[]
   audit:    Audit
-  cost:     { model?: string, inputTokens?: number, outputTokens?: number, durationMs: number,
+  cost:     Cost & {
               specialists?: Record<string, Cost>,    // composite phases: per-specialist breakdown
               coordinator?: Cost }                   // §3.3a judge pass, when one ran
 }
@@ -555,7 +605,8 @@ RunReport = {
   startedAt: string                           // run start, ISO-8601 UTC (#23) — the one field the
                                               // v1.x cache key must exclude
   scope:   { kind: "staged"|"working"|"against"|"commit"|"commits",
-             ref?: string, files: string[] }
+             ref?: string, files: string[],
+             stripped?: string[] }            // paths removed by semantic pre-filtering (§3.6, #33)
   spec:    { provided: boolean, sources: string[] }   // e.g. ["--prd auth.md", "--issue 42"]
   phases:  PhaseReport[]                      // one entry per configured phase, ALWAYS —
                                               // skipped/cancelled phases included with reasons
@@ -868,13 +919,18 @@ run reports what it knows. Exit `1`.
 18. **Coordinator (§3.3a):** a composite phase declaring a coordinator runs its specialists, then a
     single `robust`-tier judge pass whose submission becomes the phase's `findings`; duplicates are
     merged and a planted convention-contradicted/nitpick finding is dropped; surviving findings keep
-    their `specialist`; `cost.coordinator` records the judge's model/tokens. A composite phase
-    *without* a coordinator keeps the plain roll-up. Verified with `stub-composite`.
-19. **Risk classifier (§3.4.1a):** the deterministic `classify(diff, paths, config) → level` runs
-    once before fan-out; a phase declaring `riskLevels` runs a reduced specialist subset and/or
-    skips its coordinator at a lower level and the full set at the top level; the resolved `level`
-    appears in the run output. With no phase rules declared the mechanism is inert (full panel
-    runs). Verified with a stub phase and two synthetic diffs (small vs large).
+    their `specialist`; `cost.coordinator` records the judge's model/tokens; dropped findings appear
+    in `audit.coordinator.dropped` (#31). A planted **evidence-backed** finding survives a scripted
+    drop/downgrade attempt unchanged, recorded in `audit.coordinator.reinstated` (#30). A
+    coordinator run that fails (no-submit / budget / model error) leaves the phase with the **raw
+    roll-up** plus a `<phase>.coordinator-failed` warning (#29). A composite phase *without* a
+    coordinator keeps the plain roll-up. Verified with `stub-composite`.
+19. **Risk classifier (§3.4.1a):** the deterministic `classify(diff, paths, rules) → level` is
+    evaluated once per `riskRules`-declaring phase before fan-out, over the **pre-filtered** diff
+    (#32); a phase declaring `riskLevels` runs a reduced specialist subset and/or skips its
+    coordinator at a lower level and the full set at the top level; each resolved `level` appears
+    in the run output. With no `riskRules` declared the mechanism is inert (full panel runs).
+    Verified with a stub phase and two synthetic diffs (small vs large).
 
 ## 6. Edge cases
 
@@ -949,6 +1005,12 @@ run reports what it knows. Exit `1`.
 | 22 | Turn ceilings follow the wall-clock class: 50 (5-min class) / 120 (15-min class) | review round 2 (Johan, 2026-06-07) | headroom where the long successful runs are; a false breach costs a loop an iteration; one principle — budgets come in two classes | settled |
 | 23 | `RunReport` carries `stet` (binary semver) + `startedAt` (ISO-8601 UTC) | review round 2 (Johan, 2026-06-07) | reports travel and must self-describe; "which stet, when" answered inside the artifact; cache key excludes `startedAt` | settled |
 | 24 | Harness-only build scope; the steel thread runs on two stub phases (§3.9); every real phase integrates via its own feature plan | brief direction 8 (Johan, 2026-06-06) | the harness's definition of done can't depend on another feature shipping; pluggability becomes a demonstrated fact | settled |
-| 25 | **Coordinator (judge pass) is first-class composite-phase machinery** (§3.3a): an optional `robust`-tier agent that dedups, drops convention-contradicted/speculative findings, and re-ranks; its submission replaces the specialist roll-up. Harness owns the mechanism; review's coordinator rubric is the code-review PRD's | Cloudflare reference review (Johan, 2026-06-09) | their single most load-bearing noise filter — not the "if it proves noisy" tail #17 assumed; reuses the AgentRunner seam + existing tiers | settled (supersedes #17) |
-| 26 | **Deterministic risk classifier is a harness mechanism** (§3.4.1a): `classify(diff, paths, config) → level` scales specialist fan-out + coordinator on/off; harness owns the mechanism + the level→fan-out wiring, the consuming feature PRD owns thresholds/rules (same split as activation) | Cloudflare reference review (Johan, 2026-06-09) | activation is on/off; this is the missing "how much" dial and the cost gate for #25's expensive judge; baking thresholds into the substrate would violate #24 | settled |
-| 27 | Semantic diff pre-filtering (strip lockfiles/minified/sourcemaps/vendored/`@generated`-except-migrations) + model failback on retryable errors | Cloudflare reference review (Johan, 2026-06-09) | removes a class of false positives and token waste; failback is just the existing tier preference order | settled |
+| 25 | **Coordinator (judge pass) is first-class composite-phase machinery** (§3.3a): an optional `robust`-tier agent that dedups, drops convention-contradicted/speculative findings, and re-ranks; its submission replaces the specialist roll-up. Harness owns the mechanism; review's coordinator rubric is the code-review PRD's | Cloudflare reference review (Johan, 2026-06-09) | their single most load-bearing noise filter — not the "if it proves noisy" tail #17 assumed; reuses the AgentRunner seam + existing tiers | settled (supersedes #17; refined by #29–#31) |
+| 26 | **Deterministic risk classifier is a harness mechanism** (§3.4.1a): `classify(diff, paths, rules) → level` scales specialist fan-out + coordinator on/off; harness owns the mechanism + the level→fan-out wiring, the consuming feature PRD owns thresholds/rules (same split as activation) | Cloudflare reference review (Johan, 2026-06-09) | activation is on/off; this is the missing "how much" dial and the cost gate for #25's expensive judge; baking thresholds into the substrate would violate #24 | settled (amended by #32) |
+| 27 | Semantic diff pre-filtering (strip lockfiles/minified/sourcemaps/vendored/`@generated`-except-migrations) + model failback on retryable errors | Cloudflare reference review (Johan, 2026-06-09) | removes a class of false positives and token waste; failback is just the existing tier preference order | settled (extended by #33) |
+| 28 | **`PhaseId` is an open identifier** (kebab-case pattern, not a closed union); the five product phases are the documented built-in set, stub ids equally valid | soundness review (2026-06-09) | the closed union contradicted acceptance #1 ("sixth phase touches no harness code") and could not validate the steel thread's own stub-phase reports (§3.9) | settled |
+| 29 | **Coordinator failure falls back to the raw roll-up** + `<phase>.coordinator-failed` warning; specialist findings are never forfeited to a failed judge | soundness review (2026-06-09) | §3.3's "one specialist failing never loses the others' findings" extends to the judge — otherwise the coordinator is a single point of failure that discards everything; degrade-with-visibility, same ethos as budgets | settled |
+| 30 | **Coordinator authority is constrained:** it may not drop or downgrade deterministic / evidence-backed findings; harness reinstates protected findings post-submission (visible in `audit.coordinator.reinstated`) | soundness review (2026-06-09) | §4.6 makes evidence high-confidence *by construction* — proof is not an AI judge's to overrule; a guarantee enforced by construction can't be talked out of (brief direction 3) | settled |
+| 31 | **Coordinator drops are recorded** in `audit.coordinator.dropped` ({id, specialist, message}), computed by the harness as roll-up minus survivors | soundness review (2026-06-09) | a judge silently filtering findings is a new silent channel; "why didn't stet flag X?" must stay answerable from the artifact — without resurrecting the noise into `findings` | settled |
+| 32 | **Risk rules are declared per phase** (`riskRules` in `PhaseConfiguration`); classify is evaluated once per declaring phase, over the **pre-filtered** diff | soundness review (2026-06-09) | one run-global level can't serve two phases with different sensitivities, and "rules belong to the consuming PRD" requires a per-phase home — same shape as activation predicates; pre-filtered input keeps lockfile churn from inflating risk | settled (amends #26) |
+| 33 | **Stripped paths are in the report:** `scope.stripped` in `RunReport`, not just the human scope echo | soundness review (2026-06-09) | machine consumers (loops, CI) are the primary audience — visibility that exists only in human chrome is invisible to them | settled (extends #27) |
