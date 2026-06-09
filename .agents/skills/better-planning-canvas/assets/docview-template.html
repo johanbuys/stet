@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>doc review</title>
+<style>
+  :root {
+    --ink: #1a1f2e; --muted: #5a6276; --line: #e3e6ee; --bg: #f7f8fb;
+    --card: #ffffff; --accent: #0ca678; --ok: #2f9e44; --warn: #e8930c; --err: #c92a2a;
+  }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.6 -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink);
+         background: var(--bg); margin: 0; padding: 32px 16px 96px; }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  .pagehead h1 { font-size: 22px; margin: 0 0 4px; }
+  .pagehead .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  .chip { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 10px;
+          border-radius: 99px; background: #e6f7f1; color: var(--accent); margin: 0 6px 4px 0; }
+
+  .docsec { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+            padding: 4px 26px 14px; margin: 0 0 18px; }
+  .docsec h1 { font-size: 24px; margin: 18px 0 10px; }
+  .docsec h2 { font-size: 19px; margin: 18px 0 10px; padding-bottom: 6px;
+               border-bottom: 1px solid var(--line); }
+  .docsec h3 { font-size: 15.5px; margin: 16px 0 8px; }
+  .docsec h4 { font-size: 14px; margin: 14px 0 6px; }
+  .docsec p, .docsec li { font-size: 14px; }
+  .docsec ul, .docsec ol { padding-left: 24px; }
+  .docsec blockquote { border-left: 4px solid var(--line); margin: 10px 0; padding: 2px 14px;
+                       color: var(--muted); }
+  .docsec code { font-family: ui-monospace, monospace; font-size: 12.5px; background: #eef0f5;
+                 padding: 1px 5px; border-radius: 4px; }
+  .docsec pre { font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5;
+                background: #1a1f2e; color: #d8dee9; border-radius: 8px; padding: 12px 14px;
+                overflow-x: auto; }
+  .docsec pre code { background: none; color: inherit; padding: 0; font-size: inherit; }
+  .docsec table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  .docsec th { text-align: left; font-size: 11.5px; color: var(--muted); border-bottom: 2px solid var(--line);
+               padding: 6px 10px 6px 0; }
+  .docsec td { padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .docsec hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
+  .docsec a { color: var(--accent); }
+
+  .replies { border: 2px solid var(--accent); background: #f4fbf8; border-radius: 12px;
+             padding: 14px 20px; margin: 0 0 20px; }
+  .replies h2 { margin: 0 0 8px; font-size: 16px; color: var(--accent); }
+  .replies .rep { padding: 8px 0; border-bottom: 1px dashed var(--line); font-size: 13.5px; }
+  .replies .rep:last-child { border-bottom: none; }
+  .replies .rep .where { font-size: 11px; font-weight: 700; color: var(--muted);
+                         text-transform: uppercase; letter-spacing: .05em; }
+
+  .rv { margin: 14px 0 4px; }
+  .rv textarea { width: 100%; min-height: 52px; border: 1px dashed #b6bdd1; border-radius: 8px;
+                 padding: 8px 10px; font: 13px/1.5 inherit; background: #fcfcfe; resize: vertical; }
+  .rv textarea:focus { outline: none; border-color: var(--accent); border-style: solid; background: #fff; }
+  .rv label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px;
+              text-transform: uppercase; letter-spacing: .05em; }
+  .rv.has-text textarea { border-color: var(--ok); border-style: solid; background: #f4fbf6; }
+
+  .submit-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff;
+                border-top: 1px solid var(--line); padding: 12px 16px;
+                box-shadow: 0 -4px 16px rgba(20,25,45,.07); z-index: 10; }
+  .submit-inner { max-width: 920px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+  button { font: 600 14px inherit; background: var(--accent); color: #fff; border: 0;
+           border-radius: 8px; padding: 10px 22px; cursor: pointer; }
+  #status { font-size: 13px; color: var(--muted); }
+  #status.ok { color: var(--ok); font-weight: 600; }
+  #status.err { color: var(--err); font-weight: 600; }
+  .foot { margin-top: 24px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="pagehead">
+    <h1 id="pagetitle">document review</h1>
+    <p class="sub"><span class="chip">live source</span><span class="chip" style="background:#eef0f5;color:var(--muted)" id="docname"></span>
+    The full markdown source, rendered live — every section has a comment box: ask questions, request changes, challenge anything. Submit reaches the agent immediately; answers and applied edits show up here when the page redraws.</p>
+  </div>
+  <div id="replies"></div>
+  <div id="doc"><p style="color:var(--muted)">Loading…</p></div>
+  <p class="foot">Doc-review canvas — the markdown file in the repo is canonical; this page mirrors it live.</p>
+</div>
+
+<div class="submit-bar">
+  <div class="submit-inner">
+    <button id="submit">Submit comments</button>
+    <span id="status">Comments autosave locally as you type. Empty boxes = fine as is.</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
+  // configured per workspace:
+  /*
+   * Live doc review — copy this file ONCE into the canvas workspace (never edit it),
+   * copy the markdown file next to it, and open with URL params:
+   *   docview.html?md=<file>.md[&doc=<feedback-key>][&title=<page title>]
+   * After every edit to the real document: re-copy the .md into the workspace and
+   * bump version.json — the page re-renders in place, keeping the reader's scroll.
+   * Agent replies go in answers.json: {"round":"…","replies":[{"where":"…","html":"…"}]}
+   */
+  var qs = new URLSearchParams(location.search);
+  var MD = qs.get("md") || "doc.md";                                  // source file served from this dir
+  var stem = MD.replace(/\.md$/, "");
+  var DOC = qs.get("doc") || (stem + "-doc");                         // feedback key (distinct per page)
+  var TITLE = qs.get("title") || (stem + " — full source review");
+
+  var KEY = "bp-canvas:" + DOC, saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+  document.getElementById("pagetitle").textContent = TITLE;
+  document.getElementById("docname").textContent = MD;
+  document.title = TITLE;
+
+  /* ---------- minimal markdown renderer (headings, lists, tables, fences, quotes, inline) ---------- */
+  function escHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function inline(s) {
+    var codes = [];
+    s = s.replace(/`([^`]+)`/g, function (_, c) { codes.push(c); return "\u0000" + (codes.length - 1) + "\u0000"; });
+    s = escHtml(s);
+    s = s.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    s = s.replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>");
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<a href=\"$2\">$1</a>");
+    s = s.replace(/\u0000(\d+)\u0000/g, function (_, i) { return "<code>" + escHtml(codes[+i]) + "</code>"; });
+    return s;
+  }
+  function md2html(src) {
+    var lines = src.split("\n"), out = [], i = 0;
+    function listBlock() {
+      var html = "", stack = [];   // stack of {indent, type}
+      while (i < lines.length) {
+        var m = lines[i].match(/^(\s*)([-*]|\d+\.)\s+(.*)$/);
+        if (!m) {
+          // lazy continuation: indented non-empty line continues the previous item
+          if (stack.length && /^\s{2,}\S/.test(lines[i])) { html += " " + inline(lines[i].trim()); i++; continue; }
+          break;
+        }
+        var ind = m[1].length, type = /\d/.test(m[2]) ? "ol" : "ul";
+        while (stack.length && ind < stack[stack.length - 1].indent) { html += "</li></" + stack.pop().type + ">"; }
+        if (!stack.length || ind > stack[stack.length - 1].indent) {
+          stack.push({ indent: ind, type: type }); html += "<" + type + "><li>";
+        } else { html += "</li><li>"; }
+        html += inline(m[3]); i++;
+      }
+      while (stack.length) { html += "</li></" + stack.pop().type + ">"; }
+      return html;
+    }
+    while (i < lines.length) {
+      var ln = lines[i];
+      if (/^```/.test(ln)) {
+        var buf = []; i++;
+        while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++; out.push("<pre><code>" + escHtml(buf.join("\n")) + "</code></pre>"); continue;
+      }
+      var h = ln.match(/^(#{1,6})\s+(.*)$/);
+      if (h) { var lvl = h[1].length; out.push("<h" + lvl + ">" + inline(h[2]) + "</h" + lvl + ">"); i++; continue; }
+      if (/^(\s*)([-*]|\d+\.)\s+/.test(ln)) { out.push(listBlock()); continue; }
+      if (/^---+\s*$/.test(ln)) { out.push("<hr>"); i++; continue; }
+      if (/^>/.test(ln)) {
+        var q = []; while (i < lines.length && /^>/.test(lines[i])) { q.push(lines[i].replace(/^>\s?/, "")); i++; }
+        out.push("<blockquote>" + md2html(q.join("\n")) + "</blockquote>"); continue;
+      }
+      if (/^\|/.test(ln) && i + 1 < lines.length && /^\|[\s:|-]+\|?\s*$/.test(lines[i + 1])) {
+        var SEP = "\u0001";
+        function cells(row) {
+          return row.replace(/\\\|/g, SEP).replace(/^\||\|$/g, "").split("|")
+                    .map(function (c) { return inline(c.trim().split(SEP).join("|")); });
+        }
+        var t = "<table><tr>" + cells(ln).map(function (c) { return "<th>" + c + "</th>"; }).join("") + "</tr>";
+        i += 2;
+        while (i < lines.length && /^\|/.test(lines[i])) {
+          t += "<tr>" + cells(lines[i]).map(function (c) { return "<td>" + c + "</td>"; }).join("") + "</tr>"; i++;
+        }
+        out.push(t + "</table>"); continue;
+      }
+      if (/^\s*$/.test(ln)) { i++; continue; }
+      var p = [];
+      while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,6}\s|```|---+\s*$|>|\||(\s*([-*]|\d+\.)\s))/.test(lines[i])) {
+        p.push(lines[i]); i++;
+      }
+      if (p.length) out.push("<p>" + inline(p.join(" ")) + "</p>"); else i++;
+    }
+    return out.join("\n");
+  }
+
+  /* ---------- split into commentable sections at h2 boundaries ---------- */
+  function slug(s) {
+    return s.toLowerCase().replace(/<[^>]*>/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+  }
+  function renderDoc(src) {
+    var parts = src.split(/\n(?=## )/);   // preamble + one chunk per h2
+    var html = "";
+    parts.forEach(function (chunk, idx) {
+      var head = chunk.match(/^## (.*)$/m);
+      var id = idx === 0 ? "sec-header" : "sec-" + slug(head ? head[1] : "section-" + idx);
+      html += "<div class=\"docsec\"><div class=\"rv\" data-review-id=\"" + id +
+              "\" data-ph=\"Questions, changes, pushback on this section…\" data-top=\"1\"></div>" +
+              md2html(chunk) + "</div>";
+    });
+    document.getElementById("doc").innerHTML = html;
+    attachBoxes();
+  }
+  /* comment boxes: rendered at the top of each section, restore autosaved text */
+  function attachBoxes() {
+    document.querySelectorAll("[data-review-id]").forEach(function (el) {
+      if (el.querySelector("textarea")) return;
+      var id = el.getAttribute("data-review-id");
+      var label = document.createElement("label");
+      label.textContent = "Your comments — " + id;
+      var ta = document.createElement("textarea");
+      ta.placeholder = el.getAttribute("data-ph") || "Empty = fine as is.";
+      ta.value = saved[id] || "";
+      if (ta.value) el.classList.add("has-text");
+      ta.addEventListener("input", function () {
+        saved[id] = ta.value;
+        el.classList.toggle("has-text", !!ta.value.trim());
+        try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+      });
+      el.appendChild(label);
+      el.appendChild(ta);
+    });
+  }
+
+  /* ---------- agent replies panel (answers.json, optional) ---------- */
+  function loadReplies() {
+    fetch("answers.json?t=" + Date.now())
+      .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+      .then(function (j) {
+        if (!j.replies || !j.replies.length) { document.getElementById("replies").innerHTML = ""; return; }
+        var h = "<div class=\"replies\"><h2>Agent responses (" + (j.round || "latest") + ")</h2>";
+        j.replies.forEach(function (r) {
+          h += "<div class=\"rep\"><div class=\"where\">" + r.where + "</div>" + r.html + "</div>";
+        });
+        document.getElementById("replies").innerHTML = h + "</div>";
+      })
+      .catch(function () { document.getElementById("replies").innerHTML = ""; });
+  }
+
+  function loadDoc() {
+    return fetch(MD + "?t=" + Date.now())
+      .then(function (r) { return r.text(); })
+      .then(function (t) { renderDoc(t); loadReplies(); })
+      .catch(function () {
+        document.getElementById("doc").innerHTML = "<p style=\"color:var(--err)\">Couldn't load " + MD + " — is the canvas server running?</p>";
+      });
+  }
+
+  document.getElementById("submit").addEventListener("click", function () {
+    var status = document.getElementById("status");
+    var comments = {};
+    Object.keys(saved).forEach(function (k) { if (saved[k] && saved[k].trim()) comments[k] = saved[k].trim(); });
+    if (!Object.keys(comments).length) { status.className = "err"; status.textContent = "Nothing to submit — all boxes are empty."; return; }
+    status.className = ""; status.textContent = "Submitting…";
+    fetch("/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ doc: DOC, exported: new Date().toISOString(), comments: comments })
+    }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      status.className = "ok";
+      status.textContent = "Submitted " + Object.keys(comments).length + " comment(s) — the agent is on it; the page stays readable and will refresh with responses.";
+      try { localStorage.removeItem(KEY); } catch (e) {}
+      saved = {};
+      document.querySelectorAll(".rv.has-text").forEach(function (el) {
+        el.classList.remove("has-text"); var t = el.querySelector("textarea"); if (t) t.value = "";
+      });
+    }).catch(function (e) {
+      status.className = "err";
+      status.textContent = "Submit failed (" + e.message + ") — comments are still saved locally.";
+    });
+  });
+
+  /* version polling: doc or answers changed -> re-render in place (no scroll jump on purpose:
+     you keep reading where you were; new agent replies appear at the top) */
+  var currentVersion = null;
+  setInterval(function () {
+    fetch("version.json?t=" + Date.now())
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (currentVersion === null) currentVersion = j.v;
+        else if (j.v !== currentVersion) { currentVersion = j.v; loadDoc(); }
+      })
+      .catch(function () {});
+  }, 3000);
+
+  loadDoc();
+})();
+</script>
+</body>
+</html>
