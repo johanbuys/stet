@@ -39,6 +39,12 @@ fresh high-level PRD. Every PRD has a companion `<name>-overview.html` for visua
 finding, tier, …). Use those terms exactly, and update the glossary in the same change that
 introduces or renames a term.
 
+**Engineering gotchas:** `docs/engineering-notes.md` collects non-obvious, rediscovery-expensive
+traps from building the harness — Pi SDK 0.79.x quirks (dispose/cost/terminate/no-readonly-bash),
+Vite+ toolchain (`vp test` filters by path, `dts: false`, test-file double-import), TypeBox/schema
+and never-throws blind spots. **Read it before extending the agent runner, the schemas, or the
+build.** Add an entry when you hit a new trap.
+
 **Behavioral verification (Phase 5) R&D is done.** A prototype in the sibling repo
 **`../validation-agent-poc`** proved a diff-blind, mutation-free behavioral validator. Findings are
 captured in **`docs/better-planning/research/behavioral-validation-findings.md`** — read it before writing any
