@@ -124,8 +124,10 @@ behavioral execution tools (`start-service`, `pty-session`, `browser-execution`)
 
 **Safety and operations**
 
-27. As a security-conscious adopter, I want mutation-freedom enforced at tool registration and
-    verified by a test, so that I can point stet at any repo knowing no code path can modify it.
+27. As a security-conscious adopter, I want file-mutation tools (`edit`/`write`) barred at tool
+    registration and verified by a test, and a clear path to full mutation-freedom (sandboxing the
+    `bash` escape hatch — decision #34), so I can point stet at a repo with a bounded, documented
+    write surface rather than an unbounded one.
 28. As an operator, I want every budget breach to be a named `error` outcome with the partial
     audit preserved, so that there are no silent hangs and no silent kills.
 29. As an operator debugging divergent verdicts, I want `cost.model` recorded per agent phase,
@@ -163,16 +165,24 @@ The Pi SDK integration, lifted from the POC recipe. **SDK confirmed (2026-06-06)
 GitHub repo transferred to `earendil-works/pi`, and the old `@mariozechner/pi-coding-agent` npm
 scope is deprecated ("please use @earendil-works/pi-coding-agent instead", frozen at 0.73.1
 while the new scope releases actively — 0.78.1 at time of writing). Same project, same author
-(Mario Zechner), MIT. stet standardizes on `@earendil-works/pi-coding-agent` (0.78.x); zero
-porting risk — the POC already runs on it. The runner:
+(Mario Zechner), MIT. stet standardizes on `@earendil-works/pi-coding-agent` (**0.79.x** —
+amended 2026-06-09 from 0.78.x: `vp add` resolved 0.79.1, API-compatible, the M2 adapter
+compiles and runs on it; see decision #5 and plan §6); zero porting risk — the POC already runs
+on it. The runner:
 
 - `createAgentSession` per phase run, with `systemPromptOverride` replacing the coding-agent
   persona entirely with the phase rubric; user prompt carries the per-run inputs (diff summary,
   spec context, run-instructions) as freetext.
 - **Mutation-free at the tool-registration boundary:** the session's tool list is the phase's
   allowlist (`read`, `bash`, `grep`, `find`, `ls`, `submit_findings`, plus Phase 5's execution
-  tools). Edit/write tools are never registered. There is no code path on which an agent phase
-  can mutate the repo.
+  tools). **No file-mutation tool (`edit`/`write`) is ever registered** — a test asserts this on
+  every registered agent phase (acceptance #2). **Caveat (surfaced at M2 build, 2026-06-09 —
+  decision #34):** `bash` *is* registered and the Pi SDK exposes no read-only bash mode, so a model
+  that disregards its rubric *could* mutate the repo via a shell command. The registration-boundary
+  guarantee therefore covers `edit`/`write`, **not** `bash`; near-term the agent is held read-only
+  by rubric instruction, and **real enforcement — a sandbox / read-only mount / a `bash`
+  spawn-hook denylist — is a tracked follow-up** (decision #34), naturally tied to the milestone
+  that introduces Phase 5 execution (which needs a controlled exec surface anyway). See plan §6.
 - In-memory session + settings managers; compaction enabled; SDK-level retry (max 2).
 - **Model routing — tiers, not IDs.** Built-in defaults are **capability tiers** (`robust` for
   behavioral/review, `fast` for the structured phases), resolved at run time against the
@@ -985,7 +995,7 @@ run reports what it knows. Exit `1`.
 | 2 | `Audit` (examined/checks/claims) is first-class on every phase | draft | the anti-silent-green mechanism, generalized from the POC | settled |
 | 3 | Deterministic + evidence-backed findings are `high` confidence by construction | draft | a reproducing command is proof; the confidence filter exists for opinions | settled |
 | 4 | Schemas defined with TypeBox, validated at the tool boundary | draft | runtime validation is what makes output-as-tool enforceable | settled |
-| 5 | Pi SDK: standardize on `@earendil-works/pi-coding-agent` 0.78.x | evidence check (2026-06-06) | confirmed successor of `badlogic/pi-mono`; the POC already runs on it | settled |
+| 5 | Pi SDK: standardize on `@earendil-works/pi-coding-agent` 0.79.x (amended 2026-06-09 from 0.78.x) | evidence check (2026-06-06); version amended at M2 build (2026-06-09) | confirmed successor of `badlogic/pi-mono`; the POC already runs on it. M2: `vp add` resolved 0.79.1 (API-compatible with 0.78.x — `createAgentSession`/`session.prompt`/`getSessionStats`/`defineTool`/`DefaultResourceLoader` unchanged); adapter compiles + steel thread runs. Reality-disagrees protocol applied (plan §6) | settled |
 | 6 | Model routing by capability tiers; four config layers; sparse `init`; project config never names providers | review round 1 (Johan) | provider pins in shared config are broken-by-teammate | settled |
 | 7 | The binding run is CI's run, with pinned routing; local runs advisory | review round 1 (Johan) | AI findings are judgments — variance is contained, not eliminated | settled |
 | 8 | Model qualification earned on the eval suite; `harness.unqualified-model` warning; curated manifest + `stet models test` | review round 1 (Johan) | tier membership must be earned, not asserted | settled |
@@ -1014,3 +1024,4 @@ run reports what it knows. Exit `1`.
 | 31 | **Coordinator drops are recorded** in `audit.coordinator.dropped` ({id, specialist, message}), computed by the harness as roll-up minus survivors | soundness review (2026-06-09) | a judge silently filtering findings is a new silent channel; "why didn't stet flag X?" must stay answerable from the artifact — without resurrecting the noise into `findings` | settled |
 | 32 | **Risk rules are declared per phase** (`riskRules` in `PhaseConfiguration`); classify is evaluated once per declaring phase, over the **pre-filtered** diff | soundness review (2026-06-09) | one run-global level can't serve two phases with different sensitivities, and "rules belong to the consuming PRD" requires a per-phase home — same shape as activation predicates; pre-filtered input keeps lockfile churn from inflating risk | settled (amends #26) |
 | 33 | **Stripped paths are in the report:** `scope.stripped` in `RunReport`, not just the human scope echo | soundness review (2026-06-09) | machine consumers (loops, CI) are the primary audience — visibility that exists only in human chrome is invisible to them | settled (extends #27) |
+| 34 | **Mutation-freedom is enforced for `edit`/`write` (registration boundary, test-verified), but `bash` is a known residual write surface** held read-only by rubric only; sandboxed enforcement (read-only mount / spawn-hook denylist / repo copy) is a tracked follow-up tied to the Phase 5 execution milestone | M2 build review (2026-06-10) | PR-review #1 showed the §3.2 "no code path can mutate" claim was falsified by the unrestricted `bash` tool (the SDK has no read-only bash); `bash` is needed (esp. Phase 5), so the honest near-term posture is "file tools barred at registration, bash instructed-not-enforced" with enforcement scheduled where a controlled exec surface is built anyway. Reality-disagrees protocol (plan §6) | **open — follow-up** (amends user story 27, §3.2; M2 keeps bash) |

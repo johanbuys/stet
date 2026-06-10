@@ -97,33 +97,33 @@ correct exit code; `vp test` green.
 
 ## M2 — `AgentRunner` + `stub-agent` + guards (closes the steel thread) · PR2
 
-- [ ] **T7 · `AgentRunner` interface + `FakeAgentRunner` + phase wrapper**  ([#12](https://github.com/johanbuys/stet/issues/12))
+- [x] **T7 · `AgentRunner` interface + `FakeAgentRunner` + phase wrapper**  ([#12](https://github.com/johanbuys/stet/issues/12))
   Implements: plan §2a (AgentRunner), M2 step 1 · PRD §3.2 · decision P1
   Files: `src/agent/runner.ts`, `src/agent/fake-runner.ts`, `src/phases/agent-phase.ts` (wrapper)
   Accept: `vp test agent` — a fake scripted to "submit once with N findings", run through the
   wrapper, yields a `PhaseReport` carrying them; the wrapper returns `Ok`/typed `Err`, never throws.
 
-- [ ] **T8 · The three output-as-tool guards**  ([#13](https://github.com/johanbuys/stet/issues/13))
+- [x] **T8 · The three output-as-tool guards**  ([#13](https://github.com/johanbuys/stet/issues/13))
   Implements: plan M2 steps 2–4 · PRD §3.1 (validate-or-retry, idempotency, no-submit fallback)
   Files: `src/agent/submit-tool.ts`, wrapper `matchError` over `AgentError` + tests
   Accept: `vp test guards` — invalid submit rejected at the tool boundary + retry observed;
   3× submit ⇒ first wins, duplicates get "already recorded"; `Err(NoSubmitError)` ⇒ synthesized
   `error` `PhaseReport` + `<phase>.no-result` warning.
 
-- [ ] **T9 · `stub-agent` phase**  ([#14](https://github.com/johanbuys/stet/issues/14))
+- [x] **T9 · `stub-agent` phase**  ([#14](https://github.com/johanbuys/stet/issues/14))
   Implements: plan §2a (stub-agent rubric), M2 step 5 · PRD §3.9
   Files: `src/phases/stub-agent.ts` + tests (fake-driven)
   Accept: `vp test` — `stub-agent` (rubric: one `info` finding per `/\bTODO\b/` match in changed
   files) produces the expected findings against the fixture's two-TODO file via `FakeAgentRunner`.
 
-- [ ] **T10 · `PiAgentRunner` adapter (port the POC)**  ([#15](https://github.com/johanbuys/stet/issues/15))
+- [x] **T10 · `PiAgentRunner` adapter (port the POC)**  ([#15](https://github.com/johanbuys/stet/issues/15))
   Implements: plan M2 step 6 · PRD §3.2 · POC `validate.ts`
   Files: `src/agent/pi-runner.ts` + tests
   Accept: `vp check` clean; the adapter implements `AgentRunner` (createAgentSession,
   `systemPromptOverride`, mutation-free toolset, in-memory managers, `tool_execution_start` →
   stderr) and returns `Result<AgentRunSuccess, AgentError>`.
 
-- [ ] **T11 · Keyed integration suite + mutation-free test + steel thread (closes M2)**  ([#16](https://github.com/johanbuys/stet/issues/16))
+- [x] **T11 · Keyed integration suite + mutation-free test + steel thread (closes M2)**  ([#16](https://github.com/johanbuys/stet/issues/16))
   Implements: plan M2 step 7 · PRD acceptance #2, #17, §3.9
   Files: `src/agent/pi-runner.integration.test.ts`, a mutation-free assertion test
   Accept: **the steel thread** — `cd fixtures/stub-repo &&

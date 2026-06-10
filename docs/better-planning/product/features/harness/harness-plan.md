@@ -18,7 +18,8 @@ M2), coordinator fallback/constrained-authority/drop-audit and per-phase risk ru
 one implementation → repeat. No horizontal slicing (never all-tests-then-all-code). Tests
 exercise **behavior through public interfaces** and must survive internal refactors. Toolchain:
 Vite+ (`vp test`, `vp check`); schemas in TypeBox; Pi SDK `@earendil-works/pi-coding-agent`
-0.78.x. The mining source is the POC at `../validation-agent-poc` (`src/{validate,prompt,
+0.79.x (amended 2026-06-09 from 0.78.x — `vp add` resolved 0.79.1, API-compatible; §6). The
+mining source is the POC at `../validation-agent-poc` (`src/{validate,prompt,
 schema}.ts`).
 
 **Error-handling methodology — `better-result` (decision P7, full discipline).** The harness uses
@@ -542,6 +543,28 @@ doc lie. Specifically likely contradiction points to watch: the Pi SDK 0.78.x AP
 0.78.0 usage (toolset names, `createAgentSession` signature); whether 120 turns is actually
 enough for `stub-agent` under budget; whether scope detection's git-state priority survives
 detached HEAD / shallow clones (PRD §6 edge cases).
+
+**Surfaced during M2 build (2026-06-09), reality-disagrees protocol applied:**
+- **Pi SDK version.** `vp add @earendil-works/pi-coding-agent` resolved **0.79.1**, not 0.78.x. The
+  core API the adapter uses is unchanged (`createAgentSession`, `session.prompt`, `session.subscribe`,
+  `session.getSessionStats`, `defineTool`, `DefaultResourceLoader`, in-memory managers) — the adapter
+  compiles and the steel thread runs. PRD §3.2 + decision #5 amended to 0.79.x. One real API note:
+  `defineTool.execute` is 5-arg in 0.79 (`(toolCallId, params, signal, onUpdate, ctx)`); the adapter
+  uses the first two, the rest are ignored (extra params are assignable). Cost is read via
+  `session.getSessionStats().tokens` (the `SessionStats` accessor), while the session is live.
+- **Build / `dts`.** `vp pack` with `dts: true` cannot run here (the globally-installed vite-plus dts
+  generator fails to resolve the project's typescript). stet is a CLI binary (no `types` field, no
+  importable API), so `.d.ts` output is unneeded — `vite.config.ts` sets `dts: false`; the bundle
+  builds and `node dist/cli.mjs` runs. Not a design change; recorded here for the M3+ builder.
+- **Mutation-free vs `bash` (PR-review #1 → decision #34).** The PRD §3.2 claim "no code path can
+  mutate the repo" was falsified: `bash` is registered and the Pi SDK has no read-only bash, so a
+  live model *could* mutate. Resolution (Johan, 2026-06-10): **keep `bash`** (agents need it,
+  Phase 5 especially), **amend the claim to the honest posture** (file tools `edit`/`write` barred
+  at registration + test-verified; `bash` read-only by rubric only), and **open a tracked follow-up
+  for real enforcement** (sandbox / read-only mount / `bash` spawn-hook denylist), naturally landing
+  with the Phase 5 execution milestone that builds a controlled exec surface anyway. The M2
+  mutation-free test correctly asserts only the `edit`/`write` registration bar — it does not claim
+  bash-safety.
 
 ## 7. Decisions (plan-level)
 

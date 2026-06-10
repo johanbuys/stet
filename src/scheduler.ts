@@ -22,6 +22,13 @@ export interface SchedulerContext {
   scope: Scope;
   /** Parsed project config — phases slices are keyed by phase id. */
   config: StetConfig;
+  /**
+   * Tool-progress callback: called with (phaseId, toolName) each time an agent phase
+   * invokes a tool. The scheduler scopes the phase id in before handing a per-phase
+   * callback down to PhaseContext.onTool. Absent → no progress reporting (e.g. tests
+   * that don't care about liveness). CLI supplies this → stderr in M2+; M9 polishes it.
+   */
+  onTool?: (phaseId: string, toolName: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +78,9 @@ async function runPhaseGuarded(
       cwd: ctx.cwd,
       scope: ctx.scope,
       config: ctx.config.phases?.[phase.id],
+      // Scope the phase id into the scheduler-level callback so PhaseContext.onTool
+      // only needs the tool name — the phase doesn't know its own id at call sites.
+      onTool: ctx.onTool ? (toolName) => ctx.onTool!(phase.id, toolName) : undefined,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

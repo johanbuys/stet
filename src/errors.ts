@@ -1,4 +1,5 @@
 import { TaggedError } from "better-result";
+import type { Cost } from "./schema/report.js";
 
 /**
  * Scope detection failed — conflicting explicit flags or nothing detectable.
@@ -44,6 +45,51 @@ export class SchemaError extends TaggedError("SchemaError")<{
   message: string;
   errors: ReadonlyArray<{ path: string; message: string }>;
 }>() {}
+
+// ---------------------------------------------------------------------------
+// Agent runner errors (M2) — runner-level failure union, NOT part of StetError
+// ---------------------------------------------------------------------------
+
+/**
+ * The agent finished (turn budget exhausted or tool loop ended) without ever calling
+ * the submit_findings tool. Carries the cost so the phase wrapper can record it.
+ * Maps to a phase-level error outcome, not an exit-2 stet malfunction.
+ */
+export class NoSubmitError extends TaggedError("NoSubmitError")<{
+  message: string;
+  cost: Cost;
+}>() {}
+
+/**
+ * The run was cancelled externally (AbortSignal fired) before the agent submitted.
+ * Carries the cost accrued up to cancellation.
+ * Maps to a phase-level error outcome.
+ */
+export class CancelledError extends TaggedError("CancelledError")<{
+  message: string;
+  cost: Cost;
+}>() {}
+
+/**
+ * The model/provider returned an unrecoverable error (auth failure, context overflow, etc.).
+ * Carries the model identifier and cost accrued before the failure.
+ * Maps to a phase-level error outcome.
+ */
+export class ModelError extends TaggedError("ModelError")<{
+  message: string;
+  cost: Cost;
+}>() {}
+
+/**
+ * Runner-level failure union — what AgentRunner.run() returns on Err.
+ * These map to phase-level `error` outcomes via the wrapper's exhaustive matchError.
+ * They are NOT part of StetError (which is the CLI shell's exit-2 union).
+ */
+export type AgentError = NoSubmitError | BudgetError | CancelledError | ModelError;
+
+// ---------------------------------------------------------------------------
+// Top-level stet error union
+// ---------------------------------------------------------------------------
 
 /**
  * Top-level error union for the CLI shell.
