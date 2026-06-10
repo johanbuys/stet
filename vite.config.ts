@@ -12,6 +12,11 @@ export default defineConfig({
   pack: {
     entry: ["src/cli.ts"],
     format: ["esm"],
-    dts: true,
+    // stet ships as a CLI binary (package.json `bin`), not an importable library —
+    // there is no `types` field and no curated public API, so emitting .d.ts is dead
+    // weight. Disabling it also avoids the tsdown dts step, which the globally-installed
+    // vite-plus cannot run here (its dts generator fails to resolve the project's
+    // typescript). The bundle itself builds and runs regardless.
+    dts: false,
   },
 });
