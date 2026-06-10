@@ -218,13 +218,41 @@ async function getAgainstFiles(cwd: string, ref: string): Promise<Result<string[
 
 /**
  * Returns the files touched by a single commit.
- * `git show --name-only --format= <sha>` — blank format suppresses the commit message.
+ *
+ * Strategy:
+ *   1. Check whether the commit has a first parent (`git rev-parse --verify --quiet <sha>^1`).
+ *      If it does (normal commit OR merge commit), use `git diff --name-only <sha>^1 <sha>`.
+ *      For a merge commit this yields "what the PR/branch introduced vs base" — exactly the
+ *      right diff for rung 4 (CI detached-HEAD on refs/pull/N/merge) and `--commit <sha>`.
+ *   2. If no first parent (root commit), fall back to
+ *      `git diff-tree --no-commit-id --name-only -r --root <sha>`.
+ *
+ * The old `git show --name-only --format=` is silent for merge commits (prints nothing),
+ * which is the silent-green bug this replaces.
  */
 async function getCommitFiles(cwd: string, sha: string): Promise<Result<string[], ScopeError>> {
+  // Detect whether a first parent exists (fails for root commits).
+  const parentCheck = await runGit(
+    cwd,
+    ["rev-parse", "--verify", "--quiet", `${sha}^1`],
+    "no first parent",
+  );
+
+  if (parentCheck.isOk()) {
+    // Normal commit or merge commit — diff first-parent to sha.
+    const result = await runGit(
+      cwd,
+      ["diff", "--name-only", `${sha}^1`, sha],
+      `failed to diff commit "${sha}" against its first parent`,
+    );
+    return result.map(parseFileList);
+  }
+
+  // Root commit — no parent; use diff-tree --root.
   const result = await runGit(
     cwd,
-    ["show", "--name-only", "--format=", sha],
-    `failed to show commit "${sha}" — ref may not exist or shallow clone is missing history`,
+    ["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha],
+    `failed to show root commit "${sha}" — ref may not exist or shallow clone is missing history`,
   );
   return result.map(parseFileList);
 }
@@ -334,12 +362,31 @@ export async function detectScope(
       return Result.ok<Scope>({ kind: "staged", files: stagedFiles });
     }
 
-    // Rung 2: working-tree changes (tracked modifications OR untracked files)
-    // getWorkingFiles may fail if HEAD doesn't exist (truly empty repo — nothing staged
-    // and no commits). In that case, treat as empty working tree and fall through.
-    const workingResult = await getWorkingFiles(cwd);
-    if (workingResult.isOk() && workingResult.value.length > 0) {
-      return Result.ok<Scope>({ kind: "working", files: workingResult.value });
+    // Rung 2: working-tree changes (tracked modifications OR untracked files).
+    //
+    // Before running getWorkingFiles, check whether HEAD resolves. An unborn HEAD
+    // (git init with no commits) means there is nothing to diff against — rungs 2–4
+    // are meaningless. Rather than swallowing the getWorkingFiles Err (which would also
+    // silently absorb permissions failures, corrupt objects, etc.), we detect the
+    // unborn case explicitly and fail fast with an actionable message.
+    const headCheck = await runGit(
+      cwd,
+      ["rev-parse", "--verify", "--quiet", "HEAD"],
+      "unborn HEAD",
+    );
+    if (headCheck.isErr()) {
+      // Repository has no commits: rung 1 (staged) already ran and found nothing.
+      return Result.err(
+        new ScopeError({
+          message:
+            "nothing detectable: repository has no commits (unborn HEAD) and nothing is staged — make an initial commit or stage files first",
+        }),
+      );
+    }
+
+    const workingFiles = yield* Result.await(getWorkingFiles(cwd));
+    if (workingFiles.length > 0) {
+      return Result.ok<Scope>({ kind: "working", files: workingFiles });
     }
 
     // Rung 3: on a named branch that is NOT the default branch, with a determinable default

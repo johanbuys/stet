@@ -284,3 +284,34 @@ describe("stub-det — output capture", () => {
     expect(check?.evidence).toContain("err-line");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Output truncation marker (Fix 5: marker must appear on >4KB output)
+// ---------------------------------------------------------------------------
+
+describe("stub-det — truncation marker", () => {
+  test("output >4KB on stdout ends with the truncation marker", async () => {
+    // Emit 6000 'x' bytes on stdout — exceeds the 4096-byte cap.
+    const bigCmd = `node -e "process.stdout.write('x'.repeat(6000))"`;
+    const report = await stubDet.run(ctx(bigCmd));
+    const check = report.audit.checks?.[0];
+    // The captured evidence must include the truncation marker.
+    expect(check?.evidence).toContain("…[stet: output truncated at 4KB]");
+  });
+
+  test("output ≤4KB on stdout has NO truncation marker", async () => {
+    const smallCmd = `echo small`;
+    const report = await stubDet.run(ctx(smallCmd));
+    const check = report.audit.checks?.[0];
+    expect(check?.evidence).not.toContain("…[stet: output truncated at 4KB]");
+  });
+
+  test("output >4KB on stderr ends with the truncation marker", async () => {
+    // Emit 6000 'y' bytes on stderr — exceeds the 4096-byte cap.
+    const bigStderrCmd = `node -e "process.stderr.write('y'.repeat(6000))" ; exit 1`;
+    const report = await stubDet.run(ctx(bigStderrCmd));
+    const check = report.audit.checks?.[0];
+    // stderr is included in evidence — truncation marker must appear.
+    expect(check?.evidence).toContain("…[stet: output truncated at 4KB]");
+  });
+});

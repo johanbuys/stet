@@ -342,5 +342,9 @@ if (isEntryPoint) {
   if (stderr !== undefined) {
     process.stderr.write(stderr + "\n");
   }
-  process.exit(exitCode);
+  // Use process.exitCode rather than process.exit() so that Node waits for all
+  // streams (stdout, stderr) to flush before tearing down. process.exit() returns
+  // immediately and can truncate output when stdout is piped — exactly how
+  // --format json consumers and loops receive the RunReport.
+  process.exitCode = exitCode;
 }

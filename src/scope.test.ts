@@ -488,8 +488,161 @@ describe("auto-detection: clean tree on default branch → Err", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 18. Auto-detection: empty repo (unborn HEAD) — staged file → Ok staged
+// ---------------------------------------------------------------------------
+
+describe("auto-detection: empty repo (unborn HEAD) with staged file → Ok staged", () => {
+  it("staged file in an unborn-HEAD repo resolves to staged", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stet-unborn-staged-"));
+    await git(dir, "init", "-b", "main");
+    await git(dir, "config", "user.name", "Test User");
+    await git(dir, "config", "user.email", "test@example.com");
+    writeFile(dir, "first.ts");
+    await git(dir, "add", "first.ts");
+    try {
+      const result = await detectScope(dir, {});
+      expect(result.isOk()).toBe(true);
+      if (result.isOk()) {
+        expect(result.value.kind).toBe("staged");
+        expect(result.value.files).toContain("first.ts");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 19. Auto-detection: empty repo (unborn HEAD) with nothing staged → Err mentioning unborn state
+// ---------------------------------------------------------------------------
+
+describe("auto-detection: empty repo (unborn HEAD) with nothing staged → Err", () => {
+  it("empty unborn-HEAD repo with nothing staged returns Err mentioning empty/unborn state", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stet-unborn-empty-"));
+    await git(dir, "init", "-b", "main");
+    await git(dir, "config", "user.name", "Test User");
+    await git(dir, "config", "user.email", "test@example.com");
+    // No commits, no staged files
+    try {
+      const result = await detectScope(dir, {});
+      expect(result.isErr()).toBe(true);
+      if (result.isErr()) {
+        expect(result.error._tag).toBe("ScopeError");
+        // Message must NOT fall through to the misleading "clean on default branch" message.
+        // It must specifically mention the empty/unborn state.
+        expect(result.error.message).toMatch(/empty|unborn|no commits/i);
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 14. Shallow clone — explicit flags work where refs exist
 // ---------------------------------------------------------------------------
+
+// NOTE: tests 15-17 are placed before 14 conceptually but numbered sequentially here.
+
+// ---------------------------------------------------------------------------
+// 15. getCommitFiles / --commit: merge commit returns merged-in files
+// ---------------------------------------------------------------------------
+
+describe("explicit --commit flag: merge commit returns merged-in files", () => {
+  let dir: string;
+  let mergeSha: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    // main has README.md from makeRepo().
+    // Create a branch that adds b.txt, then merge it back into main.
+    await git(dir, "checkout", "-b", "branch-with-b");
+    writeFile(dir, "b.txt");
+    await git(dir, "add", "b.txt");
+    await git(dir, "commit", "-m", "add b.txt on branch");
+    await git(dir, "checkout", "main");
+    await git(dir, "merge", "--no-ff", "branch-with-b", "-m", "merge branch-with-b");
+    mergeSha = await git(dir, "rev-parse", "HEAD");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("--commit on a merge SHA returns non-empty file list containing b.txt", async () => {
+    const result = await detectScope(dir, { commit: mergeSha });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("commit");
+      expect(result.value.files.length).toBeGreaterThan(0);
+      expect(result.value.files).toContain("b.txt");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16. Auto-detect rung 4: detached HEAD on a merge commit returns non-empty files
+// ---------------------------------------------------------------------------
+
+describe("auto-detect rung 4: detached HEAD on a merge commit returns non-empty files", () => {
+  let dir: string;
+  let mergeSha: string;
+
+  beforeAll(async () => {
+    dir = await makeRepo();
+    await git(dir, "checkout", "-b", "feat-c");
+    writeFile(dir, "c.txt");
+    await git(dir, "add", "c.txt");
+    await git(dir, "commit", "-m", "add c.txt");
+    await git(dir, "checkout", "main");
+    await git(dir, "merge", "--no-ff", "feat-c", "-m", "merge feat-c");
+    mergeSha = await git(dir, "rev-parse", "HEAD");
+    // Simulate CI detached-HEAD checkout of the merge commit
+    await git(dir, "checkout", "--detach", mergeSha);
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("detached HEAD on merge commit auto-resolves to commit kind with non-empty files", async () => {
+    const result = await detectScope(dir, {});
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("commit");
+      expect(result.value.files.length).toBeGreaterThan(0);
+      expect(result.value.files).toContain("c.txt");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 17. Root commit via --commit still returns its files
+// ---------------------------------------------------------------------------
+
+describe("explicit --commit: root commit returns its files", () => {
+  let dir: string;
+  let rootSha: string;
+
+  beforeAll(async () => {
+    // Make a brand-new repo; the first commit IS the root commit (no parent)
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "stet-root-commit-test-"));
+    await git(dir, "init", "-b", "main");
+    await git(dir, "config", "user.name", "Test User");
+    await git(dir, "config", "user.email", "test@example.com");
+    writeFile(dir, "root.txt", "root content\n");
+    await git(dir, "add", "root.txt");
+    await git(dir, "commit", "-m", "root commit");
+    rootSha = await git(dir, "rev-parse", "HEAD");
+  });
+
+  afterAll(() => removeDir(dir));
+
+  it("--commit on root (parentless) commit returns non-empty file list with root.txt", async () => {
+    const result = await detectScope(dir, { commit: rootSha });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.kind).toBe("commit");
+      expect(result.value.files).toContain("root.txt");
+    }
+  });
+});
 
 describe("shallow clone: explicit flags work where refs exist", () => {
   let originDir: string;

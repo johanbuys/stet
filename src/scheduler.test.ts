@@ -152,4 +152,65 @@ describe("runPhases", () => {
     expect(report.audit).toEqual({});
     expect(report.cost.durationMs).toBe(0);
   });
+
+  // ── Slice 8: phase whose run() throws synchronously → status "error" ────
+
+  it("phase that throws synchronously lands as status error with contract reason", async () => {
+    const throwingPhase: PhaseConfiguration = {
+      id: "throws-sync",
+      kind: "deterministic",
+      activation: () => true,
+      async run(_ctx) {
+        throw new Error("sync kaboom");
+      },
+    };
+    const reports = await runPhases([throwingPhase], baseCtx);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.phase).toBe("throws-sync");
+    expect(reports[0]?.status).toBe("error");
+    expect(reports[0]?.reason).toContain("phase violated its contract");
+    expect(reports[0]?.reason).toContain("sync kaboom");
+    expect(reports[0]?.findings).toEqual([]);
+  });
+
+  // ── Slice 9: phase whose run() rejects → status "error" ─────────────────
+
+  it("phase that rejects (async throw) lands as status error with contract reason", async () => {
+    const rejectingPhase: PhaseConfiguration = {
+      id: "rejects-async",
+      kind: "deterministic",
+      activation: () => true,
+      run(_ctx) {
+        return Promise.reject(new Error("async kaboom"));
+      },
+    };
+    const reports = await runPhases([rejectingPhase], baseCtx);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.phase).toBe("rejects-async");
+    expect(reports[0]?.status).toBe("error");
+    expect(reports[0]?.reason).toContain("phase violated its contract");
+    expect(reports[0]?.reason).toContain("async kaboom");
+  });
+
+  // ── Slice 10: misbehaving phase does not affect healthy sibling ──────────
+
+  it("throwing phase does not corrupt a healthy sibling phase report", async () => {
+    const healthyPhase = makePhase("healthy", {
+      report: { status: "completed", findings: [] },
+    });
+    const throwingPhase: PhaseConfiguration = {
+      id: "bad-actor",
+      kind: "deterministic",
+      activation: () => true,
+      async run(_ctx) {
+        throw new Error("I violated my contract");
+      },
+    };
+    const reports = await runPhases([healthyPhase, throwingPhase], baseCtx);
+    expect(reports).toHaveLength(2);
+    const healthy = reports.find((r) => r.phase === "healthy");
+    const bad = reports.find((r) => r.phase === "bad-actor");
+    expect(healthy?.status).toBe("completed");
+    expect(bad?.status).toBe("error");
+  });
 });

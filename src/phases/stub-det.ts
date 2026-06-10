@@ -70,11 +70,11 @@ function validateConfig(
 /** Max bytes captured per stream before truncation. ~4 KB each. */
 const OUTPUT_CAP = 4096;
 
-function capOutput(buf: Buffer): string {
-  if (buf.length > OUTPUT_CAP) {
-    return buf.subarray(0, OUTPUT_CAP).toString("utf8") + "\n…[stet: output truncated at 4KB]";
-  }
-  return buf.toString("utf8");
+/** Truncation marker appended when a stream's output was clipped at OUTPUT_CAP. */
+const TRUNCATION_MARKER = "\n…[stet: output truncated at 4KB]";
+
+function capOutput(buf: Buffer, truncated: boolean): string {
+  return buf.toString("utf8") + (truncated ? TRUNCATION_MARKER : "");
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,9 @@ function runCommand(command: string, cwd: string): Promise<SpawnResult> {
   return new Promise((resolve) => {
     let stdoutBuf = Buffer.alloc(0);
     let stderrBuf = Buffer.alloc(0);
+    // Track whether each stream was truncated so the marker can be appended.
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
 
     let child: ReturnType<typeof spawn>;
     try {
@@ -111,13 +114,27 @@ function runCommand(command: string, cwd: string): Promise<SpawnResult> {
     child.stdout?.on("data", (chunk: Buffer) => {
       const remaining = OUTPUT_CAP - stdoutBuf.length;
       if (remaining > 0) {
-        stdoutBuf = Buffer.concat([stdoutBuf, chunk.subarray(0, remaining)]);
+        const slice = chunk.subarray(0, remaining);
+        stdoutBuf = Buffer.concat([stdoutBuf, slice]);
+        // If we hit the cap (either this chunk exactly filled it or there was more)
+        if (stdoutBuf.length >= OUTPUT_CAP && chunk.length > slice.length) {
+          stdoutTruncated = true;
+        }
+      } else {
+        // Buffer is already full — any further data means truncation occurred
+        stdoutTruncated = true;
       }
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       const remaining = OUTPUT_CAP - stderrBuf.length;
       if (remaining > 0) {
-        stderrBuf = Buffer.concat([stderrBuf, chunk.subarray(0, remaining)]);
+        const slice = chunk.subarray(0, remaining);
+        stderrBuf = Buffer.concat([stderrBuf, slice]);
+        if (stderrBuf.length >= OUTPUT_CAP && chunk.length > slice.length) {
+          stderrTruncated = true;
+        }
+      } else {
+        stderrTruncated = true;
       }
     });
 
@@ -125,8 +142,8 @@ function runCommand(command: string, cwd: string): Promise<SpawnResult> {
       // The shell itself failed to launch — record spawnError so run() can surface a phase error.
       resolve({
         exitCode: -1,
-        stdout: capOutput(stdoutBuf),
-        stderr: capOutput(stderrBuf),
+        stdout: capOutput(stdoutBuf, stdoutTruncated),
+        stderr: capOutput(stderrBuf, stderrTruncated),
         spawnError: err.message,
       });
     });
@@ -134,8 +151,8 @@ function runCommand(command: string, cwd: string): Promise<SpawnResult> {
     child.on("close", (code) => {
       resolve({
         exitCode: code ?? -1,
-        stdout: capOutput(stdoutBuf),
-        stderr: capOutput(stderrBuf),
+        stdout: capOutput(stdoutBuf, stdoutTruncated),
+        stderr: capOutput(stderrBuf, stderrTruncated),
       });
     });
   });

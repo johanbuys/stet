@@ -51,6 +51,41 @@ function skippedReport(phase: PhaseConfiguration): PhaseReport {
 // ---------------------------------------------------------------------------
 
 /**
+ * Run a single phase, enforcing the "never throws" contract boundary.
+ *
+ * If `phase.run()` throws synchronously or rejects (a bug in the phase), the scheduler
+ * catches it and synthesizes an error PhaseReport rather than letting the exception
+ * propagate — which would reject the whole Promise.all and lose every other phase's report.
+ * Duration is measured around the attempt so the cost field is always populated.
+ *
+ * This is the "guarantee by construction" principle (PRD "nothing passes silently"):
+ * even buggy third-party phases cannot detonate the pipeline.
+ */
+async function runPhaseGuarded(
+  phase: PhaseConfiguration,
+  ctx: SchedulerContext,
+): Promise<PhaseReport> {
+  const start = Date.now();
+  try {
+    return await phase.run({
+      cwd: ctx.cwd,
+      scope: ctx.scope,
+      config: ctx.config.phases?.[phase.id],
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      phase: phase.id,
+      status: "error",
+      reason: `phase violated its contract: ${message}`,
+      findings: [],
+      audit: {},
+      cost: { durationMs: Date.now() - start },
+    };
+  }
+}
+
+/**
  * Run all configured phases and return one PhaseReport per phase, in registration order.
  *
  * - Activated phases run concurrently via Promise.all (all promises start before the await).
@@ -60,8 +95,9 @@ function skippedReport(phase: PhaseConfiguration): PhaseReport {
  * - Each phase receives its own config slice (`config.phases?.[id]`).
  *   Phases validate their own slice; the scheduler passes it through untyped.
  *
- * INFALLIBLE: this function never throws. Each phase's `run()` is itself infallible
- * (PhaseConfiguration contract); failures surface as PhaseReport { status: "error" }.
+ * INFALLIBLE: this function never throws. Each phase's `run()` is wrapped in
+ * `runPhaseGuarded`, which catches any throw/rejection and synthesizes a
+ * PhaseReport { status: "error" } so the pipeline always completes.
  */
 export async function runPhases(
   phases: PhaseConfiguration[],
@@ -70,7 +106,7 @@ export async function runPhases(
   return Promise.all(
     phases.map((phase) =>
       phase.activation({ scope: ctx.scope })
-        ? phase.run({ cwd: ctx.cwd, scope: ctx.scope, config: ctx.config.phases?.[phase.id] })
+        ? runPhaseGuarded(phase, ctx)
         : Promise.resolve(skippedReport(phase)),
     ),
   );
