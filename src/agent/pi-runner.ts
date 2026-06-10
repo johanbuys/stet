@@ -136,28 +136,16 @@ export class PiAgentRunner implements AgentRunner {
     });
 
     // -----------------------------------------------------------------------
-    // 4. Replace the Pi coding-agent persona with the phase rubric.
-    //    systemPromptOverride: () => inputs.rubric wipes the default persona.
-    //    appendSystemPromptOverride: () => [] prevents any append additions.
-    //    This is the POC pattern — copy exactly.
-    // -----------------------------------------------------------------------
-    const loader = new DefaultResourceLoader({
-      cwd: inputs.cwd,
-      agentDir: getAgentDir(),
-      systemPromptOverride: () => inputs.rubric,
-      appendSystemPromptOverride: () => [],
-    });
-    await loader.reload();
-
-    // -----------------------------------------------------------------------
-    // 5. Run: createAgentSession → subscribe → prompt → dispose.
-    //    Wall-clock start for durationMs.
+    // 4. Run: createAgentSession → subscribe → prompt → dispose.
+    //    Wall-clock start for durationMs. Loader construction and reload are
+    //    inside the try block so filesystem I/O errors are caught and returned
+    //    as Err(ModelError), preserving the "run() never rejects" contract (P7).
     // -----------------------------------------------------------------------
     const startMs = Date.now();
 
-    // Toolset comes verbatim from inputs — the phase guarantees mutation-free.
-    // submit_findings is already in stub-agent's toolset; we forward as-is.
-    // We do NOT add extra tools — only what the phase explicitly allows.
+    // inputs.toolset is forwarded verbatim (mutation-free, phase-owned).
+    // submit_findings is ensured present as the single completion tool —
+    // a safety net in case a phase omits it, but stub-agent already includes it.
     const toolset = inputs.toolset.includes("submit_findings")
       ? inputs.toolset
       : [...inputs.toolset, "submit_findings"];
@@ -167,6 +155,25 @@ export class PiAgentRunner implements AgentRunner {
     let cost: AgentRunSuccess["cost"] | undefined;
 
     try {
+      // -----------------------------------------------------------------------
+      // 4a. Replace the Pi coding-agent persona with the phase rubric.
+      //     systemPromptOverride: () => inputs.rubric wipes the default persona.
+      //     appendSystemPromptOverride: () => [] prevents any append additions.
+      //     This is the POC pattern — copy exactly.
+      //     Constructed and reloaded here (inside try) so any filesystem I/O
+      //     failure is caught by the block below and returned as Err(ModelError).
+      // -----------------------------------------------------------------------
+      const loader = new DefaultResourceLoader({
+        cwd: inputs.cwd,
+        agentDir: getAgentDir(),
+        systemPromptOverride: () => inputs.rubric,
+        appendSystemPromptOverride: () => [],
+      });
+      await loader.reload();
+
+      // -----------------------------------------------------------------------
+      // 4b. Create session, subscribe, prompt, read stats.
+      // -----------------------------------------------------------------------
       const { session: s } = await createAgentSession({
         cwd: inputs.cwd,
         model,

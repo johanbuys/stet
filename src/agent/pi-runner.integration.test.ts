@@ -253,6 +253,8 @@ describe("Mutation-free invariant (PRD §3.2, acceptance #2)", () => {
     // Also register stub-det to confirm deterministic phases don't interfere
     registerPhase(stubDet);
 
+    // The Pi SDK ToolName union is: "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls".
+    // Only "edit" and "write" mutate the filesystem — so this denylist is complete by construction.
     const MUTATION_TOOLS = ["edit", "write"];
 
     const agentPhases = registeredPhases().filter((p) => p.kind === "agent");

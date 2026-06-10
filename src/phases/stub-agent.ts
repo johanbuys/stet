@@ -86,9 +86,9 @@ After submit_findings is accepted, STOP immediately.`;
 
 const STUB_AGENT_BUDGETS = {
   wallClockMs: 300_000, // 5 minutes wall-clock (enforced M3)
-  turns: 50, // 50 agent turns (enforced T10/PiAgentRunner)
-  bashTimeoutMs: 60_000, // 60 s per bash call (enforced T10/PiAgentRunner)
-  bashOutputCap: 32_768, // 32 KB bash output cap (enforced T10/PiAgentRunner)
+  turns: 50, // 50 agent turns (enforced M3 (T12/T13))
+  bashTimeoutMs: 60_000, // 60 s per bash call (enforced M3 (T12/T13))
+  bashOutputCap: 32_768, // 32 KB bash output cap (enforced M3 (T12/T13))
 };
 
 // ---------------------------------------------------------------------------
