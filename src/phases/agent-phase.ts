@@ -9,10 +9,10 @@
  *     PhaseReport { status: "completed", findings, audit, cost }.
  *   - Error path: Err(AgentError) exhaustively matched → PhaseReport { status: "error", reason }.
  *
- * T8 will add:
- *   - The three output-as-tool guards (validate-or-retry, idempotency, no-submit fallback).
- *   - <phase>.no-result warning Finding synthesized from NoSubmitError.
- *   See the "T8 SEAM" comment below for the exact extension point.
+ * T8 scope (guard 3 — no-submit fallback):
+ *   - NoSubmitError → PhaseReport { status: "error", reason, findings: [<phase>.no-result warning] }.
+ *   - The no-result finding has confidence "high": we KNOW the agent didn't submit (structural fact).
+ *   - Guards 1 & 2 live in src/agent/submit-tool.ts (SubmitTool); T10 wires them into PiAgentRunner.
  *
  * INFALLIBLE CONTRACT: makeAgentPhase().run() never throws and never rejects.
  * All failures produce a PhaseReport { status: "error", reason }.
@@ -129,13 +129,11 @@ function parseAudit(submission: unknown): Audit {
  * Map an AgentError to a PhaseReport { status: "error", reason }.
  * Exhaustive over the AgentError union — adding a new variant is a compile error here.
  *
- * T8 SEAM: the NoSubmitError case will be extended in T8 to also attach a
- * `<phase>.no-result` warning Finding to the report's findings array.
- * The `phase` id is available in the closure; pass it here when T8 extends this.
+ * Guard 3 (no-submit fallback, T8): the NoSubmitError case synthesizes a
+ * `<phase>.no-result` warning Finding in the report's findings array.
+ * The other three variants (Budget/Cancelled/Model) receive empty findings.
  */
 function agentErrorToReport(phaseId: string, error: AgentError, durationMs: number): PhaseReport {
-  // T8 SEAM: NoSubmitError handler below gets extended to synthesize a warning Finding.
-  // For T7 we produce a basic reason and empty findings.
   const reason: string = matchError(error, {
     NoSubmitError: (e) => e.message || "agent finished without submitting",
     BudgetError: (e) => `budget exceeded: ${e.limit} — ${e.message}`,
@@ -149,12 +147,28 @@ function agentErrorToReport(phaseId: string, error: AgentError, durationMs: numb
     ...costFromError(error),
   };
 
+  // Guard 3: synthesize a no-result warning finding for NoSubmitError only.
+  // We KNOW the agent didn't submit — this is a structural fact, not a judgment (PRD §4.6),
+  // so confidence is "high". The other three AgentError variants (Budget/Cancelled/Model)
+  // already carry their own semantics in `reason` and must NOT get a no-result finding.
+  const findings: Finding[] =
+    error._tag === "NoSubmitError"
+      ? [
+          {
+            id: `${phaseId}.no-result`,
+            phase: phaseId,
+            severity: "warning",
+            confidence: "high",
+            message: "agent finished without submitting a result",
+          },
+        ]
+      : [];
+
   return {
     phase: phaseId,
     status: "error",
     reason,
-    findings: [],
-    // T8 SEAM: NoSubmitError findings will be: [synthesized <phase>.no-result warning finding]
+    findings,
     audit: {},
     cost,
   };

@@ -315,9 +315,8 @@ describe("makeAgentPhase — error path (NoSubmitError)", () => {
     expect(report.reason).toContain("agent finished without submitting");
   });
 
-  // T8 SEAM: NoSubmitError will synthesize a <phase>.no-result warning Finding.
-  // For T7, findings must be empty — T8 will change this.
-  test("NoSubmitError → findings empty (T8 will add the no-result warning finding)", async () => {
+  // T8: NoSubmitError synthesizes a <phase>.no-result warning Finding.
+  test("NoSubmitError → findings contains exactly one no-result warning finding", async () => {
     const runner = new FakeAgentRunner({
       kind: "err",
       error: new NoSubmitError({ message: "no submit", cost: { durationMs: 50 } }),
@@ -331,7 +330,7 @@ describe("makeAgentPhase — error path (NoSubmitError)", () => {
       buildUserPrompt: () => "prompt",
     });
     const report = await phase.run(makeCtx());
-    expect(report.findings).toHaveLength(0);
+    expect(report.findings).toHaveLength(1);
   });
 
   test("NoSubmitError report validates against TypeBox PhaseReport schema", async () => {
@@ -349,6 +348,129 @@ describe("makeAgentPhase — error path (NoSubmitError)", () => {
     });
     const report = await phase.run(makeCtx());
     expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Guard 3: no-submit fallback — T8 additions
+// ---------------------------------------------------------------------------
+
+describe("makeAgentPhase — guard 3: no-submit fallback (NoSubmitError → no-result finding)", () => {
+  /** Helper: run the phase with a NoSubmitError and return the report. */
+  async function runNoSubmit(phaseId = "test-agent") {
+    const runner = new FakeAgentRunner({
+      kind: "err",
+      error: new NoSubmitError({
+        message: "agent finished without submitting",
+        cost: { durationMs: 50 },
+      }),
+    });
+    const phase = makeAgentPhase(runner, {
+      id: phaseId,
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: DEFAULT_BUDGETS,
+      buildUserPrompt: () => "prompt",
+    });
+    return phase.run(makeCtx());
+  }
+
+  test('status is "error"', async () => {
+    const report = await runNoSubmit();
+    expect(report.status).toBe("error");
+  });
+
+  test("reason names the no-submit condition", async () => {
+    const report = await runNoSubmit();
+    expect(report.reason).toContain("agent finished without submitting");
+  });
+
+  test("findings has exactly one entry", async () => {
+    const report = await runNoSubmit();
+    expect(report.findings).toHaveLength(1);
+  });
+
+  test("finding id is <phase>.no-result", async () => {
+    const report = await runNoSubmit("my-phase");
+    expect(report.findings[0]?.id).toBe("my-phase.no-result");
+  });
+
+  test("finding phase matches the phase id", async () => {
+    const report = await runNoSubmit("my-phase");
+    expect(report.findings[0]?.phase).toBe("my-phase");
+  });
+
+  test('finding severity is "warning"', async () => {
+    const report = await runNoSubmit();
+    expect(report.findings[0]?.severity).toBe("warning");
+  });
+
+  test('finding confidence is "high"', async () => {
+    // We KNOW the agent didn't submit — this is a structural fact, not a judgment (PRD §4.6).
+    const report = await runNoSubmit();
+    expect(report.findings[0]?.confidence).toBe("high");
+  });
+
+  test("finding message describes the problem", async () => {
+    const report = await runNoSubmit();
+    expect(report.findings[0]?.message).toContain("agent finished without submitting");
+  });
+
+  test("report validates against the TypeBox PhaseReport schema", async () => {
+    const report = await runNoSubmit();
+    expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+
+  test("BudgetError does NOT get a no-result finding", async () => {
+    const runner = new FakeAgentRunner({
+      kind: "err",
+      error: new BudgetError({ limit: "turns", message: "30 turn limit exceeded" }),
+    });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: DEFAULT_BUDGETS,
+      buildUserPrompt: () => "prompt",
+    });
+    const report = await phase.run(makeCtx());
+    expect(report.findings).toHaveLength(0);
+  });
+
+  test("CancelledError does NOT get a no-result finding", async () => {
+    const runner = new FakeAgentRunner({
+      kind: "err",
+      error: new CancelledError({ message: "cancelled", cost: { durationMs: 200 } }),
+    });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: DEFAULT_BUDGETS,
+      buildUserPrompt: () => "prompt",
+    });
+    const report = await phase.run(makeCtx());
+    expect(report.findings).toHaveLength(0);
+  });
+
+  test("ModelError does NOT get a no-result finding", async () => {
+    const runner = new FakeAgentRunner({
+      kind: "err",
+      error: new ModelError({ message: "context window exceeded", cost: { durationMs: 300 } }),
+    });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: DEFAULT_BUDGETS,
+      buildUserPrompt: () => "prompt",
+    });
+    const report = await phase.run(makeCtx());
+    expect(report.findings).toHaveLength(0);
   });
 });
 
