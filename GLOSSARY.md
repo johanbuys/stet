@@ -101,8 +101,12 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   derived / proven / unproven. ⚠ a claim you cannot test is _unproven_ — never silently passed.
 - **diff-blind** — the diff may select which _surfaces_ to exercise; claims derive from the
   spec. The diff is never the source of truth for "does it work."
-- **mutation-free** — no write tools anywhere, enforced at tool registration. Applies to the
-  whole product, not just Phase 5.
+- **mutation-free** — no file-mutation tools (`edit`/`write`) are registered for any agent phase,
+  enforced at tool registration and verified by a test. Applies to the whole product, not just
+  Phase 5. **Caveat:** `bash` _is_ registered and is not yet sandboxed (the SDK has no read-only
+  bash), so mutation-freedom is _enforced_ for file tools but currently only _instructed_ (via
+  rubric) for `bash`; sandboxed enforcement of the `bash` surface is a tracked follow-up (harness
+  PRD decision #34).
 - **spec** — _what to verify against_: PRD/task/issue content via `--prd`/`--task`/`--issue`.
   ⚠ not run-instructions.
 - **run-instructions** — _how to run the product_: start command, base URL, readiness probe,

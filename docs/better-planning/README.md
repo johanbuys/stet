@@ -84,6 +84,7 @@ One row per artifact. The **Phase** column routes to the family skill that owns 
 | `features/behavioral-engine/behavioral-engine-prd.md` | prd | TODO — drafts from the settled brief |
 | `features/*` (rest) | prd | TODO — deterministic-gates, init, spec-compliance, code-review, test-quality, start-service/pty-session, browser-execution, eval-suite |
 | `features/github-integration` | brainstorm | **TODO — follow-up feature** (scoped 2026-06-09): a GH Action wrapper + GH-App/webhook bot that *consumes* the harness `RunReport` — posts findings as PR comments, turns PR comments (`break glass`, re-check, scoped review) into harness invocations. **Out of the harness** by the boundary rule (#24); the harness is already CI-ready. Owns re-review awareness. |
+| `bash` sandboxing | follow-up | **TODO — tracked (harness PRD decision #34, 2026-06-10):** mutation-freedom is enforced for `edit`/`write` at tool registration, but `bash` is an unrestricted residual write surface (the Pi SDK has no read-only bash). Real enforcement (sandbox / read-only mount / `bash` spawn-hook denylist) lands with the **Phase 5 execution** milestone, which builds a controlled exec surface anyway. Surfaced by M2 PR-review. |
 | `features/*/*-plan.md` | plan | TODO — one per settled feature PRD |
 | `features/*/*-tasks.md` | tasks | TODO — one per settled plan |
 

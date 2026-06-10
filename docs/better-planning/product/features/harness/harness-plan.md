@@ -556,6 +556,15 @@ detached HEAD / shallow clones (PRD §6 edge cases).
   generator fails to resolve the project's typescript). stet is a CLI binary (no `types` field, no
   importable API), so `.d.ts` output is unneeded — `vite.config.ts` sets `dts: false`; the bundle
   builds and `node dist/cli.mjs` runs. Not a design change; recorded here for the M3+ builder.
+- **Mutation-free vs `bash` (PR-review #1 → decision #34).** The PRD §3.2 claim "no code path can
+  mutate the repo" was falsified: `bash` is registered and the Pi SDK has no read-only bash, so a
+  live model *could* mutate. Resolution (Johan, 2026-06-10): **keep `bash`** (agents need it,
+  Phase 5 especially), **amend the claim to the honest posture** (file tools `edit`/`write` barred
+  at registration + test-verified; `bash` read-only by rubric only), and **open a tracked follow-up
+  for real enforcement** (sandbox / read-only mount / `bash` spawn-hook denylist), naturally landing
+  with the Phase 5 execution milestone that builds a controlled exec surface anyway. The M2
+  mutation-free test correctly asserts only the `edit`/`write` registration bar — it does not claim
+  bash-safety.
 
 ## 7. Decisions (plan-level)
 

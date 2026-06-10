@@ -124,8 +124,10 @@ behavioral execution tools (`start-service`, `pty-session`, `browser-execution`)
 
 **Safety and operations**
 
-27. As a security-conscious adopter, I want mutation-freedom enforced at tool registration and
-    verified by a test, so that I can point stet at any repo knowing no code path can modify it.
+27. As a security-conscious adopter, I want file-mutation tools (`edit`/`write`) barred at tool
+    registration and verified by a test, and a clear path to full mutation-freedom (sandboxing the
+    `bash` escape hatch — decision #34), so I can point stet at a repo with a bounded, documented
+    write surface rather than an unbounded one.
 28. As an operator, I want every budget breach to be a named `error` outcome with the partial
     audit preserved, so that there are no silent hangs and no silent kills.
 29. As an operator debugging divergent verdicts, I want `cost.model` recorded per agent phase,
@@ -173,8 +175,14 @@ on it. The runner:
   spec context, run-instructions) as freetext.
 - **Mutation-free at the tool-registration boundary:** the session's tool list is the phase's
   allowlist (`read`, `bash`, `grep`, `find`, `ls`, `submit_findings`, plus Phase 5's execution
-  tools). Edit/write tools are never registered. There is no code path on which an agent phase
-  can mutate the repo.
+  tools). **No file-mutation tool (`edit`/`write`) is ever registered** — a test asserts this on
+  every registered agent phase (acceptance #2). **Caveat (surfaced at M2 build, 2026-06-09 —
+  decision #34):** `bash` *is* registered and the Pi SDK exposes no read-only bash mode, so a model
+  that disregards its rubric *could* mutate the repo via a shell command. The registration-boundary
+  guarantee therefore covers `edit`/`write`, **not** `bash`; near-term the agent is held read-only
+  by rubric instruction, and **real enforcement — a sandbox / read-only mount / a `bash`
+  spawn-hook denylist — is a tracked follow-up** (decision #34), naturally tied to the milestone
+  that introduces Phase 5 execution (which needs a controlled exec surface anyway). See plan §6.
 - In-memory session + settings managers; compaction enabled; SDK-level retry (max 2).
 - **Model routing — tiers, not IDs.** Built-in defaults are **capability tiers** (`robust` for
   behavioral/review, `fast` for the structured phases), resolved at run time against the
@@ -1016,3 +1024,4 @@ run reports what it knows. Exit `1`.
 | 31 | **Coordinator drops are recorded** in `audit.coordinator.dropped` ({id, specialist, message}), computed by the harness as roll-up minus survivors | soundness review (2026-06-09) | a judge silently filtering findings is a new silent channel; "why didn't stet flag X?" must stay answerable from the artifact — without resurrecting the noise into `findings` | settled |
 | 32 | **Risk rules are declared per phase** (`riskRules` in `PhaseConfiguration`); classify is evaluated once per declaring phase, over the **pre-filtered** diff | soundness review (2026-06-09) | one run-global level can't serve two phases with different sensitivities, and "rules belong to the consuming PRD" requires a per-phase home — same shape as activation predicates; pre-filtered input keeps lockfile churn from inflating risk | settled (amends #26) |
 | 33 | **Stripped paths are in the report:** `scope.stripped` in `RunReport`, not just the human scope echo | soundness review (2026-06-09) | machine consumers (loops, CI) are the primary audience — visibility that exists only in human chrome is invisible to them | settled (extends #27) |
+| 34 | **Mutation-freedom is enforced for `edit`/`write` (registration boundary, test-verified), but `bash` is a known residual write surface** held read-only by rubric only; sandboxed enforcement (read-only mount / spawn-hook denylist / repo copy) is a tracked follow-up tied to the Phase 5 execution milestone | M2 build review (2026-06-10) | PR-review #1 showed the §3.2 "no code path can mutate" claim was falsified by the unrestricted `bash` tool (the SDK has no read-only bash); `bash` is needed (esp. Phase 5), so the honest near-term posture is "file tools barred at registration, bash instructed-not-enforced" with enforcement scheduled where a controlled exec surface is built anyway. Reality-disagrees protocol (plan §6) | **open — follow-up** (amends user story 27, §3.2; M2 keeps bash) |
