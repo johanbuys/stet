@@ -38,7 +38,7 @@ export interface PhaseContext {
 }
 
 /**
- * The in-code PhaseConfiguration contract (PRD §4.1, M1 slice).
+ * The in-code PhaseConfiguration contract (PRD §4.1, M1/M2 slice).
  *
  * A phase is a pure data value — no class, no inheritance.
  * Adding a sixth phase is one new file + one `registerPhase(...)` call; no harness code changes.
@@ -61,4 +61,11 @@ export interface PhaseConfiguration {
    * better-result Results are used internally; the phase boundary converts them.
    */
   run: (ctx: PhaseContext) => Promise<PhaseReport>;
+  /**
+   * Agent phases expose their tool allowlist so the mutation-free invariant
+   * (PRD §3.2, acceptance #2) is auditable on the registered phase itself.
+   * Absent for deterministic phases.
+   * M2+: set by makeAgentPhase(); deterministic phases (stub-det) leave it undefined.
+   */
+  toolset?: string[];
 }

@@ -39,8 +39,10 @@ import { loadConfig } from "./schema/config.js";
 import type { Severity } from "./schema/finding.js";
 import { parseRunReport } from "./schema/report.js";
 import { detectScope, type ScopeFlags } from "./scope.js";
-import { registerDefaultPhases, registeredPhases } from "./phases/index.js";
+import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases/index.js";
 import type { PhaseConfiguration } from "./phases/types.js";
+import { PiAgentRunner } from "./agent/pi-runner.js";
+import { makeStubAgent } from "./phases/stub-agent.js";
 import { runPhases } from "./scheduler.js";
 import { assembleReport } from "./report.js";
 
@@ -404,6 +406,13 @@ if (isEntryPoint) {
   // Assemble the default phase set here — the only place defaults live.
   // main() receives phases as a parameter and never touches the registry itself.
   registerDefaultPhases();
+
+  // Pre-M6 model stopgap (plan §2a/P10): agent phases resolve their model from
+  // PI_TEST_MODEL until M6 routing exists. Unset ⇒ the agent phase reports
+  // "no model available" (PiAgentRunner Part B) and the deterministic half still runs.
+  // Done in the entry block (the impure wiring layer) so module import stays
+  // side-effect-free and defaultPhases stays a static [stubDet].
+  registerPhase(makeStubAgent(new PiAgentRunner(), process.env.PI_TEST_MODEL));
 
   // Unreachable by design (Result discipline means nothing escapes main()) —
   // this boundary enforces the honesty contract anyway: if something ever throws,

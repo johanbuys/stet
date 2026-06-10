@@ -102,14 +102,24 @@ const STUB_AGENT_BUDGETS = {
  * (T9) and the steel thread can wire in PiAgentRunner (T10/T11) without
  * touching this file.
  *
- * @example
- *   // In tests (T9):
- *   const phase = makeStubAgent(new FakeAgentRunner({ kind: "ok", ... }));
+ * `model` is the pre-M6 stopgap (plan §2a/P10): the CLI passes
+ * `process.env.PI_TEST_MODEL` here at startup; tests pass an explicit string or
+ * undefined. When undefined, PiAgentRunner returns Err(ModelError("no model
+ * available")) immediately — hermetic, no network — and the deterministic half
+ * of the run still completes (plan §2a guarantee).
+ * M6 routing replaces this parameter with a resolved model from the routing layer.
  *
- *   // In the steel thread (T11):
- *   const phase = makeStubAgent(new PiAgentRunner());
+ * @example
+ *   // In tests (T9/T11) — fake-driven, model ignored by FakeAgentRunner:
+ *   const phase = makeStubAgent(new FakeAgentRunner({ kind: "ok", ... }), "fake/model");
+ *
+ *   // In the steel thread (T11) — real model via env var:
+ *   const phase = makeStubAgent(new PiAgentRunner(), process.env.PI_TEST_MODEL);
+ *
+ *   // No model (simulates unset PI_TEST_MODEL):
+ *   const phase = makeStubAgent(new PiAgentRunner(), undefined);
  */
-export function makeStubAgent(runner: AgentRunner): PhaseConfiguration {
+export function makeStubAgent(runner: AgentRunner, model?: string): PhaseConfiguration {
   return makeAgentPhase(runner, {
     id: "stub-agent",
     rubric: STUB_AGENT_RUBRIC,
@@ -120,6 +130,7 @@ export function makeStubAgent(runner: AgentRunner): PhaseConfiguration {
 
     submitSchema: StubAgentSubmitSchema,
     budgets: STUB_AGENT_BUDGETS,
+    model,
 
     /**
      * Per-run user prompt: names the changed files and cwd so the agent knows

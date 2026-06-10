@@ -220,6 +220,10 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
     id: cfg.id,
     kind: "agent",
 
+    // Expose the tool allowlist so the mutation-free invariant (PRD §3.2, acceptance #2)
+    // is auditable on the registered phase — not hidden in a closure.
+    toolset: cfg.toolset,
+
     activation: cfg.activation ?? (() => true),
 
     /**

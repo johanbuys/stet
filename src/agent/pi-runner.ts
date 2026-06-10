@@ -64,18 +64,32 @@ export class PiAgentRunner implements AgentRunner {
 
     // -----------------------------------------------------------------------
     // 2. Model resolution.
-    //    inputs.model is optional "provider/id".
-    //    Malformed (no slash) → immediate Err, no SDK object constructed.
-    //    Well-formed but not found → Err(ModelError).
-    //    undefined → leave model unset in createAgentSession (SDK default).
-    //    NOTE: M6 routing will replace the undefined path with explicit resolution.
+    //    inputs.model is required: a "provider/id" string resolved by the caller.
+    //    - undefined → Err(ModelError) immediately, no SDK object constructed.
+    //      Pre-M6 the CLI supplies the model from PI_TEST_MODEL; unset ⇒ this error
+    //      surfaces as a phase-level error and the deterministic half still runs.
+    //      Post-M6 the routing layer resolves a concrete model before calling the
+    //      runner, so "undefined reached the runner" is an error in both eras.
+    //    - Malformed (no slash) → immediate Err(ModelError), no SDK object constructed.
+    //    - Well-formed but not found in registry → Err(ModelError).
+    //    Plan refs: §2a/P10 (pre-M6 stopgap), decision P10 (M6 routing replaces this).
     // -----------------------------------------------------------------------
+    if (inputs.model === undefined) {
+      return Result.err(
+        new ModelError({
+          message:
+            "no model available — set PI_TEST_MODEL (pre-M6 stopgap) or configure model routing (M6)",
+          cost: { model: undefined, durationMs: 0 },
+        }),
+      );
+    }
+
     const authStorage = AuthStorage.create();
     const modelRegistry = ModelRegistry.create(authStorage);
 
     let model: ReturnType<typeof modelRegistry.find> | undefined;
 
-    if (inputs.model !== undefined) {
+    {
       const slash = inputs.model.indexOf("/");
       if (slash === -1) {
         // Malformed — return immediately, no SDK objects constructed.
@@ -98,7 +112,6 @@ export class PiAgentRunner implements AgentRunner {
         );
       }
     }
-    // model === undefined → M6 routing; SDK uses default resolution.
 
     // -----------------------------------------------------------------------
     // 3. Build the submit_findings tool via SubmitTool (guards 1 & 2).
