@@ -21,6 +21,7 @@
 import { Result } from "better-result";
 import type { AgentError } from "../errors.js";
 import type { AgentRunInputs, AgentRunSuccess, AgentRunner } from "./runner.js";
+import { SUBMIT_TOOL_NAME } from "./submit-tool.js";
 
 // ---------------------------------------------------------------------------
 // Script shapes
@@ -81,7 +82,7 @@ export class FakeAgentRunner implements AgentRunner {
 
     if (this.script.kind === "ok") {
       // Simulate tool invocation progress for the happy path
-      onTool?.("submit_findings");
+      onTool?.(SUBMIT_TOOL_NAME);
       return Result.ok({
         submission: this.script.submission,
         cost: this.script.cost,

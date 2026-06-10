@@ -41,8 +41,6 @@ import { parseRunReport } from "./schema/report.js";
 import { detectScope, type ScopeFlags } from "./scope.js";
 import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases/index.js";
 import type { PhaseConfiguration } from "./phases/types.js";
-import { PiAgentRunner } from "./agent/pi-runner.js";
-import { makeStubAgent } from "./phases/stub-agent.js";
 import { runPhases } from "./scheduler.js";
 import { assembleReport } from "./report.js";
 
@@ -407,17 +405,30 @@ if (isEntryPoint) {
   // main() receives phases as a parameter and never touches the registry itself.
   registerDefaultPhases();
 
-  // Pre-M6 model stopgap (plan §2a/P10): agent phases resolve their model from
-  // PI_TEST_MODEL until M6 routing exists. Unset ⇒ the agent phase reports
-  // "no model available" (PiAgentRunner Part B) and the deterministic half still runs.
-  // Done in the entry block (the impure wiring layer) so module import stays
-  // side-effect-free and defaultPhases stays a static [stubDet].
-  registerPhase(makeStubAgent(new PiAgentRunner(), process.env.PI_TEST_MODEL));
-
   // Unreachable by design (Result discipline means nothing escapes main()) —
   // this boundary enforces the honesty contract anyway: if something ever throws,
   // it is a stet internal bug → exit 2, not exit 1 (which means "gating findings").
   try {
+    // Skip the Pi SDK load entirely for meta-only invocations — --version and --help
+    // return before running any phases, so paying ~0.5 s of SDK module-load is wasteful.
+    // Any SDK load failure for non-meta invocations surfaces as exit 2 (a stet malfunction)
+    // rather than escaping to Node's uncaught-exception handler (which exits 1).
+    // Deterministic-only optimisation (activating the SDK only when agent phases are
+    // needed) is a deeper change; a comment here is enough for now.
+    if (!process.argv.includes("--version") && !process.argv.includes("--help")) {
+      // Lazy-load the agent runner so the Pi SDK is only paid for when an agent phase
+      // is actually registered, and so any SDK load failure surfaces as exit 2 (a stet
+      // malfunction) rather than escaping to Node's exit 1.
+      const { PiAgentRunner } = await import("./agent/pi-runner.js");
+      const { makeStubAgent } = await import("./phases/stub-agent.js");
+      // Pre-M6 model stopgap (plan §2a/P10): agent phases resolve their model from
+      // PI_TEST_MODEL until M6 routing exists. Unset ⇒ the agent phase reports
+      // "no model available" (PiAgentRunner Part B) and the deterministic half still runs.
+      // Done in the entry block (the impure wiring layer) so module import stays
+      // side-effect-free and defaultPhases stays a static [stubDet].
+      registerPhase(makeStubAgent(new PiAgentRunner(), process.env.PI_TEST_MODEL));
+    }
+
     const result = await main(process.argv.slice(2), realIo, registeredPhases());
     const { exitCode, stderr } = resolveExit(result);
     if (stderr !== undefined) {

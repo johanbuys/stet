@@ -30,6 +30,16 @@ import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
 // ---------------------------------------------------------------------------
+// Shared constant — single source of truth for the submit tool name
+// ---------------------------------------------------------------------------
+
+/**
+ * The single completion-tool name shared by the runner, the phase toolset, and the fake.
+ * Changing this string is a one-point change: update here and the rename propagates everywhere.
+ */
+export const SUBMIT_TOOL_NAME = "submit_findings";
+
+// ---------------------------------------------------------------------------
 // Submit result
 // ---------------------------------------------------------------------------
 

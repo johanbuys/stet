@@ -26,6 +26,7 @@
 
 import { Type } from "@sinclair/typebox";
 import type { AgentRunner } from "../agent/runner.js";
+import { SUBMIT_TOOL_NAME } from "../agent/submit-tool.js";
 import { Finding } from "../schema/finding.js";
 import { Audit } from "../schema/report.js";
 import type { PhaseConfiguration } from "./types.js";
@@ -126,7 +127,7 @@ export function makeStubAgent(runner: AgentRunner, model?: string): PhaseConfigu
 
     // Mutation-free toolset: read-only inspection tools only (PRD §3.2).
     // NO edit, write, or any file-modification tool ever appears here.
-    toolset: ["read", "bash", "grep", "find", "ls", "submit_findings"],
+    toolset: ["read", "bash", "grep", "find", "ls", SUBMIT_TOOL_NAME],
 
     submitSchema: StubAgentSubmitSchema,
     budgets: STUB_AGENT_BUDGETS,

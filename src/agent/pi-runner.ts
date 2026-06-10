@@ -31,7 +31,7 @@ import { Result } from "better-result";
 import { CancelledError, ModelError, NoSubmitError } from "../errors.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunInputs, AgentRunSuccess, AgentRunner } from "./runner.js";
-import { SubmitTool } from "./submit-tool.js";
+import { SUBMIT_TOOL_NAME, SubmitTool } from "./submit-tool.js";
 
 // ---------------------------------------------------------------------------
 // PiAgentRunner
@@ -65,15 +65,19 @@ export class PiAgentRunner implements AgentRunner {
     // -----------------------------------------------------------------------
     // 2. Model resolution.
     //    inputs.model is required: a "provider/id" string resolved by the caller.
+    //    All model-string validation runs FIRST (before any SDK object is constructed)
+    //    so that the fast-fail paths are truly hermetic.
     //    - undefined → Err(ModelError) immediately, no SDK object constructed.
     //      Pre-M6 the CLI supplies the model from PI_TEST_MODEL; unset ⇒ this error
     //      surfaces as a phase-level error and the deterministic half still runs.
     //      Post-M6 the routing layer resolves a concrete model before calling the
     //      runner, so "undefined reached the runner" is an error in both eras.
     //    - Malformed (no slash) → immediate Err(ModelError), no SDK object constructed.
-    //    - Well-formed but not found in registry → Err(ModelError).
+    //    - Well-formed but not found in registry → Err(ModelError) after registry lookup.
     //    Plan refs: §2a/P10 (pre-M6 stopgap), decision P10 (M6 routing replaces this).
     // -----------------------------------------------------------------------
+
+    // undefined check — no SDK object constructed on this path.
     if (inputs.model === undefined) {
       return Result.err(
         new ModelError({
@@ -84,33 +88,31 @@ export class PiAgentRunner implements AgentRunner {
       );
     }
 
+    // Malformed (no slash) — no SDK object constructed on this path.
+    if (inputs.model.indexOf("/") === -1) {
+      return Result.err(
+        new ModelError({
+          message: `inputs.model must be "provider/id" (got "${inputs.model}")`,
+          cost: { model: inputs.model, durationMs: 0 },
+        }),
+      );
+    }
+
+    // Model string is well-formed: construct SDK objects and resolve from registry.
     const authStorage = AuthStorage.create();
     const modelRegistry = ModelRegistry.create(authStorage);
 
-    let model: ReturnType<typeof modelRegistry.find> | undefined;
-
-    {
-      const slash = inputs.model.indexOf("/");
-      if (slash === -1) {
-        // Malformed — return immediately, no SDK objects constructed.
-        return Result.err(
-          new ModelError({
-            message: `inputs.model must be "provider/id" (got "${inputs.model}")`,
-            cost: { model: inputs.model, durationMs: 0 },
-          }),
-        );
-      }
-      const provider = inputs.model.slice(0, slash);
-      const id = inputs.model.slice(slash + 1);
-      model = modelRegistry.find(provider, id);
-      if (!model) {
-        return Result.err(
-          new ModelError({
-            message: `Model not found in registry: "${inputs.model}"`,
-            cost: { model: inputs.model, durationMs: 0 },
-          }),
-        );
-      }
+    const slash = inputs.model.indexOf("/");
+    const provider = inputs.model.slice(0, slash);
+    const id = inputs.model.slice(slash + 1);
+    const model = modelRegistry.find(provider, id);
+    if (!model) {
+      return Result.err(
+        new ModelError({
+          message: `Model not found in registry: "${inputs.model}"`,
+          cost: { model: inputs.model, durationMs: 0 },
+        }),
+      );
     }
 
     // -----------------------------------------------------------------------
@@ -119,18 +121,32 @@ export class PiAgentRunner implements AgentRunner {
     const handler = new SubmitTool(inputs.submitSchema);
 
     const submitTool = defineTool({
-      name: "submit_findings",
+      name: SUBMIT_TOOL_NAME,
       label: "Submit findings",
       description:
         "Submit your FINAL findings verdict. Call this exactly ONCE when you have " +
         "completed your analysis. This is the only way to finish the run. Do NOT call " +
         "it more than once — duplicate calls are silently ignored.",
       parameters: inputs.submitSchema,
-      execute: async (_toolCallId: string, params: unknown): Promise<AgentToolResult<unknown>> => {
+      // Five-arg execute signature required by ToolDefinition<TParams, TDetails, TState>.
+      // signal + onUpdate + ctx are unused here; _ prefix documents that intentionally.
+      execute: async (
+        _toolCallId: string,
+        params: unknown,
+        _signal: AbortSignal | undefined,
+        _onUpdate: unknown,
+        _ctx: unknown,
+      ): Promise<AgentToolResult<unknown>> => {
         const result = handler.submit(params);
+        // terminate: true once a valid submission is captured — signals the SDK to stop the
+        // agent after the current tool batch (AgentToolResult.terminate semantics: early
+        // termination happens only when every finalized result in the batch sets this true).
+        // On invalid submissions (guard 1) or duplicates (guard 2) hasSubmission is false/
+        // still-true respectively; terminate: false on guard-1 lets the model retry.
         return {
           content: [{ type: "text", text: result.message }],
           details: {},
+          terminate: handler.hasSubmission,
         };
       },
     });
@@ -144,11 +160,11 @@ export class PiAgentRunner implements AgentRunner {
     const startMs = Date.now();
 
     // inputs.toolset is forwarded verbatim (mutation-free, phase-owned).
-    // submit_findings is ensured present as the single completion tool —
+    // SUBMIT_TOOL_NAME is ensured present as the single completion tool —
     // a safety net in case a phase omits it, but stub-agent already includes it.
-    const toolset = inputs.toolset.includes("submit_findings")
+    const toolset = inputs.toolset.includes(SUBMIT_TOOL_NAME)
       ? inputs.toolset
-      : [...inputs.toolset, "submit_findings"];
+      : [...inputs.toolset, SUBMIT_TOOL_NAME];
 
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
     // Captured inside the try block, before dispose(), while the session is live.
@@ -231,7 +247,18 @@ export class PiAgentRunner implements AgentRunner {
       };
     } catch (err: unknown) {
       const durationMs = Date.now() - startMs;
-      // Any SDK/provider error becomes Err(ModelError). Best-effort cost.
+      // If the model already made a valid submission before the provider error
+      // (e.g. a rate-limit thrown after submit_findings was called), honour "first
+      // valid submission wins" and return the captured result rather than discarding it.
+      // Cost is best-effort: durationMs + model are reliable; token stats may be
+      // unreadable after the throw, so we omit them on this path.
+      if (handler.hasSubmission) {
+        return Result.ok({
+          submission: handler.submission,
+          cost: { model: inputs.model, durationMs },
+        });
+      }
+      // No prior valid submission — surface the provider error.
       const message = err instanceof Error ? err.message : String(err);
       return Result.err(
         new ModelError({
@@ -240,7 +267,14 @@ export class PiAgentRunner implements AgentRunner {
         }),
       );
     } finally {
-      session?.dispose();
+      // Wrap dispose() so a throw there never supersedes the computed Result (P7).
+      // AgentSession.dispose() calls cleanupSessionResources() outside its own try/catch
+      // and can throw AggregateError — a throw in finally would replace the return above.
+      try {
+        session?.dispose();
+      } catch {
+        /* dispose failures must never mask the run's Result */
+      }
     }
 
     // cost is guaranteed assigned here: the catch path returns, so the only
