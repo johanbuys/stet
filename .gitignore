@@ -29,3 +29,6 @@ coverage/
 # Temp files
 *.tmp
 *.bak
+
+# ideoshi-code harness (managed separately)
+.ideoshi-code/
