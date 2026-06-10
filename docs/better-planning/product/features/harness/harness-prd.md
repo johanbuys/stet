@@ -163,8 +163,10 @@ The Pi SDK integration, lifted from the POC recipe. **SDK confirmed (2026-06-06)
 GitHub repo transferred to `earendil-works/pi`, and the old `@mariozechner/pi-coding-agent` npm
 scope is deprecated ("please use @earendil-works/pi-coding-agent instead", frozen at 0.73.1
 while the new scope releases actively — 0.78.1 at time of writing). Same project, same author
-(Mario Zechner), MIT. stet standardizes on `@earendil-works/pi-coding-agent` (0.78.x); zero
-porting risk — the POC already runs on it. The runner:
+(Mario Zechner), MIT. stet standardizes on `@earendil-works/pi-coding-agent` (**0.79.x** —
+amended 2026-06-09 from 0.78.x: `vp add` resolved 0.79.1, API-compatible, the M2 adapter
+compiles and runs on it; see decision #5 and plan §6); zero porting risk — the POC already runs
+on it. The runner:
 
 - `createAgentSession` per phase run, with `systemPromptOverride` replacing the coding-agent
   persona entirely with the phase rubric; user prompt carries the per-run inputs (diff summary,
@@ -985,7 +987,7 @@ run reports what it knows. Exit `1`.
 | 2 | `Audit` (examined/checks/claims) is first-class on every phase | draft | the anti-silent-green mechanism, generalized from the POC | settled |
 | 3 | Deterministic + evidence-backed findings are `high` confidence by construction | draft | a reproducing command is proof; the confidence filter exists for opinions | settled |
 | 4 | Schemas defined with TypeBox, validated at the tool boundary | draft | runtime validation is what makes output-as-tool enforceable | settled |
-| 5 | Pi SDK: standardize on `@earendil-works/pi-coding-agent` 0.78.x | evidence check (2026-06-06) | confirmed successor of `badlogic/pi-mono`; the POC already runs on it | settled |
+| 5 | Pi SDK: standardize on `@earendil-works/pi-coding-agent` 0.79.x (amended 2026-06-09 from 0.78.x) | evidence check (2026-06-06); version amended at M2 build (2026-06-09) | confirmed successor of `badlogic/pi-mono`; the POC already runs on it. M2: `vp add` resolved 0.79.1 (API-compatible with 0.78.x — `createAgentSession`/`session.prompt`/`getSessionStats`/`defineTool`/`DefaultResourceLoader` unchanged); adapter compiles + steel thread runs. Reality-disagrees protocol applied (plan §6) | settled |
 | 6 | Model routing by capability tiers; four config layers; sparse `init`; project config never names providers | review round 1 (Johan) | provider pins in shared config are broken-by-teammate | settled |
 | 7 | The binding run is CI's run, with pinned routing; local runs advisory | review round 1 (Johan) | AI findings are judgments — variance is contained, not eliminated | settled |
 | 8 | Model qualification earned on the eval suite; `harness.unqualified-model` warning; curated manifest + `stet models test` | review round 1 (Johan) | tier membership must be earned, not asserted | settled |
