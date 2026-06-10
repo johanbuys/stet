@@ -14,7 +14,7 @@
 
 import type { Severity } from "./schema/finding.js";
 import type { PhaseReport, RunReport } from "./schema/report.js";
-import type { Scope } from "./scope.js";
+import type { Scope } from "./schema/scope.js";
 import { deriveExit } from "./exit-codes.js";
 
 // ---------------------------------------------------------------------------
@@ -31,24 +31,34 @@ export interface AssembleInput {
   phases: PhaseReport[];
   /** Effective failOn: flag > config > default("error"). */
   failOn: Severity;
+  /**
+   * Wall-clock elapsed time for the whole run, in milliseconds — measured by the caller
+   * around runPhases. Phases run concurrently, so summing their individual durationMs
+   * diverges from real elapsed time (PRD §4.10 worked example: phase durations sum to
+   * 76,122ms, total is 66,120ms). This field is the authoritative wall-clock measure.
+   */
+  durationMs: number;
 }
 
 // ---------------------------------------------------------------------------
 // Cost aggregation
 // ---------------------------------------------------------------------------
 
-function sumCost(phases: PhaseReport[]): RunReport["cost"] {
+/**
+ * Sum token costs across all phase reports.
+ * Duration is NOT summed — phases run concurrently so summing diverges from wall-clock.
+ * The caller supplies wall-clock durationMs from AssembleInput.
+ */
+function sumTokens(phases: PhaseReport[]): { totalInputTokens: number; totalOutputTokens: number } {
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
-  let durationMs = 0;
 
   for (const phase of phases) {
     totalInputTokens += phase.cost.inputTokens ?? 0;
     totalOutputTokens += phase.cost.outputTokens ?? 0;
-    durationMs += phase.cost.durationMs;
   }
 
-  return { totalInputTokens, totalOutputTokens, durationMs };
+  return { totalInputTokens, totalOutputTokens };
 }
 
 // ---------------------------------------------------------------------------
@@ -71,19 +81,18 @@ function sumCost(phases: PhaseReport[]): RunReport["cost"] {
  * spec: M8 (--prd/--task) — for M1 we always set provided:false with empty sources.
  */
 export function assembleReport(input: AssembleInput): { report: RunReport; exitCode: 0 | 1 } {
-  const { stetVersion, startedAt, scope, phases, failOn } = input;
+  const { stetVersion, startedAt, scope, phases, failOn, durationMs } = input;
 
   const { exitCode, gating } = deriveExit(phases, failOn);
+  const { totalInputTokens, totalOutputTokens } = sumTokens(phases);
 
   const report: RunReport = {
     version: 1,
     stet: stetVersion,
     startedAt,
-    scope: {
-      kind: scope.kind,
-      ...(scope.ref !== undefined ? { ref: scope.ref } : {}),
-      files: scope.files,
-    },
+    // Pass scope straight through — no re-projection (which would silently drop
+    // M8's `stripped` field). Single source of truth: src/schema/scope.ts (finding F10).
+    scope,
     // M8 (--prd/--task/--issue) provides spec context; not implemented until M8.
     spec: { provided: false, sources: [] },
     phases,
@@ -92,7 +101,7 @@ export function assembleReport(input: AssembleInput): { report: RunReport; exitC
       failOn,
       gating,
     },
-    cost: sumCost(phases),
+    cost: { totalInputTokens, totalOutputTokens, durationMs },
   };
 
   return { report, exitCode };

@@ -4,8 +4,8 @@
  * stet CLI entry point.
  *
  * Two surfaces:
- *   main(argv, io) — testable core, returns Promise<Result<{exitCode:0|1}, StetError>>
- *   process entry — calls resolveExit(await main(...)) and process.exit
+ *   main(argv, io, phases) — testable core, returns Promise<Result<{exitCode:0|1}, StetError>>
+ *   process entry — assembles default phases, calls resolveExit(await main(...)) and sets exitCode
  *
  * resolveExit is the SINGLE throw→exit boundary (PRD CLAUDE.md / plan §2a / plan P7).
  * Unknown flag parsing uses ConfigError — it is a user-supplied configuration error
@@ -18,6 +18,7 @@
  *   scope: --staged, --working, --against <ref>, --commit <sha>, --commits <range>
  *   output: --format <human|json>  (default: human)
  *   gating: --fail-on <error|warning|info>  (default: error)
+ *   meta:   --version, --help
  *
  * M5 adds: user-layer config, full 4-layer precedence.
  * M8 adds: --prd, --task, --issue, --auto-context.
@@ -39,6 +40,7 @@ import type { Severity } from "./schema/finding.js";
 import { parseRunReport } from "./schema/report.js";
 import { detectScope, type ScopeFlags } from "./scope.js";
 import { registerDefaultPhases, registeredPhases } from "./phases/index.js";
+import type { PhaseConfiguration } from "./phases/types.js";
 import { runPhases } from "./scheduler.js";
 import { assembleReport } from "./report.js";
 
@@ -133,6 +135,8 @@ interface ParsedFlags {
   commits?: string;
   format: Format;
   failOn?: Severity;
+  version: boolean;
+  help: boolean;
 }
 
 /** Narrow a raw string to a member of a literal union, or undefined. */
@@ -163,6 +167,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
         commits: { type: "string" },
         format: { type: "string", default: "human" },
         "fail-on": { type: "string" },
+        version: { type: "boolean", default: false },
+        help: { type: "boolean", default: false },
       },
     });
 
@@ -201,6 +207,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
       commits: values.commits,
       format,
       failOn,
+      version: values.version ?? false,
+      help: values.help ?? false,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -231,6 +239,13 @@ function resolveFailOn(
 /**
  * The testable pipeline core.
  *
+ * Accepts a `phases` array directly — main() no longer touches the registry.
+ * The process-entry block is the only place defaults are assembled:
+ *   registerDefaultPhases(); await main(argv, realIo, registeredPhases())
+ * Tests pass [stubDet] explicitly (plan P10 steel-thread mechanism) — this ensures
+ * the e2e tests keep passing unchanged when real phases later displace stubs from
+ * the default set.
+ *
  * Returns Ok({exitCode: 0|1}) — the Ok path always has the pipeline's exit code.
  * Returns Err(StetError) only when stet itself malfunctioned (config error, scope error,
  * self-check schema error). The caller (entry block) passes this to resolveExit → exit 2.
@@ -238,21 +253,48 @@ function resolveFailOn(
  * JSON mode: EXACTLY the RunReport JSON on io.stdout, nothing else on stdout ever.
  * Human mode: minimal per-phase status lines to io.stdout (M9 does display polish).
  * Progress / chrome: io.stderr at all times.
- *
- * registerDefaultPhases() is called here — safe to call multiple times (idempotent:
- * duplicate-id registration replaces in-place, per the registry design).
  */
 export async function main(
   argv: string[],
   io: CliIo,
+  phases: PhaseConfiguration[],
 ): Promise<Result<{ exitCode: 0 | 1 }, StetError>> {
-  // ── 1. Register default phases (idempotent) ──────────────────────────────
-  registerDefaultPhases();
-
-  // ── 2. Parse flags ────────────────────────────────────────────────────────
+  // ── 1. Parse flags ────────────────────────────────────────────────────────
   const flagsResult = parseFlags(argv);
   if (flagsResult.isErr()) return Result.err(flagsResult.error);
   const flags = flagsResult.value;
+
+  // ── 2. Handle meta flags FIRST (before any pipeline work) ─────────────────
+  // --version wins over --help if both are given (logical: version is cheaper).
+  if (flags.version) {
+    io.stdout(STET_VERSION);
+    return Result.ok({ exitCode: 0 });
+  }
+  if (flags.help) {
+    io.stdout(
+      [
+        "Usage: stet [flags]",
+        "",
+        "Scope flags (pick at most one; auto-detects when none given):",
+        "  --staged              Analyze staged changes",
+        "  --working             Analyze working-tree changes",
+        "  --against <ref>       Analyze diff between merge base of <ref> and HEAD",
+        "  --commit <sha>        Analyze a single commit",
+        "  --commits <range>     Analyze a commit range (e.g. HEAD~3..HEAD)",
+        "",
+        "Output flags:",
+        "  --format <human|json> Output format (default: human)",
+        "  --fail-on <error|warning|info>",
+        "                        Gate exit code on findings at or above this severity",
+        "                        (default: error)",
+        "",
+        "Meta flags:",
+        "  --version             Print stet version and exit",
+        "  --help                Print this usage block and exit",
+      ].join("\n"),
+    );
+    return Result.ok({ exitCode: 0 });
+  }
 
   // ── 3. Load project config ────────────────────────────────────────────────
   const configResult = await loadConfig(io.cwd);
@@ -278,11 +320,13 @@ export async function main(
 
   // ── 5. Run phases ─────────────────────────────────────────────────────────
   const startedAt = new Date().toISOString();
-  const phaseReports = await runPhases(registeredPhases(), {
+  const runStartMs = Date.now();
+  const phaseReports = await runPhases(phases, {
     cwd: io.cwd,
     scope,
     config,
   });
+  const durationMs = Date.now() - runStartMs;
 
   // ── 6. Assemble report ────────────────────────────────────────────────────
   const failOn = resolveFailOn(flags.failOn, config.output?.failOn);
@@ -292,6 +336,7 @@ export async function main(
     scope,
     phases: phaseReports,
     failOn,
+    durationMs,
   });
 
   // ── 7. Self-check: the report we produce must be valid (stet bug if not) ──
@@ -326,9 +371,28 @@ export async function main(
 // Only executed when this module is the entry point. The pure resolveExit above
 // is imported by tests; this thin wrapper owns the actual side effects.
 
-const isEntryPoint =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+/**
+ * Guard the entry-point check against ENOENT and other fs errors.
+ *
+ * `realpathSync(process.argv[1])` throws if argv[1] is set but doesn't exist on disk
+ * (SEA/virtual entries, deleted shims). An uncaught throw here would be OUTSIDE the
+ * single throw→exit boundary, causing Node to exit 1 (which the exit-code contract
+ * defines as "gating findings"). The guard catches any throw and returns false so the
+ * entry block is skipped rather than crashing. Not unit-testable from inside the module
+ * (module-top-level execution; the guard is the fix).
+ */
+function computeIsEntryPoint(): boolean {
+  try {
+    return (
+      process.argv[1] !== undefined &&
+      import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+    );
+  } catch {
+    return false;
+  }
+}
+
+const isEntryPoint = computeIsEntryPoint();
 
 if (isEntryPoint) {
   const realIo: CliIo = {
@@ -337,14 +401,27 @@ if (isEntryPoint) {
     stderr: (line) => process.stderr.write(line + "\n"),
   };
 
-  const result = await main(process.argv.slice(2), realIo);
-  const { exitCode, stderr } = resolveExit(result);
-  if (stderr !== undefined) {
-    process.stderr.write(stderr + "\n");
+  // Assemble the default phase set here — the only place defaults live.
+  // main() receives phases as a parameter and never touches the registry itself.
+  registerDefaultPhases();
+
+  // Unreachable by design (Result discipline means nothing escapes main()) —
+  // this boundary enforces the honesty contract anyway: if something ever throws,
+  // it is a stet internal bug → exit 2, not exit 1 (which means "gating findings").
+  try {
+    const result = await main(process.argv.slice(2), realIo, registeredPhases());
+    const { exitCode, stderr } = resolveExit(result);
+    if (stderr !== undefined) {
+      process.stderr.write(stderr + "\n");
+    }
+    // Use process.exitCode rather than process.exit() so that Node waits for all
+    // streams (stdout, stderr) to flush before tearing down. process.exit() returns
+    // immediately and can truncate output when stdout is piped — exactly how
+    // --format json consumers and loops receive the RunReport.
+    process.exitCode = exitCode;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`stet: internal error — ${message}\n`);
+    process.exitCode = 2;
   }
-  // Use process.exitCode rather than process.exit() so that Node waits for all
-  // streams (stdout, stderr) to flush before tearing down. process.exit() returns
-  // immediately and can truncate output when stdout is piped — exactly how
-  // --format json consumers and loops receive the RunReport.
-  process.exitCode = exitCode;
 }

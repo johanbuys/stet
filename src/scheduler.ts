@@ -104,10 +104,24 @@ export async function runPhases(
   ctx: SchedulerContext,
 ): Promise<PhaseReport[]> {
   return Promise.all(
-    phases.map((phase) =>
-      phase.activation({ scope: ctx.scope })
-        ? runPhaseGuarded(phase, ctx)
-        : Promise.resolve(skippedReport(phase)),
-    ),
+    phases.map((phase) => {
+      // Guard activation() — a throwing activation is a contract violation just like a
+      // throwing run(). Catch it here so the Promise.all never rejects due to a buggy phase.
+      let activated: boolean;
+      try {
+        activated = phase.activation({ scope: ctx.scope });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return Promise.resolve<PhaseReport>({
+          phase: phase.id,
+          status: "error",
+          reason: `phase violated its contract: activation threw: ${message}`,
+          findings: [],
+          audit: {},
+          cost: { durationMs: 0 },
+        });
+      }
+      return activated ? runPhaseGuarded(phase, ctx) : Promise.resolve(skippedReport(phase));
+    }),
   );
 }

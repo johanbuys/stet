@@ -20,6 +20,10 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { Result } from "better-result";
 import { ScopeError } from "./errors.js";
+import type { Scope } from "./schema/scope.js";
+
+// Re-export so existing importers (`import type { Scope } from "./scope.js"`) keep working.
+export type { Scope };
 
 const execFile = promisify(execFileCb);
 
@@ -34,17 +38,6 @@ export interface ScopeFlags {
   against?: string;
   commit?: string;
   commits?: string;
-}
-
-/**
- * Resolved scope — matches the RunReport `scope` shape (PRD §4.5).
- * `ref` is present for "against" (default branch or explicit ref) and "commit" kinds.
- * `stripped` is M8 — never set here.
- */
-export interface Scope {
-  kind: "staged" | "working" | "against" | "commit" | "commits";
-  ref?: string;
-  files: string[];
 }
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import { Value } from "@sinclair/typebox/value";
 import { Result } from "better-result";
 import { SchemaError } from "../errors.js";
 import { Finding, PhaseId, Severity } from "./finding.js";
+import { Scope } from "./scope.js";
 
 // ---------------------------------------------------------------------------
 // Check (PRD §4.3)
@@ -178,22 +179,8 @@ export const RunReport = Type.Object(
     stet: Type.String(),
     /** Run start, ISO-8601 UTC (decision #23). */
     startedAt: Type.String(),
-    scope: Type.Object(
-      {
-        kind: Type.Union([
-          Type.Literal("staged"),
-          Type.Literal("working"),
-          Type.Literal("against"),
-          Type.Literal("commit"),
-          Type.Literal("commits"),
-        ]),
-        ref: Type.Optional(Type.String()),
-        files: Type.Array(Type.String()),
-        /** Paths removed by semantic pre-filtering (§3.6, decision #33). */
-        stripped: Type.Optional(Type.Array(Type.String())),
-      },
-      { additionalProperties: false },
-    ),
+    /** Single source of truth: src/schema/scope.ts (PRD §4.5, decision #33). */
+    scope: Scope,
     spec: Type.Object(
       {
         provided: Type.Boolean(),

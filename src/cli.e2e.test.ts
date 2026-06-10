@@ -21,7 +21,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { main, type CliIo } from "./cli.js";
 import { parseRunReport } from "./schema/report.js";
-import { registerPhase, resetRegistry } from "./phases/index.js";
+import { resetRegistry } from "./phases/index.js";
 import { stubDet } from "./phases/stub-det.js";
 
 const execFile = promisify(execFileCb);
@@ -94,11 +94,12 @@ describe("CLI e2e — stub-det", () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    // Each test gets a fresh tmp dir and a clean registry
+    // Each test gets a fresh tmp dir and a clean registry.
+    // The registry reset keeps state isolated but main() no longer reads from it
+    // (main receives phases as a parameter — plan P10). resetRegistry is kept here
+    // so other tests that may call registerPhase don't bleed into these tests.
     tmpDir = await mkdtemp(join(tmpdir(), "stet-e2e-"));
     resetRegistry();
-    // Register stub-det explicitly — never rely on the default set (plan P10)
-    registerPhase(stubDet);
   });
 
   afterEach(async () => {
@@ -111,7 +112,7 @@ describe("CLI e2e — stub-det", () => {
     await setupStubRepo(tmpDir, "pass");
     const { io, stdoutLines } = makeIo(tmpDir);
 
-    const result = await main(["--format", "json"], io);
+    const result = await main(["--format", "json"], io, [stubDet]);
 
     // Pipeline returns Ok
     expect(result.isOk()).toBe(true);
@@ -146,7 +147,7 @@ describe("CLI e2e — stub-det", () => {
     await setupStubRepo(tmpDir, "fail");
     const { io, stdoutLines } = makeIo(tmpDir);
 
-    const result = await main(["--format", "json"], io);
+    const result = await main(["--format", "json"], io, [stubDet]);
 
     // Pipeline returns Ok (exit 1 is a valid pipeline outcome, not a stet error)
     expect(result.isOk()).toBe(true);
@@ -173,7 +174,7 @@ describe("CLI e2e — stub-det", () => {
     // tmpDir is a real dir but NOT a git repo (setupStubRepo never called)
     const { io } = makeIo(tmpDir);
 
-    const result = await main(["--format", "json"], io);
+    const result = await main(["--format", "json"], io, [stubDet]);
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
@@ -187,7 +188,7 @@ describe("CLI e2e — stub-det", () => {
     await setupStubRepo(tmpDir, "pass");
     const { io, stdoutLines } = makeIo(tmpDir);
 
-    await main(["--format", "json"], io);
+    await main(["--format", "json"], io, [stubDet]);
 
     // Exactly one line (the JSON.stringify output)
     expect(stdoutLines).toHaveLength(1);
@@ -201,7 +202,7 @@ describe("CLI e2e — stub-det", () => {
     await setupStubRepo(tmpDir, "pass");
     const { io } = makeIo(tmpDir);
 
-    const result = await main(["--unknown-flag"], io);
+    const result = await main(["--unknown-flag"], io, [stubDet]);
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
@@ -220,7 +221,7 @@ describe("CLI e2e — stub-det", () => {
     // To test --fail-on we need a warning finding. Since stub-det only emits
     // stub-det.command-failed (error) or nothing, test precedence at the unit level:
     // flag overrides default — with flag "warning" and no findings → still exit 0.
-    const result = await main(["--format", "json", "--fail-on", "warning"], io);
+    const result = await main(["--format", "json", "--fail-on", "warning"], io, [stubDet]);
 
     expect(result.isOk()).toBe(true);
     const parsed = JSON.parse(stdoutLines[0]!);
@@ -234,7 +235,7 @@ describe("CLI e2e — stub-det", () => {
     await setupStubRepo(tmpDir, "pass");
     const { io } = makeIo(tmpDir);
 
-    const result = await main(["--fail-on", "critical"], io);
+    const result = await main(["--fail-on", "critical"], io, [stubDet]);
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
@@ -248,7 +249,7 @@ describe("CLI e2e — stub-det", () => {
     await setupStubRepo(tmpDir, "pass");
     const { io } = makeIo(tmpDir);
 
-    const result = await main(["--format", "xml"], io);
+    const result = await main(["--format", "xml"], io, [stubDet]);
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
@@ -262,7 +263,7 @@ describe("CLI e2e — stub-det", () => {
     await setupStubRepo(tmpDir, "pass");
     const { io, stdoutLines } = makeIo(tmpDir);
 
-    const result = await main([], io); // default format is human
+    const result = await main([], io, [stubDet]); // default format is human
 
     expect(result.isOk()).toBe(true);
     // Multiple lines, NOT a JSON object
@@ -271,5 +272,78 @@ describe("CLI e2e — stub-det", () => {
     // Contains stub-det
     const combined = stdoutLines.join("\n");
     expect(combined).toContain("stub-det");
+  });
+
+  // ── Slice 10: --version ───────────────────────────────────────────────────
+
+  it("--version emits a semver string on stdout and exits 0", async () => {
+    const { io, stdoutLines, stderrLines } = makeIo(tmpDir);
+
+    const result = await main(["--version"], io, []);
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.exitCode).toBe(0);
+    }
+    // Exactly one stdout line — the version string
+    expect(stdoutLines).toHaveLength(1);
+    // Must look like a semver (digits.digits.digits)
+    expect(stdoutLines[0]).toMatch(/^\d+\.\d+\.\d+/);
+    // Nothing on stderr
+    expect(stderrLines).toHaveLength(0);
+  });
+
+  it("--version wins over --help when both are given", async () => {
+    const { io, stdoutLines } = makeIo(tmpDir);
+
+    const result = await main(["--version", "--help"], io, []);
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.exitCode).toBe(0);
+    }
+    // Output must be a version string, not a usage block
+    expect(stdoutLines).toHaveLength(1);
+    expect(stdoutLines[0]).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  // ── Slice 11: --help ──────────────────────────────────────────────────────
+
+  it("--help emits a usage block mentioning each flag group and exits 0", async () => {
+    const { io, stdoutLines } = makeIo(tmpDir);
+
+    const result = await main(["--help"], io, []);
+
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.exitCode).toBe(0);
+    }
+    const combined = stdoutLines.join("\n");
+    // Must mention the program name
+    expect(combined).toContain("stet");
+    // Scope flags
+    expect(combined).toMatch(/--staged/);
+    expect(combined).toMatch(/--working/);
+    expect(combined).toMatch(/--against/);
+    expect(combined).toMatch(/--commit/);
+    // Output flags
+    expect(combined).toMatch(/--format/);
+    expect(combined).toMatch(/--fail-on/);
+    // Meta flags
+    expect(combined).toMatch(/--version/);
+    expect(combined).toMatch(/--help/);
+  });
+
+  // ── Slice 12: unknown flag still exits 2 via ConfigError ─────────────────
+
+  it("truly unknown flag → Err(ConfigError) — not confused with --help/--version", async () => {
+    const { io } = makeIo(tmpDir);
+
+    const result = await main(["--no-such-flag"], io, []);
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ConfigError");
+    }
   });
 });

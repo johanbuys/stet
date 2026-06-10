@@ -213,4 +213,59 @@ describe("runPhases", () => {
     expect(healthy?.status).toBe("completed");
     expect(bad?.status).toBe("error");
   });
+
+  // ── Slice 11: throwing activation → error report, siblings unaffected ────
+
+  it("phase whose activation() throws lands as status error with contract reason", async () => {
+    const throwingActivation: PhaseConfiguration = {
+      id: "throws-activation",
+      kind: "deterministic",
+      activation: () => {
+        throw new Error("activation kaboom");
+      },
+      async run(_ctx) {
+        return {
+          phase: "throws-activation",
+          status: "completed",
+          findings: [],
+          audit: {},
+          cost: { durationMs: 1 },
+        };
+      },
+    };
+    const reports = await runPhases([throwingActivation], baseCtx);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.phase).toBe("throws-activation");
+    expect(reports[0]?.status).toBe("error");
+    expect(reports[0]?.reason).toContain("phase violated its contract: activation threw");
+    expect(reports[0]?.reason).toContain("activation kaboom");
+    expect(reports[0]?.findings).toEqual([]);
+  });
+
+  it("throwing activation does not affect a healthy sibling phase", async () => {
+    const healthyPhase = makePhase("healthy-sibling");
+    const throwingActivation: PhaseConfiguration = {
+      id: "bad-activation",
+      kind: "deterministic",
+      activation: () => {
+        throw new Error("activation exploded");
+      },
+      async run(_ctx) {
+        return {
+          phase: "bad-activation",
+          status: "completed",
+          findings: [],
+          audit: {},
+          cost: { durationMs: 1 },
+        };
+      },
+    };
+    const reports = await runPhases([healthyPhase, throwingActivation], baseCtx);
+    expect(reports).toHaveLength(2);
+    const healthy = reports.find((r) => r.phase === "healthy-sibling");
+    const bad = reports.find((r) => r.phase === "bad-activation");
+    expect(healthy?.status).toBe("completed");
+    expect(bad?.status).toBe("error");
+    expect(bad?.reason).toContain("activation threw");
+  });
 });

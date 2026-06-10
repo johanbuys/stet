@@ -33,6 +33,7 @@ function baseInput(overrides: Partial<AssembleInput> = {}): AssembleInput {
     scope: fakeScope,
     phases: [completedPhase("stub-det", 10)],
     failOn: "error",
+    durationMs: 10,
     ...overrides,
   };
 }
@@ -73,6 +74,22 @@ describe("assembleReport", () => {
     const { report } = assembleReport(baseInput());
     expect(report.scope.kind).toBe("staged");
     expect(report.scope.files).toEqual(["src/a.ts"]);
+  });
+
+  // ── Slice 4b: scope is deep-equal to input, including stripped (M8 field) ─
+  //
+  // The previous re-projection spread in assembleReport silently dropped the
+  // `stripped` array (finding F10). assembleReport now passes scope straight through.
+
+  it("report.scope deep-equals the input scope including stripped", () => {
+    const scopeWithStripped: Scope = {
+      kind: "staged",
+      files: ["src/a.ts"],
+      stripped: ["src/generated.ts", "src/vendor.ts"],
+    };
+    const { report } = assembleReport(baseInput({ scope: scopeWithStripped }));
+    expect(report.scope).toEqual(scopeWithStripped);
+    expect(report.scope.stripped).toEqual(["src/generated.ts", "src/vendor.ts"]);
   });
 
   // ── Slice 5: spec is M8 placeholder ─────────────────────────────────────
@@ -134,9 +151,13 @@ describe("assembleReport", () => {
     expect(report.result.failOn).toBe("warning");
   });
 
-  // ── Slice 10: cost totals summed over phases ─────────────────────────────
+  // ── Slice 10: cost totals — wall-clock durationMs, tokens summed ─────────
+  //
+  // PRD §4.10 worked example: phase durations sum to 76,122ms but total is 66,120ms
+  // because the scheduler runs phases concurrently. The caller measures wall-clock time
+  // and passes it via AssembleInput.durationMs; sumCost sums TOKENS only.
 
-  it("cost totals are summed over all phases", () => {
+  it("cost.durationMs equals the passed-in wall-clock value, not the sum of phase durations", () => {
     const phases: PhaseReport[] = [
       {
         phase: "a",
@@ -161,8 +182,40 @@ describe("assembleReport", () => {
         cost: { durationMs: 200, inputTokens: 30, outputTokens: 10 },
       },
     ];
-    const { report } = assembleReport(baseInput({ phases }));
-    expect(report.cost.durationMs).toBe(300);
+    // Wall-clock is 180ms (concurrency means it's less than the 300ms sum)
+    const wallClock = 180;
+    const { report } = assembleReport(baseInput({ phases, durationMs: wallClock }));
+    // Total durationMs must be the wall-clock value, not 300 (sum of phase durations)
+    expect(report.cost.durationMs).toBe(wallClock);
+    expect(report.cost.durationMs).not.toBe(300);
+  });
+
+  it("token totals are still summed over all phases", () => {
+    const phases: PhaseReport[] = [
+      {
+        phase: "a",
+        status: "completed",
+        findings: [],
+        audit: {},
+        cost: { durationMs: 100, inputTokens: 50, outputTokens: 20 },
+      },
+      {
+        phase: "b",
+        status: "skipped",
+        reason: "activation: predicate",
+        findings: [],
+        audit: {},
+        cost: { durationMs: 0 },
+      },
+      {
+        phase: "c",
+        status: "completed",
+        findings: [],
+        audit: {},
+        cost: { durationMs: 200, inputTokens: 30, outputTokens: 10 },
+      },
+    ];
+    const { report } = assembleReport(baseInput({ phases, durationMs: 180 }));
     expect(report.cost.totalInputTokens).toBe(80);
     expect(report.cost.totalOutputTokens).toBe(30);
   });
