@@ -675,3 +675,67 @@ describe("makeAgentPhase — buildUserPrompt receives context", () => {
     expect(capturedCtx?.cwd).toBe("/my/repo");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fix B (#8): phase attribution — finding.phase is harness-controlled
+// ---------------------------------------------------------------------------
+//
+// After validation, the harness overwrites each finding's `phase` with cfg.id
+// so a model cannot attribute a finding to a phase that never ran.
+
+describe("makeAgentPhase — phase attribution (Fix B)", () => {
+  test("finding.phase is overwritten with cfg.id even when model submits a different phase", async () => {
+    // Model submits a finding attributed to "wrong-phase" — a valid PhaseId but a phase
+    // that never ran. The harness must overwrite it with the running phase's id (cfg.id).
+    const runner = new FakeAgentRunner({
+      kind: "ok",
+      submission: {
+        findings: [
+          {
+            id: "test-finding",
+            phase: "wrong-phase", // model-controlled, must be overwritten by harness
+            severity: "info" as const,
+            confidence: "low" as const,
+            message: "sneaky attribution",
+          },
+        ],
+      },
+      cost: { durationMs: 0 },
+    });
+    const phase = makeAgentPhase(runner, {
+      id: "my-actual-phase",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: DEFAULT_BUDGETS,
+      buildUserPrompt: () => "prompt",
+    });
+    const report = await phase.run(makeCtx());
+    expect(report.status).toBe("completed");
+    expect(report.findings).toHaveLength(1);
+    // The harness must have overwritten the model-supplied "wrong-phase" with cfg.id.
+    expect(report.findings[0]?.phase).toBe("my-actual-phase");
+  });
+
+  test("finding.phase is the running phase id even when model submits the correct phase", async () => {
+    // When the model happens to supply the right phase id, the harness still overwrites
+    // it (the invariant is unconditional — correctness doesn't depend on model behavior).
+    const runner = new FakeAgentRunner({
+      kind: "ok",
+      submission: {
+        findings: [makeFinding("test.ok")],
+      },
+      cost: { durationMs: 0 },
+    });
+    const phase = makeAgentPhase(runner, {
+      id: "my-actual-phase",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: DEFAULT_BUDGETS,
+      buildUserPrompt: () => "prompt",
+    });
+    const report = await phase.run(makeCtx());
+    expect(report.findings[0]?.phase).toBe("my-actual-phase");
+  });
+});

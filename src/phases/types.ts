@@ -35,6 +35,12 @@ export interface PhaseContext {
    * Untyped at the seam — each phase validates its own.
    */
   config: unknown;
+  /**
+   * Per-phase tool-progress callback; the scheduler supplies it from SchedulerContext.onTool,
+   * scoped to this phase's id. Deterministic phases ignore it; agent phases forward it to
+   * the runner so that tool invocations are reported to the caller (e.g. stderr liveness).
+   */
+  onTool?: (toolName: string) => void;
 }
 
 /**

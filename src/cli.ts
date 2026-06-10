@@ -325,6 +325,10 @@ export async function main(
     cwd: io.cwd,
     scope,
     config,
+    // Human chrome → stderr so stdout stays exactly the JSON in json mode (PRD §4.8).
+    // Format: "stet: <phaseId> · <toolName>" — minimal liveness signal for M2+.
+    // M9 polishes the human surface; this wires the plumbing end-to-end.
+    onTool: (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
   });
   const durationMs = Date.now() - runStartMs;
 

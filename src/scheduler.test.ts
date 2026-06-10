@@ -9,6 +9,10 @@ import type { PhaseReport } from "./schema/report.js";
 import type { Scope } from "./scope.js";
 import { runPhases } from "./scheduler.js";
 import type { PhaseConfiguration } from "./phases/index.js";
+import { makeAgentPhase } from "./phases/agent-phase.js";
+import { FakeAgentRunner } from "./agent/fake-runner.js";
+import { SUBMIT_TOOL_NAME } from "./agent/submit-tool.js";
+import { Type } from "@sinclair/typebox";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -267,5 +271,56 @@ describe("runPhases", () => {
     expect(healthy?.status).toBe("completed");
     expect(bad?.status).toBe("error");
     expect(bad?.reason).toContain("activation threw");
+  });
+
+  // ── Slice 12: onTool progress is forwarded end-to-end ────────────────────
+  //
+  // Fix A (#7): prove the chain SchedulerContext.onTool → PhaseContext.onTool →
+  // AgentRunner.run(inputs.onTool) → FakeAgentRunner calls onTool("submit_findings")
+  // is live and not dead code. Registers a stub-agent backed by FakeAgentRunner,
+  // runs it through runPhases with a collecting onTool sink, and asserts the sink
+  // received ["stub-agent", SUBMIT_TOOL_NAME].
+
+  it("onTool progress callback is forwarded: scheduler → phase → runner (Fix A)", async () => {
+    const SUBMIT_SCHEMA = Type.Object({
+      findings: Type.Array(Type.Unknown()),
+      audit: Type.Optional(Type.Unknown()),
+    });
+    const DEFAULT_BUDGETS = {
+      wallClockMs: 60_000,
+      turns: 30,
+      bashTimeoutMs: 10_000,
+      bashOutputCap: 4096,
+    };
+
+    const runner = new FakeAgentRunner({
+      kind: "ok",
+      submission: { findings: [] },
+      cost: { durationMs: 1 },
+    });
+
+    const agentPhase = makeAgentPhase(runner, {
+      id: "stub-agent",
+      rubric: "rubric",
+      toolset: ["bash", SUBMIT_TOOL_NAME],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: DEFAULT_BUDGETS,
+      buildUserPrompt: () => "prompt",
+    });
+
+    const received: [string, string][] = [];
+    const ctx = {
+      ...baseCtx,
+      onTool: (phaseId: string, toolName: string) => {
+        received.push([phaseId, toolName]);
+      },
+    };
+
+    await runPhases([agentPhase], ctx);
+
+    // FakeAgentRunner calls onTool(SUBMIT_TOOL_NAME) on the ok path.
+    // The scheduler scopes the phase id in, so the sink gets ["stub-agent", "submit_findings"].
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual(["stub-agent", SUBMIT_TOOL_NAME]);
   });
 });

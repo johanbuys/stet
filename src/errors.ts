@@ -1,4 +1,5 @@
 import { TaggedError } from "better-result";
+import type { Cost } from "./schema/report.js";
 
 /**
  * Scope detection failed — conflicting explicit flags or nothing detectable.
@@ -56,7 +57,7 @@ export class SchemaError extends TaggedError("SchemaError")<{
  */
 export class NoSubmitError extends TaggedError("NoSubmitError")<{
   message: string;
-  cost: { model?: string; inputTokens?: number; outputTokens?: number; durationMs: number };
+  cost: Cost;
 }>() {}
 
 /**
@@ -66,7 +67,7 @@ export class NoSubmitError extends TaggedError("NoSubmitError")<{
  */
 export class CancelledError extends TaggedError("CancelledError")<{
   message: string;
-  cost: { model?: string; inputTokens?: number; outputTokens?: number; durationMs: number };
+  cost: Cost;
 }>() {}
 
 /**
@@ -76,7 +77,7 @@ export class CancelledError extends TaggedError("CancelledError")<{
  */
 export class ModelError extends TaggedError("ModelError")<{
   message: string;
-  cost: { model?: string; inputTokens?: number; outputTokens?: number; durationMs: number };
+  cost: Cost;
 }>() {}
 
 /**

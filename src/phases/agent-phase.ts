@@ -243,6 +243,10 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
           budgets: cfg.budgets,
           model: cfg.model,
           cwd: ctx.cwd,
+          // Forward the per-phase progress callback from the scheduler so tool invocations
+          // are visible to the caller (e.g. stderr liveness in the CLI). Deterministic
+          // phases receive onTool too but never call runner.run(), so it's harmless there.
+          onTool: ctx.onTool,
         });
       } catch (err) {
         // runner.run() should never reject, but be defensive (same pattern as scheduler.ts)
@@ -283,10 +287,16 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
       // Parse audit from submission (best-effort; falls back to {} on failure)
       const audit = parseAudit(submission);
 
+      // Overwrite each finding's `phase` with cfg.id: provenance is harness-controlled,
+      // not model-controlled. A model can submit a finding attributed to any phase id
+      // (including one that never ran); the harness enforces attribution to the phase
+      // that actually produced the finding (PRD §4.4 / decision #28).
+      const findings = findingsResult.value.map((f) => ({ ...f, phase: cfg.id }));
+
       return {
         phase: cfg.id,
         status: "completed",
-        findings: findingsResult.value,
+        findings,
         audit,
         cost: { ...cost, durationMs },
       };

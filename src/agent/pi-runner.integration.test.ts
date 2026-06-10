@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { main, type CliIo } from "../cli.js";
+import { main } from "../cli.js";
 import { parseRunReport } from "../schema/report.js";
 import { resetRegistry, registeredPhases, registerPhase } from "../phases/index.js";
 import { stubDet } from "../phases/stub-det.js";
@@ -30,21 +30,7 @@ import { makeStubAgent } from "../phases/stub-agent.js";
 import { FakeAgentRunner } from "./fake-runner.js";
 import { PiAgentRunner } from "./pi-runner.js";
 import { setupStubRepo } from "../test-support/stub-repo.js";
-
-// ---------------------------------------------------------------------------
-// I/O capture helper
-// ---------------------------------------------------------------------------
-
-function makeIo(cwd: string): { io: CliIo; stdoutLines: string[]; stderrLines: string[] } {
-  const stdoutLines: string[] = [];
-  const stderrLines: string[] = [];
-  const io: CliIo = {
-    cwd,
-    stdout: (line) => stdoutLines.push(line),
-    stderr: (line) => stderrLines.push(line),
-  };
-  return { io, stdoutLines, stderrLines };
-}
+import { makeIo } from "../test-support/io.js";
 
 // ---------------------------------------------------------------------------
 // Suite

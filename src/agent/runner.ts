@@ -12,6 +12,7 @@
 import type { TSchema } from "@sinclair/typebox";
 import type { Result } from "better-result";
 import type { AgentError } from "../errors.js";
+import type { Cost } from "../schema/report.js";
 
 // ---------------------------------------------------------------------------
 // Input contract
@@ -20,7 +21,7 @@ import type { AgentError } from "../errors.js";
 /**
  * All inputs that a single agent run needs.
  * harness plan §2a; budget enforcement layering: wrapper owns wall-clock (M3),
- * runner owns turn count + bash limits (PiAgentRunner in T10).
+ * runner owns turn count + bash limits (M3, T12/T13 — not yet implemented).
  */
 export interface AgentRunInputs {
   /** System-prompt override — the phase's persona/rubric. */
@@ -31,7 +32,7 @@ export interface AgentRunInputs {
   toolset: string[];
   /** TypeBox schema for the submit_findings parameter (findings + audit + extension). */
   submitSchema: TSchema;
-  /** Safety budgets: wrapper enforces wallClockMs (M3), runner enforces turns/bash (T10). */
+  /** Safety budgets: wrapper enforces wallClockMs (M3), runner enforces turns/bash (M3, T12/T13 — not yet implemented). */
   budgets: {
     wallClockMs: number;
     turns: number;
@@ -67,12 +68,7 @@ export interface AgentRunSuccess {
    */
   submission: unknown;
   /** Token and wall-clock cost for this run. */
-  cost: {
-    model?: string;
-    inputTokens?: number;
-    outputTokens?: number;
-    durationMs: number;
-  };
+  cost: Cost;
 }
 
 // ---------------------------------------------------------------------------
