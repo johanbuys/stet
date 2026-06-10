@@ -37,6 +37,7 @@
     "prepare": "vp config"
   },
   "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.1",
     "@sinclair/typebox": "^0.34.49",
     "better-result": "^2.9.2",
     "yaml": "^2.9.0"
