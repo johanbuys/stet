@@ -140,6 +140,23 @@ so these matter most.
   An already-aborted `AbortSignal` never fires its "abort" event (DOM semantics), so always check
   `ctx.signal?.aborted` first and call `wallClockController.abort()` eagerly; otherwise a pre-aborted
   scheduler signal would let the phase run until its wall-clock budget expires (10–15 min). (T14.)
+- **`AbortSignal.any([external, internal])` is the right tool to merge the scheduler's external signal
+  (T16 POSIX) with the internal gate-cancel controller, and it propagates the `reason` of whichever
+  signal fires first.** That reason propagation is what lets an agent phase surface `"gates failed: <id>"`
+  in its cancelled report — the gate's `gateController.abort("gates failed: <id>")` reason rides the
+  combined signal down to `ctx.signal.reason`. (T15.)
+- **`controller.abort()` called WITHOUT a string reason leaves `signal.reason` as a `DOMException`, not a
+  string.** Always guard with `typeof signal.reason === "string"` before using it as a human-readable
+  reason; fall back to a literal otherwise. (T15.)
+- **Only `status: "completed"` + an error-severity finding counts as a gate "failure" for cancellation;
+  `status: "error"` (wall-clock timeout, spawn failure) is ALWAYS report-only** regardless of `cancelClass`
+  (PRD §3.4.3 — a merely-slow suite must not nuke the AI phases). Encoded in `isGateFailure`. (T15.)
+- **A `kind: "ok"` `FakeAgentRunner` cannot test "was NOT cancelled" — it never reads `inputs.signal`.**
+  It resolves `Result.ok` synchronously before any gate report can fire an abort, so a negative-path test
+  paired with it passes even against a scheduler that cancels on every outcome. Use a `kind: "delay"`
+  runner (the only script that respects `inputs.signal`): correct behavior → natural expiry → `NoSubmitError`
+  → status `"error"`; a wrongful cancel → `CancelledError` + aborted signal → status `"cancelled"`. Then
+  `status !== "cancelled"` has real discriminating power. (T15, PR-review.)
 
 ## Testing
 

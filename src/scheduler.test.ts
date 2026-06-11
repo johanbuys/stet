@@ -436,6 +436,31 @@ function makeSlowAgentPhase(id: string): PhaseConfiguration {
   });
 }
 
+/**
+ * Make a short-delay agent phase that resolves naturally after delayMs (well under
+ * the wall-clock budget). This is the discriminating fake for the negative-path
+ * slices: a `delay` runner is the ONLY FakeAgentRunner script that reads inputs.signal.
+ *
+ * - Correct behavior (no cancellation): the timer expires → NoSubmitError → status "error".
+ * - Wrong behavior (scheduler aborts when it shouldn't): the signal fires → the runner
+ *   resolves CancelledError + aborted signal → agent-phase returns status "cancelled".
+ *
+ * So asserting `status !== "cancelled"` actually has the power to fail a broken scheduler
+ * that cancels on a report-only failure, a gate timeout, or a passing gate. The 50ms delay
+ * gives any erroneous gate abort (which fires within a microtask of the gate completing)
+ * ample time to land before the natural expiry.
+ */
+function makeProbeAgentPhase(id: string): PhaseConfiguration {
+  return makeAgentPhase(new FakeAgentRunner({ kind: "delay", delayMs: 50 }), {
+    id,
+    rubric: "rubric",
+    toolset: ["bash"],
+    submitSchema: SUBMIT_SCHEMA,
+    budgets: { ...DEFAULT_BUDGETS, wallClockMs: 60_000 },
+    buildUserPrompt: () => "prompt",
+  });
+}
+
 /** Make a gate phase that immediately completes with one error-severity finding. */
 function makeFailingGate(id: string, cancelClass: boolean): PhaseConfiguration {
   return {
@@ -512,22 +537,9 @@ describe("T15: cancellation classes (PRD §3.4.3, acceptance #5)", () => {
 
   it("report-only gate failure (cancelClass absent) does not cancel in-flight agent phases", async () => {
     const gate = makeFailingGate("lint", false); // cancelClass: false → report-only
-    // Agent phase resolves immediately (ok script) — no delay needed.
-    const agent = makeAgentPhase(
-      new FakeAgentRunner({
-        kind: "ok",
-        submission: { findings: [] },
-        cost: { durationMs: 1 },
-      }),
-      {
-        id: "review",
-        rubric: "rubric",
-        toolset: ["bash"],
-        submitSchema: SUBMIT_SCHEMA,
-        budgets: DEFAULT_BUDGETS,
-        buildUserPrompt: () => "prompt",
-      },
-    );
+    // A `delay` probe agent is the discriminating fake: it reads inputs.signal, so a
+    // wrongful cancellation would surface as status "cancelled" instead of "error".
+    const agent = makeProbeAgentPhase("review");
 
     const reports = await runPhases([gate, agent], baseCtx);
 
@@ -539,9 +551,11 @@ describe("T15: cancellation classes (PRD §3.4.3, acceptance #5)", () => {
     expect(gateReport?.status).toBe("completed");
     expect(gateReport?.findings).toHaveLength(1);
 
-    // Agent phase ran to completion — not cancelled.
-    expect(agentReport?.status).toBe("completed");
-  });
+    // Agent phase was NOT cancelled — the report-only gate triggers no abort. It ran to
+    // its natural NoSubmitError expiry (status "error"), proving the signal never fired.
+    expect(agentReport?.status).not.toBe("cancelled");
+    expect(agentReport?.status).toBe("error");
+  }, 5_000);
 
   // ── Slice 3: gate timeout (status "error") is always report-only ──────────
   //
@@ -566,21 +580,8 @@ describe("T15: cancellation classes (PRD §3.4.3, acceptance #5)", () => {
         };
       },
     };
-    const agent = makeAgentPhase(
-      new FakeAgentRunner({
-        kind: "ok",
-        submission: { findings: [] },
-        cost: { durationMs: 1 },
-      }),
-      {
-        id: "review",
-        rubric: "rubric",
-        toolset: ["bash"],
-        submitSchema: SUBMIT_SCHEMA,
-        budgets: DEFAULT_BUDGETS,
-        buildUserPrompt: () => "prompt",
-      },
-    );
+    // Discriminating `delay` probe — surfaces a wrongful cancel as status "cancelled".
+    const agent = makeProbeAgentPhase("review");
 
     const reports = await runPhases([timedOutGate, agent], baseCtx);
 
@@ -590,29 +591,18 @@ describe("T15: cancellation classes (PRD §3.4.3, acceptance #5)", () => {
     // Gate errored (timeout/error).
     expect(gateReport?.status).toBe("error");
 
-    // Agent was NOT cancelled — gate timeout is always report-only.
-    expect(agentReport?.status).toBe("completed");
-  });
+    // Agent was NOT cancelled — gate timeout is always report-only. It ran to its natural
+    // NoSubmitError expiry (status "error"), proving the gate's status "error" fired no abort.
+    expect(agentReport?.status).not.toBe("cancelled");
+    expect(agentReport?.status).toBe("error");
+  }, 5_000);
 
   // ── Slice 4: passing cancel-class gate → no cancellation ─────────────────
 
   it("a passing cancel-class gate does not cancel other phases", async () => {
     const gate = makePassingGate("tests", true); // cancelClass: true but passes
-    const agent = makeAgentPhase(
-      new FakeAgentRunner({
-        kind: "ok",
-        submission: { findings: [] },
-        cost: { durationMs: 1 },
-      }),
-      {
-        id: "review",
-        rubric: "rubric",
-        toolset: ["bash"],
-        submitSchema: SUBMIT_SCHEMA,
-        budgets: DEFAULT_BUDGETS,
-        buildUserPrompt: () => "prompt",
-      },
-    );
+    // Discriminating `delay` probe — surfaces a wrongful cancel as status "cancelled".
+    const agent = makeProbeAgentPhase("review");
 
     const reports = await runPhases([gate, agent], baseCtx);
 
@@ -621,9 +611,11 @@ describe("T15: cancellation classes (PRD §3.4.3, acceptance #5)", () => {
 
     expect(gateReport?.status).toBe("completed");
     expect(gateReport?.findings).toHaveLength(0);
-    // Agent ran to completion — gate passed, no cancellation.
-    expect(agentReport?.status).toBe("completed");
-  });
+    // Agent was NOT cancelled — a passing cancel-class gate fires no abort. It ran to its
+    // natural NoSubmitError expiry (status "error"), proving isGateFailure stayed false.
+    expect(agentReport?.status).not.toBe("cancelled");
+    expect(agentReport?.status).toBe("error");
+  }, 5_000);
 
   // ── Slice 5: multiple agent phases — all cancelled on gate failure ────────
 

@@ -207,8 +207,11 @@ export async function runPhases(
         return skippedReport(phase);
       }
 
-      // T15: if the abort signal already fired before this phase starts (e.g. another
-      // cancel-class gate already failed), cancel it immediately without running.
+      // T15/T16: if the combined abort signal already fired before this phase starts,
+      // cancel it immediately without running. Reachable when the external signal
+      // (ctx.signal) is already aborted on entry (T16: a pre-aborted scheduler signal) —
+      // an internal gate abort cannot beat this check, since every map callback evaluates
+      // it synchronously before any phase's promise can resolve to fire gateController.
       if (combinedSignal.aborted) {
         return cancelledReport(phase, String(combinedSignal.reason));
       }

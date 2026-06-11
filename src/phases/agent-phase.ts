@@ -298,7 +298,9 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
             reason,
             findings: [],
             audit: {},
-            cost: { durationMs },
+            // Preserve model/token accounting the CancelledError carries (same as
+            // agentErrorToReport) — a real runner cancelled mid-run still spent tokens.
+            cost: { durationMs, ...costFromError(runResult.error) },
           };
         }
         return agentErrorToReport(cfg.id, runResult.error, durationMs);
