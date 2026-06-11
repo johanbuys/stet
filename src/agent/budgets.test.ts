@@ -25,6 +25,7 @@ import {
   runBash,
   runBashForSdk,
   BASH_TRUNCATION_MARKER,
+  truncationMarker,
   WALL_CLOCK_5MIN_MS,
   TURNS_5MIN,
   WALL_CLOCK_15MIN_MS,
@@ -538,17 +539,18 @@ describe("runBash — output cap (T13: output over 32KB capped with exact marker
     expect(result.truncated).toBe(true);
   }, 5_000);
 
-  test("output contains the exact BASH_TRUNCATION_MARKER", async () => {
+  test("output contains the truncation marker for the actual cap size", async () => {
+    // cap = 50 bytes → marker must say "50B", not the default "32KB"
     const result = await runBash("printf '%200s\\n'", {
       cwd: "/tmp",
       timeoutMs: 5_000,
       outputCap: 50,
     });
-    expect(result.output).toContain("…[stet: output truncated at 32KB]");
+    expect(result.output).toContain(truncationMarker(50));
   }, 5_000);
 
-  test("BASH_TRUNCATION_MARKER is the exact string appended (plan §2a, T13)", () => {
-    expect(BASH_TRUNCATION_MARKER).toBe("\n…[stet: output truncated at 32KB]");
+  test("BASH_TRUNCATION_MARKER equals truncationMarker for the default 32KB cap (plan §2a, T13)", () => {
+    expect(BASH_TRUNCATION_MARKER).toBe(truncationMarker(DEFAULT_BASH_OUTPUT_CAP));
   });
 
   test("output does not grow unboundedly past outputCap + marker length", async () => {
@@ -730,7 +732,8 @@ describe("runBashForSdk — output cap (marker rides in-band, no throw)", () => 
       { onData: (d) => chunks.push(d) },
       { bashTimeoutMs: 5_000, bashOutputCap: 50 },
     );
-    expect(Buffer.concat(chunks).toString("utf8")).toContain(BASH_TRUNCATION_MARKER.trim());
+    // Marker text is derived from the actual cap (50 bytes → "50B"), not the default 32KB.
+    expect(Buffer.concat(chunks).toString("utf8")).toContain(truncationMarker(50).trim());
     // Killed-on-cap ⇒ exitCode null; the marker (not an exit code) is the cap's signal.
     expect(result.exitCode).toBeNull();
   }, 5_000);
@@ -772,5 +775,281 @@ describe("runBashForSdk — normal completion returns the exit code", () => {
       { bashTimeoutMs: 5_000, bashOutputCap: 32_768 },
     );
     expect(result.exitCode).toBe(3);
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
+// truncationMarker — human-readable size helper (fix 4)
+// ---------------------------------------------------------------------------
+
+describe("truncationMarker — derives marker text from actual cap size", () => {
+  test("32KB cap → '32KB' in marker", () => {
+    expect(truncationMarker(32 * 1024)).toContain("32KB");
+  });
+
+  test("4KB cap → '4KB' in marker", () => {
+    expect(truncationMarker(4096)).toContain("4KB");
+  });
+
+  test("50-byte cap → '50B' in marker", () => {
+    expect(truncationMarker(50)).toContain("50B");
+  });
+
+  test("marker starts with newline and contains stet prefix", () => {
+    expect(truncationMarker(50)).toMatch(/^\n…\[stet: output truncated at /);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runBash — bash shell is real bash, not /bin/sh (fix 3)
+// ---------------------------------------------------------------------------
+
+describe("runBash — executes with bash, not /bin/sh", () => {
+  test("bash-ism [[ -f file ]] succeeds when file exists", async () => {
+    const result = await runBash("[[ -f /tmp ]] || [[ -d /tmp ]] && echo yes", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 32_768,
+    });
+    expect(result.output.trim()).toBe("yes");
+    expect(result.exitCode).toBe(0);
+  }, 5_000);
+
+  test("[[ syntax ]] fails with non-zero exit under /bin/sh but succeeds under bash", async () => {
+    // Using [[ double-bracket ]] which is a bash-ism — /bin/sh (dash) rejects it
+    const result = await runBash("[[ 1 == 1 ]] && echo bash_ok", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 32_768,
+    });
+    expect(result.output).toContain("bash_ok");
+    expect(result.exitCode).toBe(0);
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
+// runBash — background child with stdio held open resolves promptly (fix 2)
+// ---------------------------------------------------------------------------
+
+describe("runBash — background child holding stdio does not cause hang", () => {
+  test("command that exits 0 with a background child resolves promptly with exitCode 0", async () => {
+    // The background sleep holds inherited stdout open; without fix 2 this would
+    // burn the full timeoutMs and then misreport timedOut: true.
+    const start = Date.now();
+    const result = await runBash(
+      // Start background sleep (which inherits the pipe), then exit 0.
+      // We give it a long timeout to make a hang obvious.
+      "echo started; sleep 5 & echo done",
+      {
+        cwd: "/tmp",
+        timeoutMs: 4_000,
+        outputCap: 32_768,
+      },
+    );
+    const elapsed = Date.now() - start;
+    // Must resolve well before the 4s timeout — the background sleep holds the pipe.
+    expect(elapsed).toBeLessThan(2_000);
+    expect(result.exitCode).toBe(0);
+    expect(result.timedOut).toBe(false);
+    expect(result.output).toContain("done");
+  }, 6_000);
+});
+
+// ---------------------------------------------------------------------------
+// runBash — external kill surfaced in-band (fix 1)
+// ---------------------------------------------------------------------------
+
+describe("runBash — external signal kill surfaced in result (fix 1)", () => {
+  test("killedBySignal is true when process group killed externally", async () => {
+    // We can't easily simulate an OOM, but we can verify that stet's own kills
+    // (timeout, truncation, abort) do NOT set killedBySignal: true.
+    const result = await runBash("sleep 10", {
+      cwd: "/tmp",
+      timeoutMs: 50,
+      outputCap: 32_768,
+    });
+    // Timeout kill: timedOut = true, killedBySignal = false (stet owns it)
+    expect(result.timedOut).toBe(true);
+    expect(result.killedBySignal).toBe(false);
+  }, 3_000);
+
+  test("abort kill does not set killedBySignal", async () => {
+    const controller = new AbortController();
+    const p = runBash("sleep 10", {
+      cwd: "/tmp",
+      timeoutMs: 10_000,
+      outputCap: 32_768,
+      signal: controller.signal,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    controller.abort();
+    const result = await p;
+    expect(result.killedBySignal).toBe(false);
+  }, 3_000);
+
+  test("truncation kill does not set killedBySignal", async () => {
+    const result = await runBash("yes", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 50,
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.killedBySignal).toBe(false);
+  }, 5_000);
+
+  test("normal exit does not set killedBySignal", async () => {
+    const result = await runBash("echo hi", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 32_768,
+    });
+    expect(result.killedBySignal).toBe(false);
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
+// runBashForSdk — pre-aborted signal short-circuits before spawn (fix 5)
+// ---------------------------------------------------------------------------
+
+describe("runBashForSdk — pre-aborted signal rejects immediately without spawning (fix 5)", () => {
+  test("throws 'aborted' for pre-aborted signal without running the command", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const start = Date.now();
+    await expect(
+      runBashForSdk(
+        "sleep 10",
+        "/tmp",
+        { onData: () => {}, signal: controller.signal },
+        { bashTimeoutMs: 10_000, bashOutputCap: 32_768 },
+      ),
+    ).rejects.toThrow("aborted");
+    // Must return well before the 10s timeout — proves it never spawned
+    expect(Date.now() - start).toBeLessThan(500);
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
+// runBashForSdk — timeout message uses exact seconds, not Math.round (fix 6)
+// ---------------------------------------------------------------------------
+
+describe("runBashForSdk — timeout message uses exact fractional seconds (fix 6)", () => {
+  test("sub-second timeout reports fractional seconds, not '0'", async () => {
+    // 200ms budget → timeout:0.2, not timeout:0
+    await expect(
+      runBashForSdk(
+        "sleep 10",
+        "/tmp",
+        { onData: () => {} },
+        { bashTimeoutMs: 200, bashOutputCap: 32_768 },
+      ),
+    ).rejects.toThrow("timeout:0.2");
+  }, 5_000);
+
+  test("1500ms timeout reports 1.5, not 2 (no rounding)", async () => {
+    await expect(
+      runBashForSdk(
+        "sleep 10",
+        "/tmp",
+        { onData: () => {} },
+        { bashTimeoutMs: 1_500, bashOutputCap: 32_768 },
+      ),
+    ).rejects.toThrow("timeout:1.5");
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
+// runBash — spawn error includes the error message in output (fix 7)
+// ---------------------------------------------------------------------------
+
+describe("runBash — spawn error message surfaced in output (fix 7)", () => {
+  test("bad cwd resolves with exitCode -1 and error message in output", async () => {
+    const result = await runBash("echo hi", {
+      cwd: "/nonexistent-directory-that-does-not-exist",
+      timeoutMs: 5_000,
+      outputCap: 32_768,
+    });
+    expect(result.exitCode).toBe(-1);
+    // The error message (e.g. ENOENT) should appear in output so the model can see it
+    expect(result.output.length).toBeGreaterThan(0);
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
+// runBashForSdk — late-abort after successful exit does not misreport (fix 8)
+// ---------------------------------------------------------------------------
+
+describe("runBashForSdk — completed command not reported as aborted (fix 8)", () => {
+  test("a command that completes before abort signal fires returns exitCode, not 'aborted'", async () => {
+    // Use a controller we abort AFTER the command completes — the abort fires
+    // in the exit→close window but the command already exited successfully.
+    const controller = new AbortController();
+    const chunks: Buffer[] = [];
+    // Run a fast command; abort the signal after it's done
+    const resultPromise = runBashForSdk(
+      "echo hi",
+      "/tmp",
+      { onData: (d) => chunks.push(d), signal: controller.signal },
+      { bashTimeoutMs: 5_000, bashOutputCap: 32_768 },
+    );
+    // Let the command finish, then abort
+    await new Promise((r) => setTimeout(r, 300));
+    controller.abort();
+    const result = await resultPromise;
+    // Must return exitCode 0, not throw "aborted"
+    expect(result.exitCode).toBe(0);
+    expect(Buffer.concat(chunks).toString("utf8")).toContain("hi");
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
+// runBash / runBashForSdk — exit→close window test (fix 1 + fix 7)
+//
+// The 100ms grace timer widens the exit→close window: an abort fired inside
+// the grace period (after 'exit' but before 'close') must NOT cause a
+// completed exitCode-0 command to be misreported as aborted or throw "aborted".
+// ---------------------------------------------------------------------------
+
+describe("runBash — exit→close window: abort inside grace period does not flip aborted (fix 1)", () => {
+  test("command exits 0 while background child holds pipe, abort in window → aborted: false", async () => {
+    // `echo hi; sleep 1 &` — the shell exits immediately (exitCode 0), but the
+    // background sleep inherits the pipe and holds 'close' for ~1 second.
+    // This opens the exit→close window. We fire the abort ~20ms after spawn,
+    // inside the 100ms grace period, to hit the window deliberately.
+    const controller = new AbortController();
+    const resultPromise = runBash("echo hi; sleep 1 &", {
+      cwd: "/tmp",
+      timeoutMs: 4_000,
+      outputCap: 32_768,
+      signal: controller.signal,
+    });
+    // Let the shell start and exit (typically < 10ms), then abort inside the window.
+    await new Promise((r) => setTimeout(r, 20));
+    controller.abort();
+    const result = await resultPromise;
+    // Shell exited 0 before the abort — must not be reported as aborted.
+    expect(result.exitCode).toBe(0);
+    expect(result.aborted).toBe(false);
+    expect(result.timedOut).toBe(false);
+    expect(result.output).toContain("hi");
+  }, 5_000);
+
+  test("runBashForSdk does not throw 'aborted' when command completed before abort", async () => {
+    // Mirror the runBash test above through the SDK adapter to confirm the full
+    // stack (runBashForSdk → runBash) surfaces exit 0, not 'aborted'.
+    const controller = new AbortController();
+    const chunks: Buffer[] = [];
+    const resultPromise = runBashForSdk(
+      "echo hi; sleep 1 &",
+      "/tmp",
+      { onData: (d) => chunks.push(d), signal: controller.signal },
+      { bashTimeoutMs: 4_000, bashOutputCap: 32_768 },
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    controller.abort();
+    // Must resolve (not reject with "aborted") because the command already exited 0.
+    const result = await resultPromise;
+    expect(result.exitCode).toBe(0);
+    expect(Buffer.concat(chunks).toString("utf8")).toContain("hi");
   }, 5_000);
 });

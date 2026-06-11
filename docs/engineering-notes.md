@@ -110,7 +110,11 @@ so these matter most.
   the listener was attached — standard DOM semantics. `runWithWallClock` abandons the runner promise
   on timeout, so an orphaned runner issuing a bash call with the (now-aborted) wall-clock signal
   would otherwise burn the full `bashTimeoutMs` (60s) instead of dying instantly. Always check
-  `signal.aborted` and `kill()` eagerly before/instead of registering the listener. (T13, PR-review.)
+  `signal.aborted` and `kill()` eagerly before/instead of registering the listener. Note: the
+  per-tool `options.signal` that reaches `runBashForSdk` is the SDK's *session* signal, not the
+  wall-clock signal directly — it only aborts because `PiAgentRunner` wires
+  `inputs.signal → session.abort()` after session creation. Without that wiring (pre PR #41 review)
+  the eager check was unreachable in production. (T13, PR-review.)
 - **The SDK bash wrapper signals kills IN-BAND, not via `exitCode`.** `BashOperations.exec` returns
   `{ exitCode: number | null }`, and the wrapper (`core/tools/bash.js:296`) treats `exitCode === null`
   as **success** (`if (exitCode !== 0 && exitCode !== null) throw`). So returning `{ exitCode: null }`

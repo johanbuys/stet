@@ -36,7 +36,7 @@ import { Result } from "better-result";
 import { CancelledError, ModelError, NoSubmitError } from "../errors.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunInputs, AgentRunSuccess, AgentRunner } from "./runner.js";
-import { runBashForSdk } from "./budgets.js";
+import { runBashForSdk, formatCapSize } from "./budgets.js";
 import { SUBMIT_TOOL_NAME, SubmitTool } from "./submit-tool.js";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +58,29 @@ export function splitBashFromToolset(toolset: string[]): { tools: string[]; hasB
   return { tools: hasBash ? toolset.filter((t) => t !== "bash") : toolset, hasBash };
 }
 
+/**
+ * Build the bash tool description that matches stet's actual caps.
+ *
+ * The SDK's stock description claims "Output is truncated to last 2000 lines or 50KB…
+ * full output is saved to a temp file." — both claims are false when stet's output cap
+ * (bashOutputCap bytes) has already capped and marked the output before the SDK sees it.
+ * We replace the description with one that states what stet actually delivers.
+ *
+ * Exported so tests can assert it reflects the configured cap (not the SDK's 2000/50KB text).
+ */
+export function buildBashToolDescription(bashOutputCapBytes: number): string {
+  // Use formatCapSize (exported from budgets.ts) for consistency with the truncation marker
+  // that actually appears in the output. Math.round(bytes/1024) renders "0KB" for sub-512-byte
+  // caps and disagrees with the marker — formatCapSize handles sub-KB sizes correctly (fix 4).
+  const capStr = formatCapSize(bashOutputCapBytes);
+  return (
+    `Execute a bash command in the current working directory. Returns stdout and stderr. ` +
+    `Output is capped at ${capStr} by stet's safety limits; if the cap is hit the output ` +
+    `ends with an in-band truncation marker and the process is killed — there is no "full ` +
+    `output" temp file. A model-supplied timeout (seconds) is honored up to the budget ceiling.`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // PiAgentRunner
 // ---------------------------------------------------------------------------
@@ -75,8 +98,9 @@ export function splitBashFromToolset(toolset: string[]): { tools: string[]; hasB
 export class PiAgentRunner implements AgentRunner {
   async run(inputs: AgentRunInputs): Promise<Result<AgentRunSuccess, AgentError>> {
     // -----------------------------------------------------------------------
-    // 1. Cancellation check (best-effort; full wiring is M4).
+    // 1. Cancellation check (pre-construction guard).
     //    Check before constructing any SDK objects so cancelled runs are cheap.
+    //    Full mid-turn abort wiring (Finding #1) is registered after session creation.
     // -----------------------------------------------------------------------
     if (inputs.signal?.aborted) {
       return Result.err(
@@ -204,13 +228,27 @@ export class PiAgentRunner implements AgentRunner {
     };
     // Cast needed: createBashToolDefinition returns a more-specific ToolDefinition
     // generic than the base ToolDefinition<TSchema, unknown, any> that customTools expects.
+    //
+    // Finding #2 (stacked/contradictory truncation layers): override the SDK's stock description
+    // which falsely claims "full output is saved to a temp file" — when stet's cap fires, the
+    // "full output" temp file only contains capped data, making the pointer misleading. We spread
+    // the returned definition and replace `description` with one that states stet's actual behavior.
+    // `BashToolOptions` has no truncation-limit knobs (no maxLines/maxBytes), so description
+    // override is the only available alignment point.
     const bashToolDef: ToolDefinition | null = hasBash
-      ? (createBashToolDefinition(inputs.cwd, { operations: bashOps }) as ToolDefinition)
+      ? ({
+          ...createBashToolDefinition(inputs.cwd, { operations: bashOps }),
+          description: buildBashToolDescription(inputs.budgets.bashOutputCap),
+        } as ToolDefinition)
       : null;
 
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
     // Captured inside the try block, before dispose(), while the session is live.
     let cost: AgentRunSuccess["cost"] | undefined;
+    // Abort listener wired to session.abort() after the session is created (Finding #1).
+    // Stored here so the finally block can remove it — the signal outlives the run,
+    // and a leaked listener accumulates across runs.
+    let abortListener: (() => void) | undefined;
 
     try {
       // -----------------------------------------------------------------------
@@ -257,20 +295,63 @@ export class PiAgentRunner implements AgentRunner {
         }
       });
 
-      // Best-effort cancellation check before the prompt call.
-      // Full AbortSignal wiring (abort mid-turn) is M4; this guard prevents
-      // starting a turn that was already cancelled by the scheduler.
-      if (inputs.signal?.aborted) {
+      // -----------------------------------------------------------------------
+      // Finding #1: wire AbortSignal → session.abort() so the session actually
+      // stops when the wall-clock controller fires (not just the pre-prompt guards).
+      //
+      // session.abort() is async (returns Promise<void>): aborts the current
+      // operation and waits for the agent to become idle. We call it fire-and-forget
+      // from the listener — the goal is to interrupt the in-progress prompt(), not
+      // to await completion here. session.prompt() will resolve (or reject) on its
+      // own once the session becomes idle.
+      //
+      // { once: true } ensures the listener self-removes after the first fire.
+      // We also track it in abortListener for removal in finally, since the signal
+      // outlives the run and a listener that fires after dispose() would be a no-op
+      // but would accumulate across runs.
+      // -----------------------------------------------------------------------
+      if (inputs.signal) {
+        // Pre-aborted: skip the prompt entirely — same path as the line-263 guard.
+        if (inputs.signal.aborted) {
+          const durationMs = Date.now() - startMs;
+          return Result.err(
+            new CancelledError({
+              message: "Run was cancelled before prompting the model.",
+              cost: { model: inputs.model, durationMs },
+            }),
+          );
+        }
+        // Register the live abort listener.
+        abortListener = () => {
+          session?.abort().catch(() => {
+            /* abort() rejection must not surface — session may already be disposed */
+          });
+        };
+        inputs.signal.addEventListener("abort", abortListener, { once: true });
+      }
+
+      await session.prompt(inputs.userPrompt);
+
+      // -----------------------------------------------------------------------
+      // 5b. Post-prompt abort check (fix 5: abort-then-prompt-resolves).
+      //
+      // Verified SDK behavior: session.abort() makes prompt() RESOLVE cleanly
+      // (stopReason "aborted"; pi-agent-core runWithLifecycle never rethrows).
+      // A mid-turn wall-clock abort therefore falls through to the stats read below
+      // and returns Err(NoSubmitError) instead of Err(CancelledError).
+      //
+      // A valid submission still wins (checked first in step 7 below), so we only
+      // apply this path when there is no submission yet.
+      // -----------------------------------------------------------------------
+      if (inputs.signal?.aborted && !handler.hasSubmission) {
         const durationMs = Date.now() - startMs;
         return Result.err(
           new CancelledError({
-            message: "Run was cancelled before prompting the model.",
+            message: "Run was cancelled by the wall-clock budget.",
             cost: { model: inputs.model, durationMs },
           }),
         );
       }
-
-      await session.prompt(inputs.userPrompt);
 
       // -----------------------------------------------------------------------
       // 6. Read cost from getSessionStats() — the ground-truth accessor.
@@ -289,9 +370,10 @@ export class PiAgentRunner implements AgentRunner {
       };
     } catch (err: unknown) {
       const durationMs = Date.now() - startMs;
-      // If the model already made a valid submission before the provider error
-      // (e.g. a rate-limit thrown after submit_findings was called), honour "first
-      // valid submission wins" and return the captured result rather than discarding it.
+      // If the model already made a valid submission before the error
+      // (e.g. a rate-limit thrown after submit_findings was called, or the wall-clock
+      // abort fires mid-turn but a submission was already captured), honour "first valid
+      // submission wins" and return the captured result rather than discarding it.
       // Cost is best-effort: durationMs + model are reliable; token stats may be
       // unreadable after the throw, so we omit them on this path.
       if (handler.hasSubmission) {
@@ -300,7 +382,20 @@ export class PiAgentRunner implements AgentRunner {
           cost: { model: inputs.model, durationMs },
         });
       }
-      // No prior valid submission — surface the provider error.
+      // Finding #1: if the signal is aborted and there is no valid submission, this is a
+      // wall-clock cancellation — not a provider error. Return Err(CancelledError) so the
+      // phase wrapper records it as a cancellation rather than misreporting it as a model
+      // failure. The catch here fires because session.abort() interrupts prompt() and the
+      // SDK surfaces the abort as an Error.
+      if (inputs.signal?.aborted) {
+        return Result.err(
+          new CancelledError({
+            message: "Run was cancelled by the wall-clock budget.",
+            cost: { model: inputs.model, durationMs },
+          }),
+        );
+      }
+      // No prior valid submission, no abort signal — surface the provider error.
       const message = err instanceof Error ? err.message : String(err);
       return Result.err(
         new ModelError({
@@ -309,6 +404,10 @@ export class PiAgentRunner implements AgentRunner {
         }),
       );
     } finally {
+      // Remove the abort listener (signal outlives the run; leaked listeners accumulate).
+      if (inputs.signal && abortListener) {
+        inputs.signal.removeEventListener("abort", abortListener);
+      }
       // Wrap dispose() so a throw there never supersedes the computed Result (P7).
       // AgentSession.dispose() calls cleanupSessionResources() outside its own try/catch
       // and can throw AggregateError — a throw in finally would replace the return above.

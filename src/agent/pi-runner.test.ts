@@ -18,7 +18,7 @@
 
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vite-plus/test";
-import { PiAgentRunner, splitBashFromToolset } from "./pi-runner.js";
+import { PiAgentRunner, buildBashToolDescription, splitBashFromToolset } from "./pi-runner.js";
 import type { AgentRunInputs } from "./runner.js";
 
 // ---------------------------------------------------------------------------
@@ -109,5 +109,50 @@ describe("splitBashFromToolset", () => {
     const { tools, hasBash } = splitBashFromToolset(["bash", "read", "bash"]);
     expect(hasBash).toBe(true);
     expect(tools).toEqual(["read"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildBashToolDescription — Finding #2: stacked/contradictory truncation layers
+//
+// The SDK's createBashToolDefinition() hardcodes a description claiming:
+//   "Output is truncated to last 2000 lines or 50KB… full output is saved to a temp file."
+// When stet's bashOutputCap fires first (32KB < 50KB), the "full output" temp file, if any,
+// contains only stet's capped data with a truncation marker — it is NOT a full output.
+// The description must state stet's actual behavior (cap in bytes, in-band marker, no full
+// output file) so the model is not misled about what data is available.
+//
+// buildBashToolDescription() is exported specifically for this hermetic assertion.
+// The invariant: the description must NOT contain the SDK's "2000 lines or 50KB" claim,
+// and MUST state the configured cap and the absence of a "full output" file when truncated.
+// ---------------------------------------------------------------------------
+
+describe("buildBashToolDescription", () => {
+  it("states the configured cap in KiB and not the SDK's 2000-line/50KB claim", () => {
+    const desc = buildBashToolDescription(32 * 1024);
+    // Must NOT contain the SDK's stock claims about 2000 lines or 50KB.
+    expect(desc).not.toMatch(/2000\s+lines/i);
+    expect(desc).not.toMatch(/50\s*kb/i);
+    // Must mention the actual cap (32KB).
+    expect(desc).toMatch(/32\s*kb/i);
+  });
+
+  it("does not promise a 'full output' temp file when the cap is hit", () => {
+    const desc = buildBashToolDescription(32 * 1024);
+    // The SDK's misleading promise is: "full output is saved to a temp file".
+    // Our description may *mention* a temp file in a negating context ("there is no … temp file"),
+    // but must NOT promise that one exists (i.e. "saved to a temp file").
+    expect(desc).not.toMatch(/saved to a temp file/i);
+  });
+
+  it("mentions the in-band truncation marker instead", () => {
+    const desc = buildBashToolDescription(32 * 1024);
+    expect(desc).toMatch(/truncation marker|truncated/i);
+  });
+
+  it("reflects a different cap when configured differently", () => {
+    const desc = buildBashToolDescription(64 * 1024);
+    expect(desc).toMatch(/64\s*kb/i);
+    expect(desc).not.toMatch(/32\s*kb/i);
   });
 });
