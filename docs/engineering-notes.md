@@ -96,6 +96,40 @@ so these matter most.
   finding's `phase` with the running phase id — a model's submitted `phase` field is advisory and
   must not flow into the report/gating list. (PR-review #8.)
 
+## Bash limits (`runBash`, `src/agent/budgets.ts`)
+
+- **`shell: true` + killing the shell does NOT kill its children.** Spawning `runBash`'s command
+  via `spawn(cmd, [], { shell: true })` runs `sh -c <cmd>`; killing that shell PID leaves grandchild
+  processes (e.g. `yes`) alive, and they inherit the shell's stdout pipe and hold it open
+  *indefinitely* → the `close` event never fires → the test (and the real phase) hangs. Fix: spawn
+  with `detached: true` so the child becomes a process-group leader (pgid = child.pid), then kill the
+  whole group with `process.kill(-child.pid, "SIGKILL")`. This is what makes the output-cap path
+  (kill-on-cap for infinite producers) actually terminate. (T13.)
+- **An already-aborted `AbortSignal` never fires its `abort` event.** Registering
+  `signal.addEventListener("abort", kill)` does nothing if the signal was *already* aborted before
+  the listener was attached — standard DOM semantics. `runWithWallClock` abandons the runner promise
+  on timeout, so an orphaned runner issuing a bash call with the (now-aborted) wall-clock signal
+  would otherwise burn the full `bashTimeoutMs` (60s) instead of dying instantly. Always check
+  `signal.aborted` and `kill()` eagerly before/instead of registering the listener. Note: the
+  per-tool `options.signal` that reaches `runBashForSdk` is the SDK's *session* signal, not the
+  wall-clock signal directly — it only aborts because `PiAgentRunner` wires
+  `inputs.signal → session.abort()` after session creation. Without that wiring (pre PR #41 review)
+  the eager check was unreachable in production. (T13, PR-review.)
+- **The SDK bash wrapper signals kills IN-BAND, not via `exitCode`.** `BashOperations.exec` returns
+  `{ exitCode: number | null }`, and the wrapper (`core/tools/bash.js:296`) treats `exitCode === null`
+  as **success** (`if (exitCode !== 0 && exitCode !== null) throw`). So returning `{ exitCode: null }`
+  for a timed-out/killed command renders to the model as a clean "(no output)" success — a silent kill,
+  exactly what M3 forbids. The SDK's own local ops instead **throw**: `"aborted"` → "Command aborted",
+  and `` `timeout:${secs}` `` → "Command timed out after N seconds" (the wrapper string-matches these).
+  The output-cap path is the exception — its marker rides inside the streamed `output`, so `exitCode: null`
+  is fine there. `runBashForSdk` (the exec adapter) mirrors this: deliver output via `onData` FIRST
+  (the wrapper appends status text to it), then throw `timeout:N`/`aborted`; only the cap path returns
+  normally. (T13, PR-review #1.)
+- **The model-supplied `timeout` is in SECONDS and must be honored as a floor, not ignored.** The bash
+  tool schema advertises `timeout` (seconds) and the wrapper forwards it to `exec`. Use
+  `min(model timeout × 1000, bashTimeoutMs)` so the budget stays a hard ceiling but a shorter
+  model request is respected. (T13, PR-review #2.)
+
 ## Testing
 
 - **Mock at the seam you own (`FakeAgentRunner`), never at SDK internals** — the guards' failure

@@ -13,38 +13,13 @@
  */
 
 import { Value } from "@sinclair/typebox/value";
-import { Type } from "@sinclair/typebox";
 import { describe, expect, test } from "vite-plus/test";
 import { BudgetError, CancelledError, ModelError, NoSubmitError } from "../errors.js";
 import { PhaseReport } from "../schema/report.js";
 import { FakeAgentRunner } from "../agent/fake-runner.js";
 import { makeAgentPhase } from "./agent-phase.js";
+import { SUBMIT_SCHEMA, DEFAULT_BUDGETS, makeCtx } from "../test-support/agent-fixtures.js";
 import type { PhaseContext } from "./types.js";
-
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
-const SUBMIT_SCHEMA = Type.Object({
-  findings: Type.Array(Type.Unknown()),
-  audit: Type.Optional(Type.Unknown()),
-});
-
-const DEFAULT_BUDGETS = {
-  wallClockMs: 60_000,
-  turns: 30,
-  bashTimeoutMs: 10_000,
-  bashOutputCap: 4096,
-};
-
-function makeCtx(overrides: Partial<PhaseContext> = {}): PhaseContext {
-  return {
-    cwd: "/tmp/repo",
-    scope: { kind: "staged" as const, files: ["src/foo.ts"] },
-    config: {},
-    ...overrides,
-  };
-}
 
 /** Minimal valid Finding payload. */
 function makeFinding(id = "test.finding") {

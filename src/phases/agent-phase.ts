@@ -28,6 +28,7 @@ import type { AgentError } from "../errors.js";
 import { Audit, type PhaseReport, type PhaseCost } from "../schema/report.js";
 import { Finding } from "../schema/finding.js";
 import type { AgentRunner, AgentRunInputs } from "../agent/runner.js";
+import { runWithWallClock } from "../agent/budgets.js";
 import type { PhaseContext, PhaseConfiguration, ActivationContext } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -234,20 +235,25 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
       const start = Date.now();
 
       let runResult: Awaited<ReturnType<AgentRunner["run"]>>;
+      const wallClockController = new AbortController();
       try {
-        runResult = await runner.run({
-          rubric: cfg.rubric,
-          userPrompt: cfg.buildUserPrompt(ctx),
-          toolset: cfg.toolset,
-          submitSchema: cfg.submitSchema,
-          budgets: cfg.budgets,
-          model: cfg.model,
-          cwd: ctx.cwd,
-          // Forward the per-phase progress callback from the scheduler so tool invocations
-          // are visible to the caller (e.g. stderr liveness in the CLI). Deterministic
-          // phases receive onTool too but never call runner.run(), so it's harmless there.
-          onTool: ctx.onTool,
-        });
+        runResult = await runWithWallClock(
+          runner,
+          {
+            rubric: cfg.rubric,
+            userPrompt: cfg.buildUserPrompt(ctx),
+            toolset: cfg.toolset,
+            submitSchema: cfg.submitSchema,
+            budgets: cfg.budgets,
+            model: cfg.model,
+            cwd: ctx.cwd,
+            // Forward the per-phase progress callback from the scheduler so tool invocations
+            // are visible to the caller (e.g. stderr liveness in the CLI). Deterministic
+            // phases receive onTool too but never call runner.run(), so it's harmless there.
+            onTool: ctx.onTool,
+          },
+          wallClockController,
+        );
       } catch (err) {
         // runner.run() should never reject, but be defensive (same pattern as scheduler.ts)
         const message = err instanceof Error ? err.message : String(err);
