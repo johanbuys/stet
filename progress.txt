@@ -1,0 +1,18 @@
+## 2026-06-11 - T12: Phase-level budgets (wall-clock + turns)
+
+**What was done:** Implemented T12 — phase-level budget enforcement for wall-clock and turn-count limits.
+
+- **`src/agent/budgets.ts`** (new): exports `runWithWallClock(runner, inputs, controller)` — races the runner promise against a `wallClockMs` timeout. On timeout, calls `controller.abort()` and returns `Err(BudgetError{ limit: "wallClockMs" })`. On early completion, clears the timeout timer and returns the runner result unchanged.
+- **`src/agent/fake-runner.ts`** (extended): added `DelayScript { kind: "delay", delayMs }` to the `RunScript` union. The delay fake respects the abort signal — when the wall-clock controller aborts, the fake resolves immediately with `Err(CancelledError)` (clean teardown; the race already fired with `BudgetError` so CancelledError is discarded).
+- **`src/phases/agent-phase.ts`** (wired): replaced the direct `runner.run()` call with `runWithWallClock()`. A fresh `AbortController` is created per run invocation.
+- **`src/agent/budgets.test.ts`** (new): 20 tests covering wall-clock race (via `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync`) and turn-count (scripted `Err(BudgetError)` through `makeAgentPhase`). Both paths verified to produce `PhaseReport{ status: "error", reason: "budget exceeded", audit: {} }`.
+
+**Layering enforced (plan §2a/P10):** wrapper owns wall clock; runner owns turns + bash limits. Turn-count tests use `FakeAgentRunner` scripted to return `Err(BudgetError{ limit: "turns" })` — the fake doesn't re-implement enforcement, just exercises the wrapper's `matchError` path.
+
+**Learnings:**
+- `vp` isn't in PATH in this environment — use `node_modules/.bin/vp test` instead. After `bun install --cwd /workspace/repo` installs deps, the binary works.
+- `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync(ms)` is the clean approach for testing timer-based races in Vitest — no real sleeps needed. Call `vi.useRealTimers()` in `afterEach` to avoid test pollution.
+- The `DelayScript` fake needs to use `signal.addEventListener("abort", ...)` to resolve promptly when the wall-clock controller aborts. Without this, the fake's `setTimeout` is still pending after the race fires, causing timer leaks in tests (vitest would hang waiting for them).
+- `PhaseId` pattern `^[a-z][a-z0-9-]*$` rejects dots — don't use dotted finding ids as phase ids in tests. Finding ids like `"x.test"` are fine (they're `string`, not `PhaseId`).
+- vp check --fix reformatted `budgets.test.ts` and `fake-runner.ts` (trailing whitespace + line wrapping). Always run `vp check --fix` before committing.
+----

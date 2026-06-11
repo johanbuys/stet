@@ -19,6 +19,7 @@
  */
 
 import { Result } from "better-result";
+import { CancelledError, NoSubmitError } from "../errors.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunInputs, AgentRunSuccess, AgentRunner } from "./runner.js";
 import { SUBMIT_TOOL_NAME } from "./submit-tool.js";
@@ -49,8 +50,26 @@ export interface ErrScript {
   error: AgentError;
 }
 
+/**
+ * Script step: the fake hangs for delayMs before resolving naturally.
+ * Used to test the wrapper's wall-clock race (plan §2a/P10, M3/T12).
+ *
+ * The fake respects inputs.signal — when it fires (e.g. the wall-clock abort), the fake
+ * resolves immediately with Err(CancelledError) so there are no dangling timers in tests.
+ * The wall-clock race has already resolved with Err(BudgetError) at that point, so the
+ * CancelledError is discarded — it's only for clean teardown.
+ *
+ * If the delay expires without an abort, the fake resolves with Err(NoSubmitError):
+ * the simulated runner hung and never called submit_findings.
+ */
+export interface DelayScript {
+  kind: "delay";
+  /** How many milliseconds to wait before resolving naturally (without abort). */
+  delayMs: number;
+}
+
 /** The script passed to FakeAgentRunner at construction time. */
-export type RunScript = OkScript | ErrScript;
+export type RunScript = OkScript | ErrScript | DelayScript;
 // --- Seam for T8 ---
 // T8 extends RunScript toward:
 //   { kind: "submit-sequence", steps: Array<OkScript | ErrScript | InvalidSubmitStep> }
@@ -78,7 +97,7 @@ export class FakeAgentRunner implements AgentRunner {
   }
 
   async run(inputs: AgentRunInputs): Promise<Result<AgentRunSuccess, AgentError>> {
-    const { onTool } = inputs;
+    const { onTool, signal } = inputs;
 
     if (this.script.kind === "ok") {
       // Simulate tool invocation progress for the happy path
@@ -89,7 +108,46 @@ export class FakeAgentRunner implements AgentRunner {
       });
     }
 
-    // kind === "err"
-    return Result.err(this.script.error);
+    if (this.script.kind === "err") {
+      return Result.err(this.script.error);
+    }
+
+    // kind === "delay": hang for delayMs, or abort early if signal fires.
+    const { delayMs } = this.script;
+    return new Promise<Result<AgentRunSuccess, AgentError>>((resolve) => {
+      let timerId: ReturnType<typeof setTimeout>;
+
+      const onAbort = () => {
+        clearTimeout(timerId);
+        resolve(
+          Result.err(
+            new CancelledError({
+              message: "aborted by wall-clock budget",
+              cost: { durationMs: 0 },
+            }),
+          ),
+        );
+      };
+
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+
+      signal?.addEventListener("abort", onAbort, { once: true });
+
+      timerId = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        // Delay expired without abort — the simulated runner hung and never submitted.
+        resolve(
+          Result.err(
+            new NoSubmitError({
+              message: "hung and never submitted",
+              cost: { durationMs: delayMs },
+            }),
+          ),
+        );
+      }, delayMs);
+    });
   }
 }
