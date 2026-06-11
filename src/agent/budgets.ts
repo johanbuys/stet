@@ -121,7 +121,14 @@ export function runBash(command: string, options: RunBashOptions): Promise<RunBa
       kill();
     }, options.timeoutMs);
 
-    options.signal?.addEventListener("abort", kill, { once: true });
+    // An already-aborted signal never fires its "abort" event (standard AbortSignal
+    // semantics), so kill eagerly — otherwise an abandoned runner would burn the full
+    // timeoutMs instead of dying instantly.
+    if (options.signal?.aborted) {
+      kill();
+    } else {
+      options.signal?.addEventListener("abort", kill, { once: true });
+    }
 
     const handleChunk = (chunk: Buffer) => {
       if (truncated) return;

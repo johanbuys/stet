@@ -568,6 +568,42 @@ describe("runBash — output cap (T13: output over 32KB capped with exact marker
   }, 5_000);
 });
 
+describe("runBash — external abort signal (used by wall-clock controller)", () => {
+  test("abort fired mid-run kills the process and returns output-so-far", async () => {
+    const controller = new AbortController();
+    const resultPromise = runBash("echo started && sleep 10", {
+      cwd: "/tmp",
+      timeoutMs: 10_000,
+      outputCap: 32_768,
+      signal: controller.signal,
+    });
+    // Give the process time to emit its first line, then abort.
+    await new Promise((r) => setTimeout(r, 200));
+    controller.abort();
+    const result = await resultPromise;
+    expect(result.exitCode).toBeNull();
+    expect(result.output).toContain("started");
+    // Killed by the external signal, not the (far longer) timeout.
+    expect(result.timedOut).toBe(false);
+  }, 3_000);
+
+  test("a pre-aborted signal returns promptly rather than running to timeoutMs", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const start = Date.now();
+    const result = await runBash("sleep 10", {
+      cwd: "/tmp",
+      timeoutMs: 10_000,
+      outputCap: 32_768,
+      signal: controller.signal,
+    });
+    const elapsed = Date.now() - start;
+    expect(result.exitCode).toBeNull();
+    // Must die well before timeoutMs (10s) — proves the eager-kill path works.
+    expect(elapsed).toBeLessThan(2_000);
+  }, 3_000);
+});
+
 describe("runBash — normal completion (no limits hit)", () => {
   test("returns the command output when within limits", async () => {
     const result = await runBash("echo hello", {

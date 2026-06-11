@@ -96,6 +96,22 @@ so these matter most.
   finding's `phase` with the running phase id — a model's submitted `phase` field is advisory and
   must not flow into the report/gating list. (PR-review #8.)
 
+## Bash limits (`runBash`, `src/agent/budgets.ts`)
+
+- **`shell: true` + killing the shell does NOT kill its children.** Spawning `runBash`'s command
+  via `spawn(cmd, [], { shell: true })` runs `sh -c <cmd>`; killing that shell PID leaves grandchild
+  processes (e.g. `yes`) alive, and they inherit the shell's stdout pipe and hold it open
+  *indefinitely* → the `close` event never fires → the test (and the real phase) hangs. Fix: spawn
+  with `detached: true` so the child becomes a process-group leader (pgid = child.pid), then kill the
+  whole group with `process.kill(-child.pid, "SIGKILL")`. This is what makes the output-cap path
+  (kill-on-cap for infinite producers) actually terminate. (T13.)
+- **An already-aborted `AbortSignal` never fires its `abort` event.** Registering
+  `signal.addEventListener("abort", kill)` does nothing if the signal was *already* aborted before
+  the listener was attached — standard DOM semantics. `runWithWallClock` abandons the runner promise
+  on timeout, so an orphaned runner issuing a bash call with the (now-aborted) wall-clock signal
+  would otherwise burn the full `bashTimeoutMs` (60s) instead of dying instantly. Always check
+  `signal.aborted` and `kill()` eagerly before/instead of registering the listener. (T13, PR-review.)
+
 ## Testing
 
 - **Mock at the seam you own (`FakeAgentRunner`), never at SDK internals** — the guards' failure
