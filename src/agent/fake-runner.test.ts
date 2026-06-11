@@ -10,25 +10,7 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import { BudgetError, CancelledError, ModelError, NoSubmitError } from "../errors.js";
 import { FakeAgentRunner } from "./fake-runner.js";
-import type { AgentRunInputs } from "./runner.js";
-
-// ---------------------------------------------------------------------------
-// Minimal AgentRunInputs fixture (only fields FakeAgentRunner reads)
-// ---------------------------------------------------------------------------
-
-import { Type } from "@sinclair/typebox";
-
-function makeInputs(overrides: Partial<AgentRunInputs> = {}): AgentRunInputs {
-  return {
-    rubric: "test rubric",
-    userPrompt: "test prompt",
-    toolset: ["bash", "submit_findings"],
-    submitSchema: Type.Object({ findings: Type.Array(Type.Unknown()) }),
-    budgets: { wallClockMs: 60_000, turns: 30, bashTimeoutMs: 10_000, bashOutputCap: 4096 },
-    cwd: "/tmp",
-    ...overrides,
-  };
-}
+import { makeInputs } from "../test-support/agent-fixtures.js";
 
 // ---------------------------------------------------------------------------
 // Happy path (Ok script)

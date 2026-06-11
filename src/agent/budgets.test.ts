@@ -14,7 +14,6 @@
  * PRD refs: §3.5 (budgets), acceptance #7. Plan: M3, §2a/P10.
  */
 
-import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { describe, expect, test, vi, afterEach } from "vite-plus/test";
 import { BudgetError } from "../errors.js";
@@ -34,38 +33,16 @@ import {
   DEFAULT_BASH_OUTPUT_CAP,
 } from "./budgets.js";
 import { makeAgentPhase } from "../phases/agent-phase.js";
-import type { AgentRunInputs } from "./runner.js";
-import type { PhaseContext } from "../phases/types.js";
+import { SUBMIT_SCHEMA, makeInputs, makeCtx } from "../test-support/agent-fixtures.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
+//
+// DEFAULT_BUDGETS here uses wallClockMs: 100 (not the shared 60_000) because
+// the makeAgentPhase tests below use fake timers that advance only 200ms — a
+// 60s wall-clock would never fire. bashOutputCap: 32_768 matches the bash-level
+// limit tests in this file. Keep this local; don't merge into the shared module.
 // ---------------------------------------------------------------------------
-
-const SUBMIT_SCHEMA = Type.Object({
-  findings: Type.Array(Type.Unknown()),
-  audit: Type.Optional(Type.Unknown()),
-});
-
-function makeInputs(overrides: Partial<AgentRunInputs> = {}): AgentRunInputs {
-  return {
-    rubric: "test rubric",
-    userPrompt: "test prompt",
-    toolset: ["bash", "submit_findings"],
-    submitSchema: SUBMIT_SCHEMA,
-    budgets: { wallClockMs: 100, turns: 30, bashTimeoutMs: 10_000, bashOutputCap: 32_768 },
-    cwd: "/tmp",
-    ...overrides,
-  };
-}
-
-function makeCtx(overrides: Partial<PhaseContext> = {}): PhaseContext {
-  return {
-    cwd: "/tmp/repo",
-    scope: { kind: "staged" as const, files: ["src/foo.ts"] },
-    config: {},
-    ...overrides,
-  };
-}
 
 const DEFAULT_BUDGETS = {
   wallClockMs: 100,

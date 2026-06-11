@@ -16,23 +16,24 @@
  * PRD refs: §3.1 (no-throw contract), plan §2a T10.
  */
 
-import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vite-plus/test";
 import { PiAgentRunner, buildBashToolDescription, splitBashFromToolset } from "./pi-runner.js";
 import type { AgentRunInputs } from "./runner.js";
+import { SUBMIT_SCHEMA } from "../test-support/agent-fixtures.js";
 
 // ---------------------------------------------------------------------------
 // Minimal inputs fixture — reused across tests.
 // The schema and toolset never reach the SDK in the malformed-model path.
+// Budgets here are intentionally tight (wallClockMs: 5_000, turns: 1) since
+// the malformed-model path never initiates an agent run — these values differ
+// from the shared DEFAULT_BUDGETS which targets agent-phase / fake-runner tests.
 // ---------------------------------------------------------------------------
-
-const dummySchema = Type.Object({ findings: Type.Array(Type.Unknown()) });
 
 const minimalInputs: AgentRunInputs = {
   rubric: "You are a test agent.",
   userPrompt: "Do nothing.",
   toolset: ["read", "submit_findings"],
-  submitSchema: dummySchema,
+  submitSchema: SUBMIT_SCHEMA,
   budgets: {
     wallClockMs: 5_000,
     turns: 1,
