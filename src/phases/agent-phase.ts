@@ -234,20 +234,28 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
     async run(ctx: PhaseContext): Promise<PhaseReport> {
       const start = Date.now();
 
+      // Early-return for a pre-aborted ctx.signal: skip prompt-building and the runner
+      // entirely — the report shape is identical to the mid-run cancel path below.
+      if (ctx.signal?.aborted) {
+        const reason =
+          typeof ctx.signal.reason === "string" ? ctx.signal.reason : "cancelled by scheduler";
+        return {
+          phase: cfg.id,
+          status: "cancelled",
+          reason,
+          findings: [],
+          audit: {},
+          cost: { durationMs: 0 },
+        };
+      }
+
       let runResult: Awaited<ReturnType<AgentRunner["run"]>>;
       const wallClockController = new AbortController();
 
-      // Wire the scheduler's cancellation signal into the wall-clock controller
-      // so either a budget expiry or a scheduler cancel (T15/T16) can abort the runner.
-      // Uses the same eager-abort pattern as runBash to handle pre-aborted signals
-      // (an already-fired signal never fires its "abort" event again — DOM semantics).
-      const onSchedulerAbort = () => wallClockController.abort();
-      if (ctx.signal?.aborted) {
-        wallClockController.abort();
-      } else {
-        ctx.signal?.addEventListener("abort", onSchedulerAbort, { once: true });
-      }
-
+      // Pass ctx.signal as the external signal into runWithWallClock.
+      // runWithWallClock merges it with the internal timer signal via AbortSignal.any,
+      // which natively handles pre-aborted inputs and propagates the external reason
+      // (e.g. "gates failed: stub-det" from T15) without any hand-rolled forwarding.
       try {
         runResult = await runWithWallClock(
           runner,
@@ -265,6 +273,7 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
             onTool: ctx.onTool,
           },
           wallClockController,
+          ctx.signal,
         );
       } catch (err) {
         // runner.run() should never reject, but be defensive (same pattern as scheduler.ts)
@@ -277,8 +286,6 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
           audit: {},
           cost: { durationMs: Date.now() - start },
         };
-      } finally {
-        ctx.signal?.removeEventListener("abort", onSchedulerAbort);
       }
 
       const durationMs = Date.now() - start;

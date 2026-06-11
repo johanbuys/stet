@@ -12,6 +12,10 @@
  *   for a report (PRD §3.4.4 "a second Ctrl-C force-kills").
  * - SIGTERM has no second-signal kill (no OS convention for a "second SIGTERM").
  *
+ * Escalation rule: force-kill only on a SECOND SIGINT. A first SIGINT after a SIGTERM
+ * does NOT escalate — it is idempotent (the signal was already recorded, teardown already
+ * started). Only repeat SIGINT (SIGINT → SIGINT) triggers the force-kill path.
+ *
  * The partial report is written by main() AFTER runPhases() resolves (all phases return
  * cancelled reports). The signal handler only fires the controller; the report path is
  * unchanged — main() always writes what it has before returning.
@@ -36,21 +40,28 @@ export interface SignalHandlers {
  */
 export function installSignalHandlers(controller: AbortController): SignalHandlers {
   let received: ReceivedSignal | null = null;
-  let teardownStarted = false;
+  // Track SIGINT count separately — force-kill only on a SECOND SIGINT.
+  // A SIGTERM → SIGINT sequence must NOT escalate: the first SIGINT after a SIGTERM
+  // is still the first-ever SIGINT, so teardown keeps going and the partial report
+  // is written. Only SIGINT → SIGINT (repeat Ctrl-C) triggers process.exit(130).
+  let sigintCount = 0;
 
   const handleSIGINT = () => {
-    if (teardownStarted) {
-      // Second Ctrl-C: teardown was refused — force-kill (no report written).
+    sigintCount++;
+    if (sigintCount > 1) {
+      // Second (or later) Ctrl-C: teardown was refused — force-kill (no report written).
       process.exit(130);
     }
-    teardownStarted = true;
-    received = "SIGINT";
+    // First SIGINT: record and abort. If a prior signal (e.g. SIGTERM) already fired,
+    // first signal wins — do not overwrite received. The abort is a no-op if already aborted.
+    if (received === null) {
+      received = "SIGINT";
+    }
     controller.abort("SIGINT");
   };
 
   const handleSIGTERM = () => {
-    if (teardownStarted) return; // first signal wins
-    teardownStarted = true;
+    if (received !== null) return; // first signal wins (idempotent)
     received = "SIGTERM";
     controller.abort("SIGTERM");
   };
@@ -73,4 +84,44 @@ export function installSignalHandlers(controller: AbortController): SignalHandle
  */
 export function signalExitCode(signal: ReceivedSignal): 130 | 143 {
   return signal === "SIGINT" ? 130 : 143;
+}
+
+/** Result of runWithSignals — the value returned by the inner run function plus
+ * which signal interrupted the run (null if it completed normally). */
+export interface WithSignalsResult<T> {
+  result: T;
+  received: ReceivedSignal | null;
+}
+
+/**
+ * Shared signal choreography: install handlers, run an async task wired to the
+ * AbortSignal, clean up in a finally regardless of outcome.
+ *
+ * Owner of: signal installation, cleanup, and the received-signal record.
+ * NOT owner of: exit-code policy, Err-surfacing, teardownServices — those live in
+ * the CLI entry block (or fixture), which remains the impure decision layer.
+ *
+ * Usage:
+ *   const { result, received } = await runWithSignals(
+ *     (signal) => someAsyncWork(signal)
+ *   );
+ *   // decide exit code from result + received
+ *
+ * The inner function receives the AbortSignal so it can wire it to the scheduler
+ * or any cancellable operation. When a POSIX signal fires, the AbortSignal is
+ * aborted and the inner function is expected to resolve (with partial results)
+ * rather than reject — consistent with the harness "always write a partial report"
+ * contract (PRD §3.4.4).
+ */
+export async function runWithSignals<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<WithSignalsResult<T>> {
+  const controller = new AbortController();
+  const { cleanup, getReceived } = installSignalHandlers(controller);
+  try {
+    const result = await run(controller.signal);
+    return { result, received: getReceived() };
+  } finally {
+    cleanup();
+  }
 }

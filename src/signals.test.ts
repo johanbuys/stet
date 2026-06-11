@@ -5,18 +5,18 @@
  *   1. Unit tests: signalExitCode + installSignalHandlers behavior exercised by
  *      directly invoking the registered handlers (not via process.emit, which would
  *      also fire Vitest's own SIGINT handler and risk killing the test process).
- *   2. Integration tests: spawn fixtures/signal-test/run.ts via bun, send a real
+ *   2. Integration tests: spawn fixtures/signal-test/run.ts via node, send a real
  *      OS signal, assert exit code + partial report content.
  *
  * PRD refs: §3.4.4 (teardown + signal codes); acceptance #9.
  * Plan refs: M4 step 5.
  */
 
-import { describe, it, expect, vi } from "vite-plus/test";
+import { describe, it, expect, vi, afterEach } from "vite-plus/test";
 import { spawn } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installSignalHandlers, signalExitCode } from "./signals.js";
+import { installSignalHandlers, signalExitCode, runWithSignals } from "./signals.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -131,6 +131,41 @@ describe("installSignalHandlers", () => {
     }
   });
 
+  it("SIGINT after SIGTERM does NOT force-kill — first SIGINT after SIGTERM is still the first SIGINT", () => {
+    // Finding 3: teardownStarted was shared, so SIGTERM→SIGINT incorrectly escalated.
+    // Fixed: force-kill only on repeat SIGINT (sigintCount > 1), not on first SIGINT
+    // regardless of prior SIGTERM.
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+    const controller = new AbortController();
+    const { cleanup, getReceived } = installSignalHandlers(controller);
+    try {
+      callLastListener("SIGTERM"); // start teardown via SIGTERM
+      expect(getReceived()).toBe("SIGTERM");
+      callLastListener("SIGINT"); // first-ever SIGINT — must NOT force-kill
+      expect(exitSpy).not.toHaveBeenCalled();
+      // received stays SIGTERM (first signal wins)
+      expect(getReceived()).toBe("SIGTERM");
+    } finally {
+      cleanup();
+      exitSpy.mockRestore();
+    }
+  });
+
+  it("SIGINT → SIGINT force-kills even if SIGTERM arrived between them", () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+    const controller = new AbortController();
+    const { cleanup } = installSignalHandlers(controller);
+    try {
+      callLastListener("SIGINT"); // first SIGINT
+      callLastListener("SIGTERM"); // SIGTERM in between — idempotent
+      callLastListener("SIGINT"); // second SIGINT — must force-kill
+      expect(exitSpy).toHaveBeenCalledWith(130);
+    } finally {
+      cleanup();
+      exitSpy.mockRestore();
+    }
+  });
+
   it("controller.signal.reason reflects the SIGINT string", () => {
     const controller = new AbortController();
     const { cleanup } = installSignalHandlers(controller);
@@ -155,10 +190,65 @@ describe("installSignalHandlers", () => {
 });
 
 // ---------------------------------------------------------------------------
+// runWithSignals — unit tests
+// ---------------------------------------------------------------------------
+
+describe("runWithSignals", () => {
+  it("returns result and received=null when run completes normally", async () => {
+    const { result, received } = await runWithSignals(async (_signal) => 42);
+    expect(result).toBe(42);
+    expect(received).toBeNull();
+  });
+
+  it("passes an AbortSignal to the inner function", async () => {
+    let capturedSignal: AbortSignal | null = null;
+    await runWithSignals(async (signal) => {
+      capturedSignal = signal;
+    });
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("cleans up signal handlers in finally after normal completion", async () => {
+    const sigintBefore = process.listenerCount("SIGINT");
+    const sigtermBefore = process.listenerCount("SIGTERM");
+    await runWithSignals(async (_signal) => "done");
+    // After completion, listener counts must be back to baseline
+    expect(process.listenerCount("SIGINT")).toBe(sigintBefore);
+    expect(process.listenerCount("SIGTERM")).toBe(sigtermBefore);
+  });
+
+  it("cleans up signal handlers in finally even when inner function throws", async () => {
+    const sigintBefore = process.listenerCount("SIGINT");
+    const sigtermBefore = process.listenerCount("SIGTERM");
+    try {
+      await runWithSignals(async (_signal) => {
+        throw new Error("inner error");
+      });
+    } catch {
+      // expected
+    }
+    expect(process.listenerCount("SIGINT")).toBe(sigintBefore);
+    expect(process.listenerCount("SIGTERM")).toBe(sigtermBefore);
+  });
+
+  it("received reflects the signal that fired during the run", async () => {
+    let fireSignal!: () => void;
+    const { received } = await runWithSignals(async (_signal) => {
+      // Capture the handler so we can fire it from inside the run
+      const listeners = process.rawListeners("SIGINT");
+      const last = listeners[listeners.length - 1];
+      if (typeof last === "function") fireSignal = last as () => void;
+      fireSignal();
+    });
+    expect(received).toBe("SIGINT");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Integration tests — child-process harness
 //
-// Spawn fixtures/signal-test/run.ts via bun, send a real OS signal,
-// assert exit code + partial report with cancelled statuses.
+// Spawn fixtures/signal-test/run.ts via node --experimental-strip-types,
+// send a real OS signal, assert exit code + partial report with cancelled statuses.
 // ---------------------------------------------------------------------------
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -172,10 +262,30 @@ interface FixtureHandle {
   getStdout: () => string;
 }
 
+// Track live fixture processes so they can be killed in afterEach if a test fails
+// before it cleans up its own child.
+const liveFixtures: FixtureHandle[] = [];
+
+afterEach(() => {
+  // Kill any fixtures that survived (e.g. due to a failed assertion before kill).
+  for (const f of liveFixtures.splice(0)) {
+    try {
+      f.proc.kill("SIGKILL");
+    } catch {
+      // already exited — ignore
+    }
+  }
+});
+
 function spawnFixture(): FixtureHandle {
   let stdoutData = "";
 
-  const proc = spawn("bun", ["run", FIXTURE], { cwd: REPO_ROOT });
+  // jiti (available in node_modules/.bin) runs TypeScript files directly and handles
+  // the .js → .ts extension remapping that ESM imports require. bun is not available
+  // in this environment; node --experimental-strip-types does not remap .js to .ts.
+  const proc = spawn(resolve(REPO_ROOT, "node_modules/.bin/jiti"), [FIXTURE], {
+    cwd: REPO_ROOT,
+  });
 
   proc.stdout?.on("data", (chunk: Buffer) => {
     stdoutData += chunk.toString();
@@ -183,6 +293,9 @@ function spawnFixture(): FixtureHandle {
 
   const waitForReady = (): Promise<void> =>
     new Promise<void>((resolve, reject) => {
+      // Fail fast if the spawn itself fails (e.g. ENOENT for the node binary).
+      proc.on("error", (err) => reject(new Error(`fixture spawn error: ${err.message}`)));
+
       if (stdoutData.includes("READY")) {
         resolve();
         return;
@@ -202,7 +315,15 @@ function spawnFixture(): FixtureHandle {
       proc.on("close", (code) => resolve(code));
     });
 
-  return { proc, waitForReady, waitForClose, getStdout: () => stdoutData };
+  const handle: FixtureHandle = {
+    proc,
+    waitForReady,
+    waitForClose,
+    getStdout: () => stdoutData,
+  };
+
+  liveFixtures.push(handle);
+  return handle;
 }
 
 describe("T16: signal handling — child-process harness (PRD §3.4.4, acceptance #9)", () => {

@@ -16,9 +16,11 @@
 
 import { Value } from "@sinclair/typebox/value";
 import { describe, expect, test, vi, afterEach } from "vite-plus/test";
-import { BudgetError } from "../errors.js";
+import { Result } from "better-result";
+import { BudgetError, CancelledError } from "../errors.js";
 import { PhaseReport } from "../schema/report.js";
 import { FakeAgentRunner } from "./fake-runner.js";
+import type { AgentRunner } from "./runner.js";
 import {
   runWithWallClock,
   runBash,
@@ -189,6 +191,79 @@ describe("runWithWallClock — runner completes before timeout", () => {
     expect(result.isErr()).toBe(true);
     expect(result.isErr() && result.error._tag).toBe("BudgetError");
     expect(result.isErr() && (result.error as BudgetError).limit).toBe("turns");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runWithWallClock — external signal (externalSignal param, T16/T15 cleanup)
+// ---------------------------------------------------------------------------
+
+describe("runWithWallClock — externalSignal merges with internal timer signal", () => {
+  test("external signal fired before run returns Err(CancelledError) promptly", async () => {
+    // externalSignal already aborted → merged signal born aborted → runner aborts immediately.
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const controller = new AbortController();
+    const inputs = makeInputs({
+      budgets: { wallClockMs: 30_000, turns: 30, bashTimeoutMs: 10_000, bashOutputCap: 32_768 },
+    });
+    const extController = new AbortController();
+    extController.abort("gates failed: x");
+
+    const start = Date.now();
+    const result = await runWithWallClock(runner, inputs, controller, extController.signal);
+
+    // Must return well before the 30s wall clock — runner aborted from the merged signal.
+    expect(Date.now() - start).toBeLessThan(2_000);
+    // The runner's FakeAgentRunner returns CancelledError when its signal fires.
+    expect(result.isErr()).toBe(true);
+    expect(result.isErr() && result.error._tag).toBe("CancelledError");
+  }, 5_000);
+
+  test("external signal reason propagates to the runner via AbortSignal.any", async () => {
+    // The runner inspects inputs.signal.reason — AbortSignal.any carries the external reason.
+    // We verify this by inspecting the signal passed into the runner.
+    let capturedSignal: AbortSignal | undefined;
+    const inspectingRunner: AgentRunner = {
+      async run(inputs) {
+        capturedSignal = inputs.signal;
+        return Result.err(
+          new CancelledError({
+            message: "cancelled",
+            cost: { durationMs: 0 },
+          }),
+        );
+      },
+    };
+    const controller = new AbortController();
+    const inputs = makeInputs({
+      budgets: { wallClockMs: 30_000, turns: 30, bashTimeoutMs: 10_000, bashOutputCap: 32_768 },
+    });
+    const extController = new AbortController();
+    extController.abort("gates failed: stub-det");
+
+    await runWithWallClock(inspectingRunner, inputs, controller, extController.signal);
+
+    // The merged signal is pre-aborted (external was already aborted) and carries the reason.
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(capturedSignal?.reason).toBe("gates failed: stub-det");
+  }, 5_000);
+
+  test("wall-clock timeout still fires when external signal is not aborted", async () => {
+    vi.useFakeTimers();
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const controller = new AbortController();
+    const inputs = makeInputs({
+      budgets: { wallClockMs: 100, turns: 30, bashTimeoutMs: 10_000, bashOutputCap: 32_768 },
+    });
+    // External signal present but not fired — wall clock should still enforce the budget.
+    const extController = new AbortController();
+
+    const resultPromise = runWithWallClock(runner, inputs, controller, extController.signal);
+    await vi.advanceTimersByTimeAsync(200);
+    const result = await resultPromise;
+
+    expect(result.isErr() && result.error._tag).toBe("BudgetError");
+    expect(result.isErr() && (result.error as BudgetError).limit).toBe("wallClockMs");
   });
 });
 

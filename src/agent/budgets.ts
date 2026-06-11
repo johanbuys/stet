@@ -460,8 +460,13 @@ export async function runBashForSdk(
  *   - Clears the pending timeout timer (no leaks).
  *   - Returns the runner's result unchanged (Ok or any Err variant).
  *
- * The caller supplies the AbortController so the signal can be passed into inputs.signal.
- * A new AbortController must be created per call — never reuse across runs.
+ * The caller owns the AbortController for the internal timer (one per call — never reuse).
+ *
+ * @param externalSignal  Optional external AbortSignal (e.g. the scheduler's cancellation
+ *   signal). When provided, the runner receives AbortSignal.any([externalSignal, timerSignal])
+ *   so either a budget expiry OR an external cancel can abort it. AbortSignal.any natively
+ *   handles a pre-aborted externalSignal (merged signal born aborted) and propagates the
+ *   external reason, so no eager-abort / addEventListener hand-rolling is needed in the caller.
  *
  * Plan §2a/P10: wrapper's half of the budget-enforcement layering.
  */
@@ -469,6 +474,7 @@ export async function runWithWallClock(
   runner: AgentRunner,
   inputs: AgentRunInputs,
   controller: AbortController,
+  externalSignal?: AbortSignal,
 ): Promise<Result<AgentRunSuccess, AgentError>> {
   const { wallClockMs } = inputs.budgets;
 
@@ -488,9 +494,16 @@ export async function runWithWallClock(
     }, wallClockMs);
   });
 
-  // Pass the wall-clock abort signal so the runner can clean up when the timeout fires.
+  // Merge external signal with the internal timer signal when provided.
+  // AbortSignal.any propagates the reason of whichever fires first and handles
+  // pre-aborted inputs without any eager-check or addEventListener bookkeeping.
+  const runnerSignal = externalSignal
+    ? AbortSignal.any([externalSignal, controller.signal])
+    : controller.signal;
+
+  // Pass the merged (or timer-only) signal so the runner aborts on budget expiry or cancel.
   const runPromise = runner
-    .run({ ...inputs, signal: controller.signal })
+    .run({ ...inputs, signal: runnerSignal })
     .finally(() => clearTimeout(timerId));
 
   return Promise.race([runPromise, timeoutPromise]);

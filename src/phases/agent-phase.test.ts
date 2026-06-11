@@ -803,4 +803,53 @@ describe("makeAgentPhase — scheduler signal wiring (T14, M4 seam)", () => {
     expect(report.status).toBe("cancelled");
     expect(report.reason).toBe("gates failed: stub-det");
   }, 5_000);
+
+  test("mid-run signal reason is propagated via AbortSignal.any to the cancelled report", async () => {
+    // Signal fires after run() starts (not pre-aborted) — exercises the AbortSignal.any
+    // path in runWithWallClock, which propagates the external reason to the runner signal.
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => "prompt",
+    });
+
+    const controller = new AbortController();
+    // Fire with a curated reason after a short delay so run() is already underway.
+    setTimeout(() => controller.abort("gates failed: review"), 50);
+
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+
+    expect(report.status).toBe("cancelled");
+    expect(report.reason).toBe("gates failed: review");
+  }, 5_000);
+
+  test("pre-aborted ctx.signal skips prompt-building (early return before runner)", async () => {
+    // Confirms the efficiency micro-fix: buildUserPrompt must NOT be called when the
+    // signal is already aborted — the phase returns immediately without building the prompt.
+    let promptBuilt = false;
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => {
+        promptBuilt = true;
+        return "prompt";
+      },
+    });
+
+    const controller = new AbortController();
+    controller.abort("gates failed: stub-det");
+
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+
+    expect(report.status).toBe("cancelled");
+    expect(promptBuilt).toBe(false);
+  }, 5_000);
 });

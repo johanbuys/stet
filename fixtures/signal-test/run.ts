@@ -12,42 +12,39 @@
  * stdout protocol:
  *   Line 1 : "READY\n"   — test may now send the signal
  *   Line 2 : JSON string — { phases: PhaseReport[] }
+ *
+ * Signal choreography is owned by runWithSignals (src/signals.ts) — this fixture
+ * is a thin caller, not a reimplementation.
+ *
+ * IMPORTANT: "READY" is written INSIDE the runWithSignals callback, after signal
+ * handlers are installed but before runPhases is called. This ensures the handlers
+ * are active before the test sends a signal.
  */
 
-import { installSignalHandlers, signalExitCode } from "../../src/signals.js";
+import { runWithSignals, signalExitCode } from "../../src/signals.js";
 import { runPhases } from "../../src/scheduler.js";
-import { makeAgentPhase } from "../../src/phases/agent-phase.js";
-import { FakeAgentRunner } from "../../src/agent/fake-runner.js";
-import { SUBMIT_SCHEMA, DEFAULT_BUDGETS } from "../../src/test-support/agent-fixtures.js";
+import { makeDelayAgentPhase } from "../../src/test-support/agent-fixtures.js";
 import type { StetConfig } from "../../src/schema/config.js";
 
 function makeSlowPhase(id: string) {
-  return makeAgentPhase(new FakeAgentRunner({ kind: "delay", delayMs: 30_000 }), {
-    id,
-    rubric: "rubric",
-    toolset: ["bash"],
-    submitSchema: SUBMIT_SCHEMA,
-    budgets: { ...DEFAULT_BUDGETS, wallClockMs: 60_000 },
-    buildUserPrompt: () => "prompt",
-  });
+  return makeDelayAgentPhase(id, 30_000);
 }
 
-const controller = new AbortController();
-const { cleanup, getReceived } = installSignalHandlers(controller);
+const { result: reports, received } = await runWithSignals((signal) => {
+  // Notify the test that signal handlers are installed and we're ready for a signal.
+  // This is written AFTER installSignalHandlers runs (inside runWithSignals) so the
+  // handlers are guaranteed to be active when the test calls proc.kill().
+  process.stdout.write("READY\n");
 
-// Notify the test that the fixture is ready to receive signals.
-process.stdout.write("READY\n");
-
-const reports = await runPhases([makeSlowPhase("phase-a"), makeSlowPhase("phase-b")], {
-  cwd: process.cwd(),
-  scope: { kind: "staged", files: [] },
-  config: {} as StetConfig,
-  signal: controller.signal,
+  return runPhases([makeSlowPhase("phase-a"), makeSlowPhase("phase-b")], {
+    cwd: process.cwd(),
+    scope: { kind: "staged", files: [] },
+    config: {} as StetConfig,
+    signal,
+  });
 });
 
 // Write partial report as a single JSON line.
 process.stdout.write(JSON.stringify({ phases: reports }) + "\n");
 
-cleanup();
-const received = getReceived();
 process.exitCode = received !== null ? signalExitCode(received) : 0;

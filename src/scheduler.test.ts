@@ -13,7 +13,7 @@ import { makeAgentPhase } from "./phases/agent-phase.js";
 import { FakeAgentRunner } from "./agent/fake-runner.js";
 import { SUBMIT_TOOL_NAME } from "./agent/submit-tool.js";
 import { Type } from "@sinclair/typebox";
-import { SUBMIT_SCHEMA, DEFAULT_BUDGETS } from "./test-support/agent-fixtures.js";
+import { makeDelayAgentPhase } from "./test-support/agent-fixtures.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -426,14 +426,7 @@ describe("T14: parallel execution (PRD §3.4.2, acceptance #4)", () => {
 
 /** Make a slow agent phase that hangs until aborted (delayMs longer than any test). */
 function makeSlowAgentPhase(id: string): PhaseConfiguration {
-  return makeAgentPhase(new FakeAgentRunner({ kind: "delay", delayMs: 30_000 }), {
-    id,
-    rubric: "rubric",
-    toolset: ["bash"],
-    submitSchema: SUBMIT_SCHEMA,
-    budgets: { ...DEFAULT_BUDGETS, wallClockMs: 60_000 },
-    buildUserPrompt: () => "prompt",
-  });
+  return makeDelayAgentPhase(id, 30_000);
 }
 
 /**
@@ -451,14 +444,7 @@ function makeSlowAgentPhase(id: string): PhaseConfiguration {
  * ample time to land before the natural expiry.
  */
 function makeProbeAgentPhase(id: string): PhaseConfiguration {
-  return makeAgentPhase(new FakeAgentRunner({ kind: "delay", delayMs: 50 }), {
-    id,
-    rubric: "rubric",
-    toolset: ["bash"],
-    submitSchema: SUBMIT_SCHEMA,
-    budgets: { ...DEFAULT_BUDGETS, wallClockMs: 60_000 },
-    buildUserPrompt: () => "prompt",
-  });
+  return makeDelayAgentPhase(id, 50);
 }
 
 /** Make a gate phase that immediately completes with one error-severity finding. */
@@ -632,4 +618,31 @@ describe("T15: cancellation classes (PRD §3.4.3, acceptance #5)", () => {
     expect(agentReports.every((r) => r.status === "cancelled")).toBe(true);
     expect(agentReports.every((r) => r.reason?.includes("gates failed"))).toBe(true);
   }, 5_000);
+
+  // ── Slice 6: pre-aborted external signal (no reason arg) → 'cancelled by scheduler' ──
+  //
+  // SchedulerContext.signal is a public seam. A caller doing controller.abort() with no
+  // argument leaves signal.reason as a DOMException, not a string. The scheduler must
+  // guard `typeof signal.reason === 'string'` and fall back to the same literal used by
+  // agent-phase.ts:294 so both started and not-yet-started phases emit the same reason.
+
+  it("pre-aborted external signal with no reason arg yields reason 'cancelled by scheduler'", async () => {
+    const controller = new AbortController();
+    controller.abort(); // no reason argument — signal.reason is a DOMException
+
+    // Two phases: both should be cancelled before they run because the signal is
+    // already aborted on entry to runPhases.
+    const phase1 = makePhase("alpha");
+    const phase2 = makePhase("beta");
+
+    const reports = await runPhases([phase1, phase2], { ...baseCtx, signal: controller.signal });
+
+    expect(reports).toHaveLength(2);
+    for (const report of reports) {
+      expect(report.status).toBe("cancelled");
+      // Must be the curated fallback string, NOT a stringified DOMException like
+      // "AbortError: This operation was aborted".
+      expect(report.reason).toBe("cancelled by scheduler");
+    }
+  });
 });

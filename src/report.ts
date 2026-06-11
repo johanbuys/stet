@@ -38,6 +38,22 @@ export interface AssembleInput {
    * 76,122ms, total is 66,120ms). This field is the authoritative wall-clock measure.
    */
   durationMs: number;
+  /**
+   * True when the run was interrupted by a POSIX signal (SIGINT/SIGTERM) before all phases
+   * completed — detected by the presence of cancelled phases in the phase set.
+   *
+   * When set, the report's result.exitCode is overridden to 2 (interrupted/partial run).
+   * PRD §3.4.4 signal semantics: the process exits with the POSIX signal code (130/143),
+   * but the report's result.exitCode stays within the 0/1/2 schema domain. Using exitCode=2
+   * (rather than 0) ensures a consumer parsing the JSON report can distinguish a clean run
+   * (exitCode=0) from an interrupted one (exitCode=2 with cancelled phases), consistent with
+   * the process-level signal code indicating non-normal termination.
+   *
+   * Judgment call (finding 2): report.result.exitCode cannot be 130/143 (schema only allows
+   * 0/1/2), so "agree" means both consistently signal interruption — process via 130/143,
+   * report via exitCode=2 + cancelled phase statuses.
+   */
+  interrupted?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,10 +96,12 @@ function sumTokens(phases: PhaseReport[]): { totalInputTokens: number; totalOutp
  *
  * spec: M8 (--prd/--task) — for M1 we always set provided:false with empty sources.
  */
-export function assembleReport(input: AssembleInput): { report: RunReport; exitCode: 0 | 1 } {
-  const { stetVersion, startedAt, scope, phases, failOn, durationMs } = input;
+export function assembleReport(input: AssembleInput): { report: RunReport; exitCode: 0 | 1 | 2 } {
+  const { stetVersion, startedAt, scope, phases, failOn, durationMs, interrupted } = input;
 
-  const { exitCode, gating } = deriveExit(phases, failOn);
+  const { exitCode: derivedExitCode, gating } = deriveExit(phases, failOn);
+  // Interrupted runs override the exit code to 2 — see AssembleInput.interrupted JSDoc.
+  const exitCode: 0 | 1 | 2 = interrupted === true ? 2 : derivedExitCode;
   const { totalInputTokens, totalOutputTokens } = sumTokens(phases);
 
   const report: RunReport = {

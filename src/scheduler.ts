@@ -44,6 +44,25 @@ export interface SchedulerContext {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a human-readable reason from an AbortSignal.
+ *
+ * docs/engineering-notes.md §148-150: always guard with `typeof signal.reason === 'string'`.
+ * A caller doing `controller.abort()` with no argument leaves `signal.reason` as a
+ * DOMException, not a string — `String(signal.reason)` would produce "AbortError: This
+ * operation was aborted" instead of the curated fallback text.
+ *
+ * The fallback matches agent-phase.ts line 294 so both started and not-yet-started phases
+ * emit the same reason text for the same abort.
+ */
+function abortReason(signal: AbortSignal, fallback = "cancelled by scheduler"): string {
+  return typeof signal.reason === "string" ? signal.reason : fallback;
+}
+
+// ---------------------------------------------------------------------------
 // Report builders for non-running phases
 // ---------------------------------------------------------------------------
 
@@ -213,7 +232,7 @@ export async function runPhases(
       // an internal gate abort cannot beat this check, since every map callback evaluates
       // it synchronously before any phase's promise can resolve to fire gateController.
       if (combinedSignal.aborted) {
-        return cancelledReport(phase, String(combinedSignal.reason));
+        return cancelledReport(phase, abortReason(combinedSignal));
       }
 
       const report = await runPhaseGuarded(phase, innerCtx);
