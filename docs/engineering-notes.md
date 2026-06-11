@@ -130,6 +130,17 @@ so these matter most.
   `min(model timeout × 1000, bashTimeoutMs)` so the budget stays a hard ceiling but a shorter
   model request is respected. (T13, PR-review #2.)
 
+## Scheduler signal seam (`src/scheduler.ts`, M4/T14)
+
+- **`FakeAgentRunner.DelayScript` always uses "aborted by wall-clock budget" as the `CancelledError` message.**
+  This is a hardcoded string even when the abort was triggered by the scheduler's signal (not the wall clock).
+  Tests asserting on this reason should match `/abort/i` (appears in "aborted"), NOT `/cancel/i` (does not
+  appear). The status being "error" + a `CancelledError` under the hood is the meaningful distinction. (T14.)
+- **`ctx.signal → wallClockController.abort()` wiring uses the same eager-abort pattern as `runBash`.**
+  An already-aborted `AbortSignal` never fires its "abort" event (DOM semantics), so always check
+  `ctx.signal?.aborted` first and call `wallClockController.abort()` eagerly; otherwise a pre-aborted
+  scheduler signal would let the phase run until its wall-clock budget expires (10–15 min). (T14.)
+
 ## Testing
 
 - **Mock at the seam you own (`FakeAgentRunner`), never at SDK internals** — the guards' failure

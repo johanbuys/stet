@@ -41,6 +41,12 @@ export interface PhaseContext {
    * the runner so that tool invocations are reported to the caller (e.g. stderr liveness).
    */
   onTool?: (toolName: string) => void;
+  /**
+   * Scheduler cancellation signal (M4). When fired, the phase should abort its work.
+   * Agent phases wire this into the wall-clock controller so either a budget expiry or
+   * a scheduler cancel can abort the runner (T14/T15).
+   */
+  signal?: AbortSignal;
 }
 
 /**

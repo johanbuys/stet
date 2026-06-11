@@ -1,11 +1,17 @@
 /**
- * Minimal M1 scheduler — runs phases, synthesizes skips.
+ * Scheduler — runs all activated phases concurrently and synthesizes skips.
  *
- * M4 adds: cancellation classes, parallel teardown, signal handling.
- * For M1 all activated phases run via Promise.all (real concurrency is trivial with one phase;
- * the machinery for cancellation and teardown lands in M4).
+ * Execution model (PRD §3.4.2): all activated phases launch via Promise.all so
+ * wall-clock ≈ slowest phase. The scheduler's AbortSignal (M4, SchedulerContext.signal)
+ * is forwarded to every phase's run context, enabling T15's cancel-class gate to abort
+ * in-flight agent phases and T16's signal handling (SIGINT/SIGTERM teardown).
  *
- * PRD refs: §3.4 (scheduler), §3.4.1 (activation), §4.4 (PhaseReport), §4.5 (RunReport).
+ * T14: parallel execution proven + signal seam established.
+ * T15: cancellation classes (cancel-class vs report-only gates).
+ * T16: teardown + POSIX signal handling (SIGINT⇒130, SIGTERM⇒143).
+ *
+ * PRD refs: §3.4 (scheduler), §3.4.1 (activation), §3.4.2 (execution policies),
+ *           §3.4.3 (cancellation classes), §3.4.4 (teardown), §4.4 (PhaseReport).
  */
 
 import type { StetConfig } from "./schema/config.js";
@@ -29,6 +35,12 @@ export interface SchedulerContext {
    * that don't care about liveness). CLI supplies this → stderr in M2+; M9 polishes it.
    */
   onTool?: (phaseId: string, toolName: string) => void;
+  /**
+   * Scheduler-level cancellation signal (M4). Forwarded to each phase's run context so
+   * that a cancel-class gate failure (T15) can abort in-flight agent phases.
+   * Absent → no external cancellation (normal operation without gate-triggered abort).
+   */
+  signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +93,9 @@ async function runPhaseGuarded(
       // Scope the phase id into the scheduler-level callback so PhaseContext.onTool
       // only needs the tool name — the phase doesn't know its own id at call sites.
       onTool: ctx.onTool ? (toolName) => ctx.onTool!(phase.id, toolName) : undefined,
+      // Forward the scheduler's cancellation signal so agent phases can abort when
+      // a cancel-class gate fails (T15) or the harness tears down (T16).
+      signal: ctx.signal,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

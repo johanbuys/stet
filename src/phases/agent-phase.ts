@@ -236,6 +236,18 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
 
       let runResult: Awaited<ReturnType<AgentRunner["run"]>>;
       const wallClockController = new AbortController();
+
+      // Wire the scheduler's cancellation signal into the wall-clock controller
+      // so either a budget expiry or a scheduler cancel (T15/T16) can abort the runner.
+      // Uses the same eager-abort pattern as runBash to handle pre-aborted signals
+      // (an already-fired signal never fires its "abort" event again — DOM semantics).
+      const onSchedulerAbort = () => wallClockController.abort();
+      if (ctx.signal?.aborted) {
+        wallClockController.abort();
+      } else {
+        ctx.signal?.addEventListener("abort", onSchedulerAbort, { once: true });
+      }
+
       try {
         runResult = await runWithWallClock(
           runner,
@@ -265,6 +277,8 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
           audit: {},
           cost: { durationMs: Date.now() - start },
         };
+      } finally {
+        ctx.signal?.removeEventListener("abort", onSchedulerAbort);
       }
 
       const durationMs = Date.now() - start;

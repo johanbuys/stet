@@ -8,7 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { PhaseReport } from "./schema/report.js";
 import type { Scope } from "./scope.js";
 import { runPhases } from "./scheduler.js";
-import type { PhaseConfiguration } from "./phases/index.js";
+import type { PhaseConfiguration, PhaseContext } from "./phases/index.js";
 import { makeAgentPhase } from "./phases/agent-phase.js";
 import { FakeAgentRunner } from "./agent/fake-runner.js";
 import { SUBMIT_TOOL_NAME } from "./agent/submit-tool.js";
@@ -322,5 +322,86 @@ describe("runPhases", () => {
     // The scheduler scopes the phase id in, so the sink gets ["stub-agent", "submit_findings"].
     expect(received).toHaveLength(1);
     expect(received[0]).toEqual(["stub-agent", SUBMIT_TOOL_NAME]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T14: Real parallel execution (PRD §3.4.2, acceptance #4)
+//
+// Proves all activated phases launch concurrently: total wall-clock ≈ slowest
+// phase, not the sum. Phases are real async operations with controlled-duration
+// setTimeout delays (no fakes needed — behavior is timing).
+// ---------------------------------------------------------------------------
+
+describe("T14: parallel execution (PRD §3.4.2, acceptance #4)", () => {
+  // ── Slice 1: total wall-clock ≈ slowest, not sum ─────────────────────────
+
+  it("all-pass run: wall-clock within 10% of slowest phase, not sum", async () => {
+    // Three phases with staggered durations. Sequential sum = 80+120+60 = 260ms.
+    // Parallel wall-clock ≈ 120ms (the slowest). The 10% tolerance (132ms) is
+    // well under half the sequential time, proving concurrency is real.
+    const durations = [80, 120, 60];
+    const slowest = Math.max(...durations);
+
+    const phases = durations.map(
+      (ms, i): PhaseConfiguration => ({
+        id: `timed-${i}`,
+        kind: "deterministic",
+        activation: () => true,
+        async run(_ctx: PhaseContext): Promise<PhaseReport> {
+          await new Promise<void>((resolve) => setTimeout(resolve, ms));
+          return {
+            phase: `timed-${i}`,
+            status: "completed",
+            findings: [],
+            audit: {},
+            cost: { durationMs: ms },
+          };
+        },
+      }),
+    );
+
+    const start = Date.now();
+    const reports = await runPhases(phases, baseCtx);
+    const elapsed = Date.now() - start;
+
+    expect(reports).toHaveLength(3);
+    expect(reports.every((r) => r.status === "completed")).toBe(true);
+    // Within 10% of the slowest phase (PRD acceptance #4).
+    expect(elapsed).toBeLessThan(slowest * 1.1);
+  }, 3_000);
+
+  // ── Slice 2: scheduler passes its signal down to each phase ───────────────
+  //
+  // The signal seam (M4) allows T15's cancel-class gate to abort in-flight
+  // phases by firing the scheduler's AbortController.
+
+  it("scheduler signal is forwarded to each phase's run context", async () => {
+    const controller = new AbortController();
+    const receivedSignals: (AbortSignal | undefined)[] = [];
+
+    const phases = [0, 1].map(
+      (i): PhaseConfiguration => ({
+        id: `spy-${i}`,
+        kind: "deterministic",
+        activation: () => true,
+        async run(ctx: PhaseContext): Promise<PhaseReport> {
+          receivedSignals.push(ctx.signal);
+          return {
+            phase: `spy-${i}`,
+            status: "completed",
+            findings: [],
+            audit: {},
+            cost: { durationMs: 0 },
+          };
+        },
+      }),
+    );
+
+    await runPhases(phases, { ...baseCtx, signal: controller.signal });
+
+    expect(receivedSignals).toHaveLength(2);
+    expect(receivedSignals[0]).toBe(controller.signal);
+    expect(receivedSignals[1]).toBe(controller.signal);
   });
 });

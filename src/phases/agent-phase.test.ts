@@ -714,3 +714,67 @@ describe("makeAgentPhase — phase attribution (Fix B)", () => {
     expect(report.findings[0]?.phase).toBe("my-actual-phase");
   });
 });
+
+// ---------------------------------------------------------------------------
+// T14: scheduler signal forwarded to the runner (M4 seam, PRD §3.4.2)
+//
+// When the scheduler's AbortSignal fires, the agent phase must abort its work.
+// The phase wires ctx.signal into the wall-clock controller so either a budget
+// expiry or a scheduler cancel can terminate the runner.
+// ---------------------------------------------------------------------------
+
+describe("makeAgentPhase — scheduler signal wiring (T14, M4 seam)", () => {
+  test("a pre-aborted ctx.signal causes the phase to return an error report promptly", async () => {
+    // Fake runner hangs for 10 seconds — if the signal isn't respected, the test times out.
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => "prompt",
+    });
+
+    const controller = new AbortController();
+    controller.abort(); // pre-aborted: signal was already fired before run()
+
+    const start = Date.now();
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+    const elapsed = Date.now() - start;
+
+    // Must not hang for the 10s runner delay or the 30s wall clock.
+    expect(elapsed).toBeLessThan(2_000);
+    // Aborted by the scheduler signal → CancelledError → error report.
+    expect(report.status).toBe("error");
+    expect(report.reason).toMatch(/abort/i);
+  }, 5_000);
+
+  test("ctx.signal fired mid-run aborts the phase before the runner completes", async () => {
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => "prompt",
+    });
+
+    const controller = new AbortController();
+
+    // Fire the signal shortly after the phase starts.
+    const abortTimer = setTimeout(() => controller.abort(), 100);
+
+    const start = Date.now();
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+    const elapsed = Date.now() - start;
+
+    clearTimeout(abortTimer);
+
+    // Must terminate well before the 10s runner delay.
+    expect(elapsed).toBeLessThan(2_000);
+    expect(report.status).toBe("error");
+    expect(report.reason).toMatch(/abort/i);
+  }, 5_000);
+});
