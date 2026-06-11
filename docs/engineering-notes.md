@@ -130,6 +130,55 @@ so these matter most.
   `min(model timeout × 1000, bashTimeoutMs)` so the budget stays a hard ceiling but a shorter
   model request is respected. (T13, PR-review #2.)
 
+## Scheduler signal seam (`src/scheduler.ts`, M4/T14)
+
+- **`FakeAgentRunner.DelayScript` always uses "aborted by wall-clock budget" as the `CancelledError` message.**
+  This is a hardcoded string even when the abort was triggered by the scheduler's signal (not the wall clock).
+  Tests asserting on this reason should match `/abort/i` (appears in "aborted"), NOT `/cancel/i` (does not
+  appear). The status being "error" + a `CancelledError` under the hood is the meaningful distinction. (T14.)
+- **`ctx.signal → wallClockController.abort()` wiring uses the same eager-abort pattern as `runBash`.**
+  An already-aborted `AbortSignal` never fires its "abort" event (DOM semantics), so always check
+  `ctx.signal?.aborted` first and call `wallClockController.abort()` eagerly; otherwise a pre-aborted
+  scheduler signal would let the phase run until its wall-clock budget expires (10–15 min). (T14.)
+- **`AbortSignal.any([external, internal])` is the right tool to merge the scheduler's external signal
+  (T16 POSIX) with the internal gate-cancel controller, and it propagates the `reason` of whichever
+  signal fires first.** That reason propagation is what lets an agent phase surface `"gates failed: <id>"`
+  in its cancelled report — the gate's `gateController.abort("gates failed: <id>")` reason rides the
+  combined signal down to `ctx.signal.reason`. (T15.)
+- **`controller.abort()` called WITHOUT a string reason leaves `signal.reason` as a `DOMException`, not a
+  string.** Always guard with `typeof signal.reason === "string"` before using it as a human-readable
+  reason; fall back to a literal otherwise. (T15.)
+- **Only `status: "completed"` + an error-severity finding counts as a gate "failure" for cancellation;
+  `status: "error"` (wall-clock timeout, spawn failure) is ALWAYS report-only** regardless of `cancelClass`
+  (PRD §3.4.3 — a merely-slow suite must not nuke the AI phases). Encoded in `isGateFailure`. (T15.)
+- **A `kind: "ok"` `FakeAgentRunner` cannot test "was NOT cancelled" — it never reads `inputs.signal`.**
+  It resolves `Result.ok` synchronously before any gate report can fire an abort, so a negative-path test
+  paired with it passes even against a scheduler that cancels on every outcome. Use a `kind: "delay"`
+  runner (the only script that respects `inputs.signal`): correct behavior → natural expiry → `NoSubmitError`
+  → status `"error"`; a wrongful cancel → `CancelledError` + aborted signal → status `"cancelled"`. Then
+  `status !== "cancelled"` has real discriminating power. (T15, PR-review.)
+
+## POSIX signal handling (`src/signals.ts`, T16)
+
+- **Use `process.rawListeners(sig)` to unit-test signal handlers without triggering Vitest's own
+  handlers.** `process.emit("SIGINT")` fires ALL registered handlers including the test runner's,
+  which may terminate the test process. `rawListeners` returns the actual function (for `on`) or
+  the wrapper (for `once`); calling it directly is safe and isolated. (T16.)
+- **Method signatures in interfaces cause `typescript(unbound-method)` lint warnings when
+  destructured.** `interface F { foo(): void }` signals the linter that `foo` might rely on `this`
+  when used as a standalone fn after destructuring. Use property-typed arrow-fn signatures instead:
+  `interface F { foo: () => void }`. The runtime behavior is identical but the linter is satisfied.
+  (T16.)
+- **Signal exit codes are 128 + signal number (POSIX).** SIGINT (2) ⇒ 130; SIGTERM (15) ⇒ 143.
+  Exit 2 stays reserved for tool errors. A second SIGINT during teardown calls `process.exit(130)`
+  directly — no report is written, teardown is refused. SIGTERM has no second-signal escalation.
+  (T16, PRD §3.4.4.)
+- **Integration tests for signal handling need a spawned subprocess fixture.** You cannot send a
+  real SIGINT to the test process from within a test without risking killing Vitest. Spawn a
+  separate bun child process (`bun run fixtures/signal-test/run.ts`), wait for a "READY" line on
+  stdout, then call `proc.kill("SIGINT"/"SIGTERM")`. Bun runs `.ts` files natively so no
+  compilation step is needed. (T16.)
+
 ## Testing
 
 - **Mock at the seam you own (`FakeAgentRunner`), never at SDK internals** — the guards' failure

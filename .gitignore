@@ -31,5 +31,8 @@ coverage/
 *.bak
 progress.txt
 
+# Non-canonical package-manager lockfile (repo uses pnpm)
+bun.lock
+
 # ideoshi-code harness (managed separately)
 .ideoshi-code/

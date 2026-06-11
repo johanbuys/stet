@@ -714,3 +714,142 @@ describe("makeAgentPhase — phase attribution (Fix B)", () => {
     expect(report.findings[0]?.phase).toBe("my-actual-phase");
   });
 });
+
+// ---------------------------------------------------------------------------
+// T14: scheduler signal forwarded to the runner (M4 seam, PRD §3.4.2)
+//
+// When the scheduler's AbortSignal fires, the agent phase must abort its work.
+// The phase wires ctx.signal into the wall-clock controller so either a budget
+// expiry or a scheduler cancel can terminate the runner.
+//
+// T15 update: scheduler-signal cancellation now produces status "cancelled"
+// (not "error") — distinct from a budget expiry which stays "error". The
+// signal.reason carries context (e.g. "gates failed: stub-det" from T15, or
+// "cancelled by scheduler" when no string reason was set).
+// ---------------------------------------------------------------------------
+
+describe("makeAgentPhase — scheduler signal wiring (T14, M4 seam)", () => {
+  test("a pre-aborted ctx.signal causes the phase to return a cancelled report promptly", async () => {
+    // Fake runner hangs for 10 seconds — if the signal isn't respected, the test times out.
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => "prompt",
+    });
+
+    const controller = new AbortController();
+    controller.abort(); // pre-aborted: signal was already fired before run()
+
+    const start = Date.now();
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+    const elapsed = Date.now() - start;
+
+    // Must not hang for the 10s runner delay or the 30s wall clock.
+    expect(elapsed).toBeLessThan(2_000);
+    // T15: scheduler signal → cancelled status (not error).
+    expect(report.status).toBe("cancelled");
+    expect(report.reason).toBeTruthy();
+  }, 5_000);
+
+  test("ctx.signal fired mid-run aborts the phase before the runner completes", async () => {
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => "prompt",
+    });
+
+    const controller = new AbortController();
+
+    // Fire the signal shortly after the phase starts.
+    const abortTimer = setTimeout(() => controller.abort(), 100);
+
+    const start = Date.now();
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+    const elapsed = Date.now() - start;
+
+    clearTimeout(abortTimer);
+
+    // Must terminate well before the 10s runner delay.
+    expect(elapsed).toBeLessThan(2_000);
+    // T15: scheduler signal → cancelled status (not error).
+    expect(report.status).toBe("cancelled");
+    expect(report.reason).toBeTruthy();
+  }, 5_000);
+
+  test("scheduler signal reason is propagated to the cancelled report", async () => {
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => "prompt",
+    });
+
+    const controller = new AbortController();
+    controller.abort("gates failed: stub-det");
+
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+
+    expect(report.status).toBe("cancelled");
+    expect(report.reason).toBe("gates failed: stub-det");
+  }, 5_000);
+
+  test("mid-run signal reason is propagated via AbortSignal.any to the cancelled report", async () => {
+    // Signal fires after run() starts (not pre-aborted) — exercises the AbortSignal.any
+    // path in runWithWallClock, which propagates the external reason to the runner signal.
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => "prompt",
+    });
+
+    const controller = new AbortController();
+    // Fire with a curated reason after a short delay so run() is already underway.
+    setTimeout(() => controller.abort("gates failed: review"), 50);
+
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+
+    expect(report.status).toBe("cancelled");
+    expect(report.reason).toBe("gates failed: review");
+  }, 5_000);
+
+  test("pre-aborted ctx.signal skips prompt-building (early return before runner)", async () => {
+    // Confirms the efficiency micro-fix: buildUserPrompt must NOT be called when the
+    // signal is already aborted — the phase returns immediately without building the prompt.
+    let promptBuilt = false;
+    const runner = new FakeAgentRunner({ kind: "delay", delayMs: 10_000 });
+    const phase = makeAgentPhase(runner, {
+      id: "test-agent",
+      rubric: "rubric",
+      toolset: ["bash"],
+      submitSchema: SUBMIT_SCHEMA,
+      budgets: { ...DEFAULT_BUDGETS, wallClockMs: 30_000 },
+      buildUserPrompt: () => {
+        promptBuilt = true;
+        return "prompt";
+      },
+    });
+
+    const controller = new AbortController();
+    controller.abort("gates failed: stub-det");
+
+    const report = await phase.run(makeCtx({ signal: controller.signal }));
+
+    expect(report.status).toBe("cancelled");
+    expect(promptBuilt).toBe(false);
+  }, 5_000);
+});

@@ -87,28 +87,72 @@ interface SpawnResult {
   stderr: string;
   /** Set when the OS-level spawn itself failed (e.g. ENOENT on cwd); means the phase errored. */
   spawnError?: string;
+  /** Set when the run was aborted via the caller's AbortSignal. */
+  aborted?: boolean;
 }
 
 /**
  * Run `command` via /bin/sh in `cwd`. Resolves with the exit code and captured output.
  * Never rejects — spawn errors (e.g. bad cwd) set spawnError on the result instead.
+ *
+ * When `signal` is supplied and fires, the child process group is killed with SIGKILL
+ * (same semantics as runBash in budgets.ts: detached + process.kill(-pid, "SIGKILL") so
+ * the shell AND any subprocesses it spawned are terminated together), and the result
+ * carries aborted: true so run() can map it to a cancelled PhaseReport.
+ *
+ * Engineering note: shell: true without detached: true means killing the shell PID leaves
+ * its grandchildren alive, which hold the inherited stdout/stderr pipe open and prevent the
+ * 'close' event from ever firing — the Promise never resolves. Use detached: true and kill
+ * the whole process group. (See engineering-notes.md §Bash limits.)
  */
-function runCommand(command: string, cwd: string): Promise<SpawnResult> {
+function runCommand(command: string, cwd: string, signal?: AbortSignal): Promise<SpawnResult> {
   return new Promise((resolve) => {
     let stdoutBuf = Buffer.alloc(0);
     let stderrBuf = Buffer.alloc(0);
     // Track whether each stream was truncated so the marker can be appended.
     let stdoutTruncated = false;
     let stderrTruncated = false;
+    let settled = false;
+    let hasExited = false;
+    let aborted = false;
 
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, [], { shell: true, cwd });
+      // detached: true creates a new process group (pgid = child.pid) so we can kill
+      // the shell AND any subprocesses it spawned with a single process.kill(-pid, "SIGKILL").
+      child = spawn(command, [], { shell: true, cwd, detached: true });
     } catch (err) {
       // Synchronous spawn failure (extremely rare)
       const msg = err instanceof Error ? err.message : String(err);
       resolve({ exitCode: -1, stdout: "", stderr: "", spawnError: msg });
       return;
+    }
+
+    const kill = () => {
+      // Guard on !hasExited to avoid SIGKILLing a pgid that may have been reused after
+      // the child exited (mirrors budgets.ts kill() guard, engineering-notes.md §Bash limits).
+      if (!settled && !hasExited && child.pid !== undefined) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {
+          // Group already gone or PID reused — ignore.
+        }
+      }
+    };
+
+    const onAbort = () => {
+      aborted = true;
+      kill();
+    };
+
+    // An already-aborted signal never fires its "abort" event (DOM semantics). Check eagerly
+    // and kill synchronously before/instead of attaching a listener. (See engineering-notes.md
+    // §Scheduler signal seam — same pattern as runBash and agent-phase.)
+    if (signal?.aborted) {
+      aborted = true;
+      kill();
+    } else {
+      signal?.addEventListener("abort", onAbort, { once: true });
     }
 
     child.stdout?.on("data", (chunk: Buffer) => {
@@ -138,34 +182,74 @@ function runCommand(command: string, cwd: string): Promise<SpawnResult> {
       }
     });
 
+    const finalize = (code: number | null) => {
+      if (settled) return;
+      signal?.removeEventListener("abort", onAbort);
+      settled = true;
+      resolve({
+        exitCode: code ?? -1,
+        stdout: capOutput(stdoutBuf, stdoutTruncated),
+        stderr: capOutput(stderrBuf, stderrTruncated),
+        aborted,
+      });
+    };
+
     child.on("error", (err) => {
+      if (settled) return;
+      signal?.removeEventListener("abort", onAbort);
+      settled = true;
       // The shell itself failed to launch — record spawnError so run() can surface a phase error.
       resolve({
         exitCode: -1,
         stdout: capOutput(stdoutBuf, stdoutTruncated),
         stderr: capOutput(stderrBuf, stderrTruncated),
         spawnError: err.message,
+        aborted,
       });
     });
 
+    child.on("exit", (code) => {
+      hasExited = true;
+      // 'close' fires after 'exit' in normal cases. We resolve in 'close' to ensure all
+      // stdio data has been flushed. If 'close' doesn't follow promptly (background child
+      // holding the pipe), 'exit' at least unblocks kill() guards.
+      // For the abort path the kill already sent SIGKILL; 'close' will follow shortly.
+      void code; // used via finalize in 'close'
+    });
+
     child.on("close", (code) => {
-      resolve({
-        exitCode: code ?? -1,
-        stdout: capOutput(stdoutBuf, stdoutTruncated),
-        stderr: capOutput(stderrBuf, stderrTruncated),
-      });
+      finalize(hasExited ? code : code);
     });
   });
 }
 
 // ---------------------------------------------------------------------------
-// Error PhaseReport builder
+// PhaseReport builders
 // ---------------------------------------------------------------------------
 
 function errorReport(reason: string, durationMs: number): PhaseReport {
   return {
     phase: "stub-det",
     status: "error",
+    reason,
+    findings: [],
+    audit: {},
+    cost: { durationMs },
+  };
+}
+
+/**
+ * Build a cancelled PhaseReport from an AbortSignal.
+ *
+ * Reason: use signal.reason when it's a string (engineering-notes.md §Scheduler signal seam:
+ * "controller.abort() without a string reason leaves signal.reason as a DOMException, not a
+ * string — always guard with typeof === 'string'"). Fall back to a literal.
+ */
+function cancelledReport(signal: AbortSignal, durationMs: number): PhaseReport {
+  const reason = typeof signal.reason === "string" ? signal.reason : "cancelled by scheduler";
+  return {
+    phase: "stub-det",
+    status: "cancelled",
     reason,
     findings: [],
     audit: {},
@@ -190,9 +274,23 @@ export const stubDet: PhaseConfiguration = {
   /**
    * Run the configured command and map the outcome to a PhaseReport.
    * INFALLIBLE BY CONTRACT: never throws, never rejects.
+   *
+   * Cancellation (M4 PhaseContext.signal contract):
+   *   - Pre-aborted signal: returns a cancelled report immediately, no spawn.
+   *   - Signal fires mid-run: runCommand kills the child process group and resolves
+   *     with aborted: true → mapped to a cancelled PhaseReport.
+   *   - Reason: string-guarded (engineering-notes.md §Scheduler signal seam).
    */
   async run(ctx): Promise<PhaseReport> {
     const start = Date.now();
+
+    // --- Pre-abort short-circuit (engineering-notes.md §Scheduler signal seam) ---
+    // An already-fired signal must be handled eagerly; it will never fire its "abort"
+    // event again (DOM semantics), so a listener-only approach would let the phase run
+    // until the command finishes naturally — appearing hung after Ctrl-C.
+    if (ctx.signal?.aborted) {
+      return cancelledReport(ctx.signal, Date.now() - start);
+    }
 
     // --- Config validation ---
     const validated = validateConfig(ctx.config);
@@ -204,11 +302,16 @@ export const stubDet: PhaseConfiguration = {
     // --- Run the command ---
     let spawnResult: SpawnResult;
     try {
-      spawnResult = await runCommand(command, ctx.cwd);
+      spawnResult = await runCommand(command, ctx.cwd, ctx.signal);
     } catch (err) {
       // runCommand should never reject, but be defensive
       const msg = err instanceof Error ? err.message : String(err);
       return errorReport(`stub-det: spawn error: ${msg}`, Date.now() - start);
+    }
+
+    // --- Cancellation mid-run: signal fired while command was running ---
+    if (spawnResult.aborted && ctx.signal) {
+      return cancelledReport(ctx.signal, Date.now() - start);
     }
 
     const durationMs = Date.now() - start;

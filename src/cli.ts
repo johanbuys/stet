@@ -4,7 +4,7 @@
  * stet CLI entry point.
  *
  * Two surfaces:
- *   main(argv, io, phases) — testable core, returns Promise<Result<{exitCode:0|1}, StetError>>
+ *   main(argv, io, phases) — testable core, returns Promise<Result<{exitCode:0|1|2}, StetError>>
  *   process entry — assembles default phases, calls resolveExit(await main(...)) and sets exitCode
  *
  * resolveExit is the SINGLE throw→exit boundary (PRD CLAUDE.md / plan §2a / plan P7).
@@ -43,6 +43,8 @@ import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases
 import type { PhaseConfiguration } from "./phases/types.js";
 import { runPhases } from "./scheduler.js";
 import { assembleReport } from "./report.js";
+import { runWithSignals, signalExitCode } from "./signals.js";
+import { teardownServices } from "./teardown.js";
 
 // ---------------------------------------------------------------------------
 // Package version
@@ -89,7 +91,7 @@ export interface ExitResolution {
  *   1  — ≥1 gating finding
  *   2  — stet malfunctioned (all taxonomy errors in M1)
  */
-export function resolveExit(result: Result<{ exitCode: 0 | 1 }, StetError>): ExitResolution {
+export function resolveExit(result: Result<{ exitCode: 0 | 1 | 2 }, StetError>): ExitResolution {
   if (result.isOk()) {
     return { exitCode: result.value.exitCode };
   }
@@ -246,9 +248,17 @@ function resolveFailOn(
  * the e2e tests keep passing unchanged when real phases later displace stubs from
  * the default set.
  *
- * Returns Ok({exitCode: 0|1}) — the Ok path always has the pipeline's exit code.
+ * Returns Ok({exitCode: 0|1|2}) — the Ok path always has the pipeline's exit code:
+ *   0 — clean run (no gating findings)
+ *   1 — ≥1 gating finding
+ *   2 — interrupted run (signal fired before all phases completed; partial report written)
  * Returns Err(StetError) only when stet itself malfunctioned (config error, scope error,
  * self-check schema error). The caller (entry block) passes this to resolveExit → exit 2.
+ *
+ * Signal interruption is detected by checking signal?.aborted after runPhases AND
+ * whether any phase has status="cancelled". A signal that fires AFTER all phases complete
+ * (e.g. during report assembly) does NOT count as an interrupted run — the phases all
+ * completed and the derived exit code stands (PRD §3.4.4, finding 2a).
  *
  * JSON mode: EXACTLY the RunReport JSON on io.stdout, nothing else on stdout ever.
  * Human mode: minimal per-phase status lines to io.stdout (M9 does display polish).
@@ -258,7 +268,8 @@ export async function main(
   argv: string[],
   io: CliIo,
   phases: PhaseConfiguration[],
-): Promise<Result<{ exitCode: 0 | 1 }, StetError>> {
+  signal?: AbortSignal,
+): Promise<Result<{ exitCode: 0 | 1 | 2 }, StetError>> {
   // ── 1. Parse flags ────────────────────────────────────────────────────────
   const flagsResult = parseFlags(argv);
   if (flagsResult.isErr()) return Result.err(flagsResult.error);
@@ -329,10 +340,19 @@ export async function main(
     // Format: "stet: <phaseId> · <toolName>" — minimal liveness signal for M2+.
     // M9 polishes the human surface; this wires the plumbing end-to-end.
     onTool: (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
+    // T16: scheduler cancellation signal (SIGINT/SIGTERM → phases cancelled → partial report).
+    signal,
   });
   const durationMs = Date.now() - runStartMs;
 
-  // ── 6. Assemble report ────────────────────────────────────────────────────
+  // ── 6. Detect interruption ────────────────────────────────────────────────
+  // A run is "interrupted" iff the signal was aborted AND at least one phase was
+  // cancelled. A signal that fires AFTER all phases complete does not interrupt
+  // the run — the derived exit code stands (PRD §3.4.4, finding 2a).
+  const interrupted =
+    signal?.aborted === true && phaseReports.some((p) => p.status === "cancelled");
+
+  // ── 7. Assemble report ────────────────────────────────────────────────────
   const failOn = resolveFailOn(flags.failOn, config.output?.failOn);
   const { report, exitCode } = assembleReport({
     stetVersion: STET_VERSION,
@@ -341,15 +361,16 @@ export async function main(
     phases: phaseReports,
     failOn,
     durationMs,
+    interrupted,
   });
 
-  // ── 7. Self-check: the report we produce must be valid (stet bug if not) ──
+  // ── 8. Self-check: the report we produce must be valid (stet bug if not) ──
   // An invalid self-produced report is a stet bug → SchemaError → exit 2.
   // "Nothing passes silently" applies to stet itself (plan §2a).
   const selfCheck = parseRunReport(report);
   if (selfCheck.isErr()) return Result.err(selfCheck.error);
 
-  // ── 8. Output ─────────────────────────────────────────────────────────────
+  // ── 9. Output ─────────────────────────────────────────────────────────────
   if (flags.format === "json") {
     // EXACTLY the RunReport JSON on stdout. Nothing else on stdout ever (PRD §4.8).
     io.stdout(JSON.stringify(report, null, 2));
@@ -364,7 +385,7 @@ export async function main(
       const reasonSuffix = phase.reason !== undefined ? ` (${phase.reason})` : "";
       io.stdout(`  ${phase.phase}: ${phase.status}${reasonSuffix} — ${findingSummary}`);
     }
-    const exitLabel = exitCode === 0 ? "ok" : "findings gate";
+    const exitLabel = exitCode === 0 ? "ok" : exitCode === 1 ? "findings gate" : "interrupted";
     io.stdout(`\nresult: exit ${exitCode} (${exitLabel}), failOn: ${report.result.failOn}`);
   }
 
@@ -409,6 +430,16 @@ if (isEntryPoint) {
   // main() receives phases as a parameter and never touches the registry itself.
   registerDefaultPhases();
 
+  // T16: install POSIX signal handlers before any async work so a signal that fires
+  // during SDK loading or scope detection still fires the controller. The scheduler
+  // receives the combined signal via main()'s signal parameter; when it fires,
+  // in-flight phases cancel and return "cancelled" reports, and main() writes the
+  // partial report normally before returning.
+  //
+  // runWithSignals installs the handlers, runs the async block, and cleans up in a
+  // finally — the CLI entry block only owns exit-code policy, Err-surfacing, and
+  // teardownServices (the impure decision layer, per finding 5).
+
   // Unreachable by design (Result discipline means nothing escapes main()) —
   // this boundary enforces the honesty contract anyway: if something ever throws,
   // it is a stet internal bug → exit 2, not exit 1 (which means "gating findings").
@@ -433,17 +464,54 @@ if (isEntryPoint) {
       registerPhase(makeStubAgent(new PiAgentRunner(), process.env.PI_TEST_MODEL));
     }
 
-    const result = await main(process.argv.slice(2), realIo, registeredPhases());
+    const { result, received } = await runWithSignals((signal) =>
+      main(process.argv.slice(2), realIo, registeredPhases(), signal),
+    );
+
+    // Finding 4 (teardown seam): teardownServices is called in every exit path via
+    // the runWithSignals/try structure. cleanupSignals is handled inside runWithSignals.
+    teardownServices();
+
+    // Finding 1 (Err not swallowed on signal): resolveExit ALWAYS runs — an Err result
+    // (e.g. ScopeError during loadConfig when Ctrl-C fires early) is never silently
+    // discarded in favour of the signal exit code. If main() returns Err, it surfaces
+    // via resolveExit → stderr message + exit 2, regardless of received signal.
+    //
+    // Finding 2 (report/process exit-code agreement):
+    //   - For interrupted runs (main() returns Ok({exitCode:2})), the process also exits
+    //     with the POSIX signal code (130/143) — both indicate "non-normal termination".
+    //   - For fully-completed runs (no cancelled phases, main() returns Ok({exitCode:0|1})),
+    //     the process uses the derived exit code — the signal fired too late to matter.
+    //   - For Err results, resolveExit always produces exit 2 regardless of the signal.
+    //
+    //   Detection: the signal exit code applies only to Ok({exitCode:2}) — an interrupted
+    //   run. resolveExit also yields 2 for Err, so gate on result.isOk() to keep the
+    //   Err→exit-2 boundary contract intact even when a signal was received.
     const { exitCode, stderr } = resolveExit(result);
     if (stderr !== undefined) {
       process.stderr.write(stderr + "\n");
     }
-    // Use process.exitCode rather than process.exit() so that Node waits for all
-    // streams (stdout, stderr) to flush before tearing down. process.exit() returns
-    // immediately and can truncate output when stdout is piped — exactly how
-    // --format json consumers and loops receive the RunReport.
-    process.exitCode = exitCode;
+
+    if (received !== null && result.isOk() && result.value.exitCode === 2) {
+      // Interrupted run: apply the POSIX signal exit code (130 or 143).
+      // Both process exit code and report.result.exitCode=2 signal non-normal termination.
+      process.exitCode = signalExitCode(received);
+    } else {
+      // Normal completion (exitCode 0 or 1) OR Err path (exitCode 2 from resolveExit).
+      // Use process.exitCode rather than process.exit() so that Node waits for all
+      // streams (stdout, stderr) to flush before tearing down. process.exit() returns
+      // immediately and can truncate output when stdout is piped — exactly how
+      // --format json consumers and loops receive the RunReport.
+      process.exitCode = exitCode;
+    }
   } catch (err) {
+    // Finding 4 (teardown seam): teardownServices runs here too via the catch path.
+    // This mirrors the success path — both paths call teardownServices before exiting.
+    // Note: cleanupSignals is guaranteed by runWithSignals' finally block, so we
+    // do not need to call it here even if runWithSignals itself threw (which it
+    // shouldn't since it only throws if the inner function throws and we don't catch it
+    // here — but teardownServices is the important idempotent seam).
+    teardownServices();
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`stet: internal error — ${message}\n`);
     process.exitCode = 2;

@@ -286,6 +286,102 @@ describe("stub-det — output capture", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Cancellation via ctx.signal (M4 PhaseContext.signal contract)
+// ---------------------------------------------------------------------------
+
+describe("stub-det — cancellation via ctx.signal", () => {
+  /**
+   * Helper: build a context with an already-aborted signal.
+   * The reason is a plain string so the typeof guard in run() can surface it.
+   */
+  function ctxWithAbortedSignal(command: string, reason = "cancelled by scheduler") {
+    const controller = new AbortController();
+    controller.abort(reason);
+    return {
+      cwd: "/tmp",
+      scope: { kind: "staged" as const, files: ["src/foo.ts"] },
+      config: { command },
+      signal: controller.signal,
+    };
+  }
+
+  /**
+   * Helper: build a context whose signal fires after a short delay.
+   * Returns the context and the controller so the caller can abort at will.
+   */
+  function ctxWithDelayedSignal(command: string, reason = "cancelled by scheduler") {
+    const controller = new AbortController();
+    const context = {
+      cwd: "/tmp",
+      scope: { kind: "staged" as const, files: ["src/foo.ts"] },
+      config: { command },
+      signal: controller.signal,
+    };
+    return { context, controller, reason };
+  }
+
+  test('pre-aborted signal ⇒ status "cancelled" without running the command', async () => {
+    // The signal is already aborted before run() is called — no child should be spawned.
+    const context = ctxWithAbortedSignal("echo should-not-run");
+    const report = await stubDet.run(context);
+    expect(report.status).toBe("cancelled");
+  });
+
+  test("pre-aborted signal ⇒ reason carries the signal's string reason", async () => {
+    const context = ctxWithAbortedSignal("echo x", "gates failed: stub-det");
+    const report = await stubDet.run(context);
+    expect(report.reason).toBe("gates failed: stub-det");
+  });
+
+  test("pre-aborted signal with non-string reason ⇒ fallback reason string", async () => {
+    // controller.abort() with no argument leaves reason as a DOMException, not a string.
+    const controller = new AbortController();
+    controller.abort(); // no reason arg — DOMException, not string
+    const context = {
+      cwd: "/tmp",
+      scope: { kind: "staged" as const, files: ["src/foo.ts"] },
+      config: { command: "echo x" },
+      signal: controller.signal,
+    };
+    const report = await stubDet.run(context);
+    expect(report.status).toBe("cancelled");
+    expect(typeof report.reason).toBe("string");
+    expect(report.reason!.length).toBeGreaterThan(0);
+  });
+
+  test("pre-aborted signal ⇒ cancelled report has empty findings and empty audit", async () => {
+    const context = ctxWithAbortedSignal("echo x");
+    const report = await stubDet.run(context);
+    expect(report.findings).toHaveLength(0);
+    expect(report.audit).toEqual({});
+  });
+
+  test("pre-aborted signal ⇒ cancelled report has a non-negative durationMs", async () => {
+    const context = ctxWithAbortedSignal("echo x");
+    const report = await stubDet.run(context);
+    expect(typeof report.cost.durationMs).toBe("number");
+    expect(report.cost.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("signal aborted mid-command ⇒ child is killed and run resolves with cancelled", async () => {
+    // Use a long-running sleep so the child is alive when the signal fires.
+    // Without the fix this test would hang for the full sleep duration.
+    const { context, controller } = ctxWithDelayedSignal("sleep 30");
+    // Abort after a very short delay to let spawn happen but before sleep completes.
+    setTimeout(() => controller.abort("scheduler cancel"), 50);
+    const report = await stubDet.run(context);
+    expect(report.status).toBe("cancelled");
+  }, 5_000 /* 5 s timeout — far less than the 30 s sleep */);
+
+  test("signal aborted mid-command ⇒ reason from string signal reason", async () => {
+    const { context, controller } = ctxWithDelayedSignal("sleep 30");
+    setTimeout(() => controller.abort("scheduler cancel"), 50);
+    const report = await stubDet.run(context);
+    expect(report.reason).toBe("scheduler cancel");
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
 // Output truncation marker (Fix 5: marker must appear on >4KB output)
 // ---------------------------------------------------------------------------
 

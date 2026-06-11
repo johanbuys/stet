@@ -234,8 +234,28 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
     async run(ctx: PhaseContext): Promise<PhaseReport> {
       const start = Date.now();
 
+      // Early-return for a pre-aborted ctx.signal: skip prompt-building and the runner
+      // entirely — the report shape is identical to the mid-run cancel path below.
+      if (ctx.signal?.aborted) {
+        const reason =
+          typeof ctx.signal.reason === "string" ? ctx.signal.reason : "cancelled by scheduler";
+        return {
+          phase: cfg.id,
+          status: "cancelled",
+          reason,
+          findings: [],
+          audit: {},
+          cost: { durationMs: 0 },
+        };
+      }
+
       let runResult: Awaited<ReturnType<AgentRunner["run"]>>;
       const wallClockController = new AbortController();
+
+      // Pass ctx.signal as the external signal into runWithWallClock.
+      // runWithWallClock merges it with the internal timer signal via AbortSignal.any,
+      // which natively handles pre-aborted inputs and propagates the external reason
+      // (e.g. "gates failed: stub-det" from T15) without any hand-rolled forwarding.
       try {
         runResult = await runWithWallClock(
           runner,
@@ -253,6 +273,7 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
             onTool: ctx.onTool,
           },
           wallClockController,
+          ctx.signal,
         );
       } catch (err) {
         // runner.run() should never reject, but be defensive (same pattern as scheduler.ts)
@@ -271,6 +292,24 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
 
       // --- Error path ---
       if (runResult.isErr()) {
+        // T15: scheduler-signal cancellation → status "cancelled", not "error".
+        // When ctx.signal fired and the runner returned CancelledError, the abort is
+        // external (gate failure or T16 POSIX signal), not a budget expiry.
+        // signal.reason carries the cancellation context, e.g. "gates failed: stub-det".
+        if (ctx.signal?.aborted && runResult.error._tag === "CancelledError") {
+          const reason =
+            typeof ctx.signal.reason === "string" ? ctx.signal.reason : "cancelled by scheduler";
+          return {
+            phase: cfg.id,
+            status: "cancelled",
+            reason,
+            findings: [],
+            audit: {},
+            // Preserve model/token accounting the CancelledError carries (same as
+            // agentErrorToReport) — a real runner cancelled mid-run still spent tokens.
+            cost: { durationMs, ...costFromError(runResult.error) },
+          };
+        }
         return agentErrorToReport(cfg.id, runResult.error, durationMs);
       }
 

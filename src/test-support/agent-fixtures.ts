@@ -5,11 +5,15 @@
  * any test file without triggering test registration side-effects.
  * No top-level side effects — safe under vp/vitest's module caching.
  *
- * Consumers: budgets.test.ts, fake-runner.test.ts, agent-phase.test.ts, pi-runner.test.ts.
+ * Consumers: budgets.test.ts, fake-runner.test.ts, agent-phase.test.ts, pi-runner.test.ts,
+ *            scheduler.test.ts, fixtures/signal-test/run.ts.
  */
 
 import { Type } from "@sinclair/typebox";
 import type { AgentRunInputs } from "../agent/runner.js";
+import { FakeAgentRunner } from "../agent/fake-runner.js";
+import { makeAgentPhase } from "../phases/agent-phase.js";
+import type { PhaseConfiguration } from "../phases/index.js";
 import type { PhaseContext } from "../phases/types.js";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +46,28 @@ export const DEFAULT_BUDGETS = {
   bashTimeoutMs: 10_000,
   bashOutputCap: 4096,
 };
+
+// ---------------------------------------------------------------------------
+// makeDelayAgentPhase — shared delay-runner agent phase builder
+//
+// Builds an agent phase backed by FakeAgentRunner({ kind: "delay", delayMs })
+// with a standard rubric/toolset/schema/budgets config.
+//
+// NOTE: wallClockMs is taken directly from DEFAULT_BUDGETS (60_000) — no
+// override needed. Callers that previously spread { ...DEFAULT_BUDGETS,
+// wallClockMs: 60_000 } were redundant; this helper is the canonical form.
+// ---------------------------------------------------------------------------
+
+export function makeDelayAgentPhase(id: string, delayMs: number): PhaseConfiguration {
+  return makeAgentPhase(new FakeAgentRunner({ kind: "delay", delayMs }), {
+    id,
+    rubric: "rubric",
+    toolset: ["bash"],
+    submitSchema: SUBMIT_SCHEMA,
+    budgets: DEFAULT_BUDGETS,
+    buildUserPrompt: () => "prompt",
+  });
+}
 
 // ---------------------------------------------------------------------------
 // makeInputs — AgentRunInputs builder
