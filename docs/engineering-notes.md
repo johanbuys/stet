@@ -111,6 +111,20 @@ so these matter most.
   on timeout, so an orphaned runner issuing a bash call with the (now-aborted) wall-clock signal
   would otherwise burn the full `bashTimeoutMs` (60s) instead of dying instantly. Always check
   `signal.aborted` and `kill()` eagerly before/instead of registering the listener. (T13, PR-review.)
+- **The SDK bash wrapper signals kills IN-BAND, not via `exitCode`.** `BashOperations.exec` returns
+  `{ exitCode: number | null }`, and the wrapper (`core/tools/bash.js:296`) treats `exitCode === null`
+  as **success** (`if (exitCode !== 0 && exitCode !== null) throw`). So returning `{ exitCode: null }`
+  for a timed-out/killed command renders to the model as a clean "(no output)" success — a silent kill,
+  exactly what M3 forbids. The SDK's own local ops instead **throw**: `"aborted"` → "Command aborted",
+  and `` `timeout:${secs}` `` → "Command timed out after N seconds" (the wrapper string-matches these).
+  The output-cap path is the exception — its marker rides inside the streamed `output`, so `exitCode: null`
+  is fine there. `runBashForSdk` (the exec adapter) mirrors this: deliver output via `onData` FIRST
+  (the wrapper appends status text to it), then throw `timeout:N`/`aborted`; only the cap path returns
+  normally. (T13, PR-review #1.)
+- **The model-supplied `timeout` is in SECONDS and must be honored as a floor, not ignored.** The bash
+  tool schema advertises `timeout` (seconds) and the wrapper forwards it to `exec`. Use
+  `min(model timeout × 1000, bashTimeoutMs)` so the budget stays a hard ceiling but a shorter
+  model request is respected. (T13, PR-review #2.)
 
 ## Testing
 

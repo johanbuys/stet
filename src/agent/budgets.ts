@@ -177,6 +177,80 @@ export function runBash(command: string, options: RunBashOptions): Promise<RunBa
 }
 
 /**
+ * Structural shape of the options bag the Pi SDK bash wrapper passes to
+ * `BashOperations.exec` (see node_modules/.../core/tools/bash.{d.ts,js}).
+ * Kept as a local interface so budgets.ts stays free of SDK imports — the
+ * enforcement layer must not depend on the wiring layer (plan §2a/P10).
+ */
+export interface BashExecOptions {
+  /** Stream sink for accumulated output. */
+  onData: (data: Buffer) => void;
+  /** External abort (wall-clock controller). */
+  signal?: AbortSignal;
+  /** Model-supplied per-call timeout in SECONDS (bash tool schema). */
+  timeout?: number;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Adapt runBash to the Pi SDK's `BashOperations.exec` contract, translating
+ * stet's limit outcomes into the SDK's in-band conventions so the model can
+ * tell "completed quietly" from "killed mid-run" (plan M3: no silent hangs/kills).
+ *
+ * Mapping (mirrors the SDK's own local ops in core/tools/bash.js):
+ *   - Output cap: BASH_TRUNCATION_MARKER already rides inside `output`; delivered via onData.
+ *   - Timeout:   throw `timeout:<secs>` → wrapper renders "Command timed out after N seconds".
+ *   - Abort:     throw "aborted"        → wrapper renders "Command aborted".
+ *   - Otherwise: return { exitCode } (null when killed-on-cap, treated as success by the wrapper —
+ *                the marker in the output is the cap's in-band signal).
+ *
+ * Effective timeout = min(model timeout, budget timeout): the budget stays a hard
+ * ceiling, but a shorter model-requested timeout is honored (finding: don't ignore it).
+ *
+ * `onData` is called ONCE with the full accumulated output (runBash buffers internally
+ * rather than streaming); harmless headless, and it must precede the throw so the SDK
+ * wrapper captures output-so-far before appending the timeout/abort status.
+ *
+ * PRD §3.5, plan §2a/T13.
+ */
+export async function runBashForSdk(
+  command: string,
+  cwd: string,
+  options: BashExecOptions,
+  budgets: { bashTimeoutMs: number; bashOutputCap: number },
+): Promise<{ exitCode: number | null }> {
+  const modelTimeoutMs =
+    options.timeout !== undefined && options.timeout > 0 ? options.timeout * 1000 : undefined;
+  const timeoutMs =
+    modelTimeoutMs !== undefined
+      ? Math.min(modelTimeoutMs, budgets.bashTimeoutMs)
+      : budgets.bashTimeoutMs;
+
+  const result = await runBash(command, {
+    cwd,
+    timeoutMs,
+    outputCap: budgets.bashOutputCap,
+    signal: options.signal,
+    env: options.env ?? undefined,
+  });
+
+  // Deliver output-so-far BEFORE any throw (the SDK wrapper appends status text to it).
+  if (result.output) {
+    options.onData(Buffer.from(result.output, "utf8"));
+  }
+
+  // External abort wins over the internal timer: the process died because the caller
+  // (wall-clock controller) killed it, so surface the SDK-conventional "aborted".
+  if (options.signal?.aborted) {
+    throw new Error("aborted");
+  }
+  if (result.timedOut) {
+    throw new Error(`timeout:${Math.round(timeoutMs / 1000)}`);
+  }
+  return { exitCode: result.exitCode };
+}
+
+/**
  * Race the runner.run() promise against a wall-clock timeout.
  *
  * On timeout (wallClockMs exceeded):

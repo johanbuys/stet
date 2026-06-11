@@ -36,8 +36,27 @@ import { Result } from "better-result";
 import { CancelledError, ModelError, NoSubmitError } from "../errors.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunInputs, AgentRunSuccess, AgentRunner } from "./runner.js";
-import { runBash } from "./budgets.js";
+import { runBashForSdk } from "./budgets.js";
 import { SUBMIT_TOOL_NAME, SubmitTool } from "./submit-tool.js";
+
+// ---------------------------------------------------------------------------
+// Toolset wiring helpers (exported for hermetic coverage — T13 finding #3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Split the built-in "bash" out of the toolset.
+ *
+ * T13 replaces the SDK's unrestricted "bash" with a custom, limit-enforcing bash
+ * tool. The SDK selects its default shell by the string "bash" in `tools`, so we
+ * must remove that string and register our own ToolDefinition via `customTools`.
+ *
+ * Returns the toolset with "bash" removed and whether it was present. When absent,
+ * `tools` is the input unchanged (referential identity preserved for the no-bash path).
+ */
+export function splitBashFromToolset(toolset: string[]): { tools: string[]; hasBash: boolean } {
+  const hasBash = toolset.includes("bash");
+  return { tools: hasBash ? toolset.filter((t) => t !== "bash") : toolset, hasBash };
+}
 
 // ---------------------------------------------------------------------------
 // PiAgentRunner
@@ -175,24 +194,13 @@ export class PiAgentRunner implements AgentRunner {
     // T13: replace the built-in "bash" with a custom bash tool that enforces
     // the per-call timeout and output cap from inputs.budgets (PRD §3.5, plan §2a/T13).
     // The string "bash" selects the SDK's default shell (no limits); our custom tool
-    // delegates to runBash() which kills on timeout and truncates at outputCap.
-    const hasBash = toolsetWithSubmit.includes("bash");
-    const toolset = hasBash ? toolsetWithSubmit.filter((t) => t !== "bash") : toolsetWithSubmit;
+    // delegates to runBashForSdk() which kills on timeout/cap and surfaces those breaches
+    // in-band (timeout → "timeout:N" throw, cap → marker in output) so a killed command
+    // is never reported to the model as a clean success.
+    const { tools: toolset, hasBash } = splitBashFromToolset(toolsetWithSubmit);
 
     const bashOps: BashOperations = {
-      exec: async (command, cwd, { onData, signal, env }) => {
-        const result = await runBash(command, {
-          cwd,
-          timeoutMs: inputs.budgets.bashTimeoutMs,
-          outputCap: inputs.budgets.bashOutputCap,
-          signal,
-          env: env ?? undefined,
-        });
-        if (result.output) {
-          onData(Buffer.from(result.output, "utf8"));
-        }
-        return { exitCode: result.exitCode };
-      },
+      exec: (command, cwd, options) => runBashForSdk(command, cwd, options, inputs.budgets),
     };
     // Cast needed: createBashToolDefinition returns a more-specific ToolDefinition
     // generic than the base ToolDefinition<TSchema, unknown, any> that customTools expects.

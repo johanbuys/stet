@@ -18,7 +18,7 @@
 
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vite-plus/test";
-import { PiAgentRunner } from "./pi-runner.js";
+import { PiAgentRunner, splitBashFromToolset } from "./pi-runner.js";
 import type { AgentRunInputs } from "./runner.js";
 
 // ---------------------------------------------------------------------------
@@ -77,5 +77,37 @@ describe("PiAgentRunner", () => {
     const runner = new PiAgentRunner();
     // This assertion verifies the no-throw contract explicitly.
     await expect(runner.run(minimalInputs)).resolves.toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// splitBashFromToolset — the bash-swap wiring (T13 review finding #3)
+//
+// The runner removes the SDK's unrestricted "bash" and registers the custom
+// limit-enforcing tool only when "bash" was requested. This helper drives both
+// the toolset passed to `tools` and whether the custom bash ToolDefinition is
+// added to `customTools`, so it is covered hermetically here.
+// ---------------------------------------------------------------------------
+
+describe("splitBashFromToolset", () => {
+  it("removes 'bash' and reports hasBash: true when present", () => {
+    const { tools, hasBash } = splitBashFromToolset(["bash", "read", "submit_findings"]);
+    expect(hasBash).toBe(true);
+    expect(tools).toEqual(["read", "submit_findings"]);
+    expect(tools).not.toContain("bash");
+  });
+
+  it("leaves the toolset unchanged and reports hasBash: false when absent", () => {
+    const input = ["read", "grep", "submit_findings"];
+    const { tools, hasBash } = splitBashFromToolset(input);
+    expect(hasBash).toBe(false);
+    // Referential identity preserved on the no-bash path.
+    expect(tools).toBe(input);
+  });
+
+  it("removes every 'bash' occurrence if duplicated", () => {
+    const { tools, hasBash } = splitBashFromToolset(["bash", "read", "bash"]);
+    expect(hasBash).toBe(true);
+    expect(tools).toEqual(["read"]);
   });
 });

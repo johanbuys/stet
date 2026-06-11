@@ -23,6 +23,7 @@ import { FakeAgentRunner } from "./fake-runner.js";
 import {
   runWithWallClock,
   runBash,
+  runBashForSdk,
   BASH_TRUNCATION_MARKER,
   WALL_CLOCK_5MIN_MS,
   TURNS_5MIN,
@@ -639,5 +640,137 @@ describe("runBash — normal completion (no limits hit)", () => {
     });
     expect(result.output).toContain("out");
     expect(result.output).toContain("err");
+  }, 5_000);
+});
+
+// ---------------------------------------------------------------------------
+// runBashForSdk — the SDK BashOperations.exec adapter (T13 review findings)
+//
+// Covers the lossy-mapping seam that the pi-runner integration relies on:
+//   - timeout → throws `timeout:N` (in-band signal; previously discarded → silent success)
+//   - abort   → throws "aborted"
+//   - cap     → marker delivered via onData, no throw, exitCode null
+//   - model-supplied timeout honored as min(model, budget); budget stays a hard ceiling
+// ---------------------------------------------------------------------------
+
+describe("runBashForSdk — timeout surfaces in-band (review finding #1)", () => {
+  const BUDGETS = { bashTimeoutMs: 50, bashOutputCap: 32_768 };
+
+  test("throws `timeout:N` when the command exceeds the budget timeout", async () => {
+    const chunks: Buffer[] = [];
+    await expect(
+      runBashForSdk("sleep 10", "/tmp", { onData: (d) => chunks.push(d) }, BUDGETS),
+    ).rejects.toThrow(/^timeout:/);
+  }, 5_000);
+
+  test("delivers output-so-far via onData before throwing on timeout", async () => {
+    const chunks: Buffer[] = [];
+    await expect(
+      runBashForSdk(
+        "echo started && sleep 10",
+        "/tmp",
+        { onData: (d) => chunks.push(d) },
+        { bashTimeoutMs: 200, bashOutputCap: 32_768 },
+      ),
+    ).rejects.toThrow(/^timeout:/);
+    // The wrapper appends "Command timed out…" to this output, so it must arrive first.
+    expect(Buffer.concat(chunks).toString("utf8")).toContain("started");
+  }, 5_000);
+
+  test("the thrown timeout seconds reflect the effective timeout", async () => {
+    // budget 1000ms → "timeout:1" (the SDK splits on ':' to render "after 1 seconds").
+    await expect(
+      runBashForSdk(
+        "sleep 10",
+        "/tmp",
+        { onData: () => {} },
+        { bashTimeoutMs: 1_000, bashOutputCap: 32_768 },
+      ),
+    ).rejects.toThrow("timeout:1");
+  }, 5_000);
+});
+
+describe("runBashForSdk — model-supplied timeout honored (review finding #2)", () => {
+  test("a shorter model timeout fires before the larger budget timeout", async () => {
+    // budget is 10s, but the model asked for ~0.05s → effective 50ms → fires fast.
+    const start = Date.now();
+    await expect(
+      runBashForSdk(
+        "sleep 10",
+        "/tmp",
+        { onData: () => {}, timeout: 0.05 },
+        { bashTimeoutMs: 10_000, bashOutputCap: 32_768 },
+      ),
+    ).rejects.toThrow(/^timeout:/);
+    // Proves the model timeout, not the 10s budget, governed the kill.
+    expect(Date.now() - start).toBeLessThan(2_000);
+  }, 5_000);
+
+  test("the budget stays a hard ceiling when the model asks for longer", async () => {
+    // model asks for 100s but budget is 50ms → min() clamps to the budget → fires fast.
+    const start = Date.now();
+    await expect(
+      runBashForSdk(
+        "sleep 10",
+        "/tmp",
+        { onData: () => {}, timeout: 100 },
+        { bashTimeoutMs: 50, bashOutputCap: 32_768 },
+      ),
+    ).rejects.toThrow(/^timeout:/);
+    expect(Date.now() - start).toBeLessThan(2_000);
+  }, 5_000);
+});
+
+describe("runBashForSdk — output cap (marker rides in-band, no throw)", () => {
+  test("delivers the truncation marker via onData and returns exitCode null without throwing", async () => {
+    const chunks: Buffer[] = [];
+    const result = await runBashForSdk(
+      "yes",
+      "/tmp",
+      { onData: (d) => chunks.push(d) },
+      { bashTimeoutMs: 5_000, bashOutputCap: 50 },
+    );
+    expect(Buffer.concat(chunks).toString("utf8")).toContain(BASH_TRUNCATION_MARKER.trim());
+    // Killed-on-cap ⇒ exitCode null; the marker (not an exit code) is the cap's signal.
+    expect(result.exitCode).toBeNull();
+  }, 5_000);
+});
+
+describe("runBashForSdk — external abort surfaces as 'aborted'", () => {
+  test("throws 'aborted' when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      runBashForSdk(
+        "sleep 10",
+        "/tmp",
+        { onData: () => {}, signal: controller.signal },
+        { bashTimeoutMs: 10_000, bashOutputCap: 32_768 },
+      ),
+    ).rejects.toThrow("aborted");
+  }, 5_000);
+});
+
+describe("runBashForSdk — normal completion returns the exit code", () => {
+  test("returns the command exit code and delivers output without throwing", async () => {
+    const chunks: Buffer[] = [];
+    const result = await runBashForSdk(
+      "echo hello",
+      "/tmp",
+      { onData: (d) => chunks.push(d) },
+      { bashTimeoutMs: 5_000, bashOutputCap: 32_768 },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(Buffer.concat(chunks).toString("utf8")).toBe("hello\n");
+  }, 5_000);
+
+  test("propagates a non-zero exit code unchanged (wrapper formats it)", async () => {
+    const result = await runBashForSdk(
+      "exit 3",
+      "/tmp",
+      { onData: () => {} },
+      { bashTimeoutMs: 5_000, bashOutputCap: 32_768 },
+    );
+    expect(result.exitCode).toBe(3);
   }, 5_000);
 });
