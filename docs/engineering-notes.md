@@ -158,6 +158,27 @@ so these matter most.
   → status `"error"`; a wrongful cancel → `CancelledError` + aborted signal → status `"cancelled"`. Then
   `status !== "cancelled"` has real discriminating power. (T15, PR-review.)
 
+## POSIX signal handling (`src/signals.ts`, T16)
+
+- **Use `process.rawListeners(sig)` to unit-test signal handlers without triggering Vitest's own
+  handlers.** `process.emit("SIGINT")` fires ALL registered handlers including the test runner's,
+  which may terminate the test process. `rawListeners` returns the actual function (for `on`) or
+  the wrapper (for `once`); calling it directly is safe and isolated. (T16.)
+- **Method signatures in interfaces cause `typescript(unbound-method)` lint warnings when
+  destructured.** `interface F { foo(): void }` signals the linter that `foo` might rely on `this`
+  when used as a standalone fn after destructuring. Use property-typed arrow-fn signatures instead:
+  `interface F { foo: () => void }`. The runtime behavior is identical but the linter is satisfied.
+  (T16.)
+- **Signal exit codes are 128 + signal number (POSIX).** SIGINT (2) ⇒ 130; SIGTERM (15) ⇒ 143.
+  Exit 2 stays reserved for tool errors. A second SIGINT during teardown calls `process.exit(130)`
+  directly — no report is written, teardown is refused. SIGTERM has no second-signal escalation.
+  (T16, PRD §3.4.4.)
+- **Integration tests for signal handling need a spawned subprocess fixture.** You cannot send a
+  real SIGINT to the test process from within a test without risking killing Vitest. Spawn a
+  separate bun child process (`bun run fixtures/signal-test/run.ts`), wait for a "READY" line on
+  stdout, then call `proc.kill("SIGINT"/"SIGTERM")`. Bun runs `.ts` files natively so no
+  compilation step is needed. (T16.)
+
 ## Testing
 
 - **Mock at the seam you own (`FakeAgentRunner`), never at SDK internals** — the guards' failure

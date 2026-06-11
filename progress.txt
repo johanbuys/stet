@@ -1,0 +1,47 @@
+T16 — Teardown & signal handling (Issue #21, 2026-06-11)
+
+## What was built
+
+- `src/signals.ts` — POSIX signal handler wired to the scheduler's AbortController.
+  SIGINT → exit 130; SIGTERM → exit 143; second SIGINT force-kills via process.exit(130)
+  (no report written — teardown was refused). First signal wins across SIGINT vs SIGTERM
+  races. cleanup() removes both listeners after the run.
+
+- `src/teardown.ts` — No-op service teardown seam for M4. Real cleanup will be registered
+  here when Phase 5's start_service lands; for now stub phases own no services.
+
+- `src/cli.ts` — main() gained an optional `signal?: AbortSignal` 4th parameter (backward
+  compatible). Entry block installs signal handlers, passes the AbortSignal to runPhases,
+  and sets process.exitCode to the signal's exit code (130/143) when getReceived() is
+  non-null — taking priority over the report's exit code. teardownServices() called after
+  main() returns.
+
+- `fixtures/signal-test/run.ts` — Child-process fixture for integration tests. Spawned via
+  `bun run`, runs two 30s fake agent phases, writes "READY\n" on stdout once handlers are
+  installed, then writes the JSON partial report and exits with the appropriate code.
+
+- `src/signals.test.ts` — 12 tests: 2 unit for signalExitCode, 8 unit for
+  installSignalHandlers, 2 integration (child-process harness, 10s timeout each).
+
+- `src/teardown.test.ts` — 2 tests verifying teardownServices() is callable and returns
+  undefined.
+
+## Interesting discoveries
+
+1. process.rawListeners(sig) is the right tool for unit-testing signal handlers without
+   triggering the test runner's own handlers. process.emit("SIGINT") fires ALL listeners
+   including Vitest's, which may terminate the test process. rawListeners() returns the
+   bare function for `on`-registered handlers, safe to call directly.
+
+2. Interface method signatures (`foo(): void`) vs property arrow types (`foo: () => void`)
+   — oxlint's `typescript(unbound-method)` warns on the former when destructured, but not
+   the latter. Runtime behavior is identical; the property form is the right default for
+   interfaces whose implementors use closures (not class methods with `this`).
+
+3. Bun runs .ts files natively, so child-process fixtures can be .ts without a build step.
+   All imports use .js extensions (bun maps .js → .ts at resolution time), consistent with
+   the rest of the test infra.
+
+4. The "second SIGINT force-kills" requirement means process.exit(130) is called directly
+   inside the signal handler — no await, no report. This is the one place where the
+   never-throws contract deliberately exits synchronously rather than returning a Result.

@@ -23,6 +23,13 @@
   "bin": {
     "stet": "dist/cli.mjs"
   },
+  "workspaces": {
+    "catalog": {
+      "vite": "npm:@voidzero-dev/vite-plus-core@latest",
+      "vitest": "npm:@voidzero-dev/vite-plus-test@latest",
+      "vite-plus": "latest"
+    }
+  },
   "files": [
     "dist"
   ],
@@ -46,6 +53,10 @@
     "@types/node": "^25.5.2",
     "typescript": "^6.0.3",
     "vite-plus": "catalog:"
+  },
+  "overrides": {
+    "vite": "catalog:",
+    "vitest": "catalog:"
   },
   "packageManager": "pnpm@10.33.0"
 }

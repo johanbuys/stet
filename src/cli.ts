@@ -43,6 +43,8 @@ import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases
 import type { PhaseConfiguration } from "./phases/types.js";
 import { runPhases } from "./scheduler.js";
 import { assembleReport } from "./report.js";
+import { installSignalHandlers, signalExitCode } from "./signals.js";
+import { teardownServices } from "./teardown.js";
 
 // ---------------------------------------------------------------------------
 // Package version
@@ -258,6 +260,7 @@ export async function main(
   argv: string[],
   io: CliIo,
   phases: PhaseConfiguration[],
+  signal?: AbortSignal,
 ): Promise<Result<{ exitCode: 0 | 1 }, StetError>> {
   // ── 1. Parse flags ────────────────────────────────────────────────────────
   const flagsResult = parseFlags(argv);
@@ -329,6 +332,8 @@ export async function main(
     // Format: "stet: <phaseId> · <toolName>" — minimal liveness signal for M2+.
     // M9 polishes the human surface; this wires the plumbing end-to-end.
     onTool: (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
+    // T16: scheduler cancellation signal (SIGINT/SIGTERM → phases cancelled → partial report).
+    signal,
   });
   const durationMs = Date.now() - runStartMs;
 
@@ -409,6 +414,14 @@ if (isEntryPoint) {
   // main() receives phases as a parameter and never touches the registry itself.
   registerDefaultPhases();
 
+  // T16: install POSIX signal handlers before any async work so a signal that fires
+  // during SDK loading or scope detection still fires the controller. The scheduler
+  // receives the combined signal via main()'s new signal parameter; when it fires,
+  // in-flight phases cancel and return "cancelled" reports, and main() writes the
+  // partial report normally before returning.
+  const schedulerController = new AbortController();
+  const { cleanup: cleanupSignals, getReceived } = installSignalHandlers(schedulerController);
+
   // Unreachable by design (Result discipline means nothing escapes main()) —
   // this boundary enforces the honesty contract anyway: if something ever throws,
   // it is a stet internal bug → exit 2, not exit 1 (which means "gating findings").
@@ -433,17 +446,35 @@ if (isEntryPoint) {
       registerPhase(makeStubAgent(new PiAgentRunner(), process.env.PI_TEST_MODEL));
     }
 
-    const result = await main(process.argv.slice(2), realIo, registeredPhases());
-    const { exitCode, stderr } = resolveExit(result);
-    if (stderr !== undefined) {
-      process.stderr.write(stderr + "\n");
+    const result = await main(
+      process.argv.slice(2),
+      realIo,
+      registeredPhases(),
+      schedulerController.signal,
+    );
+    cleanupSignals();
+    // T16: no-op for M4; Phase 5's start_service registers its cleanup here.
+    teardownServices();
+
+    const received = getReceived();
+    if (received !== null) {
+      // Signal interrupted the run: partial report already written by main() (with
+      // cancelled phases). Exit with the POSIX signal code — PRD §3.4.4.
+      // Use process.exitCode (not process.exit()) so stdout flushes before teardown.
+      process.exitCode = signalExitCode(received);
+    } else {
+      const { exitCode, stderr } = resolveExit(result);
+      if (stderr !== undefined) {
+        process.stderr.write(stderr + "\n");
+      }
+      // Use process.exitCode rather than process.exit() so that Node waits for all
+      // streams (stdout, stderr) to flush before tearing down. process.exit() returns
+      // immediately and can truncate output when stdout is piped — exactly how
+      // --format json consumers and loops receive the RunReport.
+      process.exitCode = exitCode;
     }
-    // Use process.exitCode rather than process.exit() so that Node waits for all
-    // streams (stdout, stderr) to flush before tearing down. process.exit() returns
-    // immediately and can truncate output when stdout is piped — exactly how
-    // --format json consumers and loops receive the RunReport.
-    process.exitCode = exitCode;
   } catch (err) {
+    cleanupSignals();
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`stet: internal error — ${message}\n`);
     process.exitCode = 2;
