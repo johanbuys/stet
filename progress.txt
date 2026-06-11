@@ -17,6 +17,25 @@
 - vp check --fix reformatted `budgets.test.ts` and `fake-runner.ts` (trailing whitespace + line wrapping). Always run `vp check --fix` before committing.
 ----
 
+## 2026-06-11 - T13: Bash-level limits (timeout + output cap)
+
+**What was done:** Implemented T13 — bash-level limit enforcement (timeout + output cap).
+
+- **`src/agent/budgets.ts`** (extended): added `BASH_TRUNCATION_MARKER`, `RunBashOptions`, `RunBashResult`, and `runBash(command, options)`. The function uses `child_process.spawn` with `detached: true` (so the entire process group can be killed via `process.kill(-pid, "SIGKILL")`). On timeout, kills the process group and returns `{ timedOut: true, output: <output so far> }`. On output cap exceeded, truncates and appends `BASH_TRUNCATION_MARKER`, kills the process group, returns `{ truncated: true }`.
+- **`src/agent/pi-runner.ts`** (extended): imported `createBashToolDefinition`, `BashOperations`, `ToolDefinition`, and `runBash`. When "bash" is in the toolset, filters it out of the string toolset and creates a custom bash tool definition using `createBashToolDefinition` with a `BashOperations.exec` that calls `runBash`. The custom bash tool replaces the built-in bash with our limit-enforcing version.
+- **`src/agent/budgets.test.ts`** (extended): 14 new tests covering timeout (sleep + emit-before-hang), output cap (printf, yes), normal completion (echo, exit codes, stderr), and the exact marker constant. All tests use real `child_process.spawn` (no fake timers), with small timeoutMs (50ms) and outputCap values.
+
+**Architecture note (plan §2a/P10):** Bash limits are transparent to the phase — the agent gets output-so-far + the truncation marker, not a BudgetError phase failure. This is distinct from T12's wall-clock limit (which produces Err(BudgetError)).
+
+**Learnings:**
+- With `shell: true` spawn, killing the shell process does NOT kill its children (e.g. `yes` in `sh -c yes`). The children inherit the shell's stdout pipe and keep it open indefinitely, causing test hangs. Fix: spawn with `detached: true` so the child gets a new process group (pgid = child.pid), then kill the group with `process.kill(-child.pid, "SIGKILL")`.
+- `createBashToolDefinition` returns `ToolDefinition<TObject<...>, BashToolDetails | undefined, BashRenderState>` which is not directly assignable to `ToolDefinition` (the base type with defaults). TypeScript requires an explicit `as ToolDefinition` cast when adding to `customTools: ToolDefinition[]`.
+- `createBashToolDefinition` and `createLocalBashOperations` are exported from `@earendil-works/pi-coding-agent` main index — no need for deep imports.
+- The `BashOperations.exec` callback-based API (`onData: (data: Buffer) => void`) works fine with our `runBash` return value by calling `onData(Buffer.from(result.output))` once with the full accumulated output after `runBash` returns.
+- `vp check --fix` reformatted the `import type` block in `pi-runner.ts` from inline to multi-line.
+
+----
+
 ## 2026-06-11 - T12 follow-up: Added budget class constants
 
 **What was done:** Added budget class constants to `src/agent/budgets.ts` (WALL_CLOCK_5MIN_MS=300_000, TURNS_5MIN=50, WALL_CLOCK_15MIN_MS=900_000, TURNS_15MIN=120, DEFAULT_BASH_TIMEOUT_MS=60_000, DEFAULT_BASH_OUTPUT_CAP=32*1024) per PRD §3.5 / decision #22, and 6 constant-verification tests to `budgets.test.ts`. Prior agent's implementation already landed the main `runWithWallClock` function and 20 tests.

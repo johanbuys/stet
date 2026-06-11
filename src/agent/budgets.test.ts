@@ -22,6 +22,8 @@ import { PhaseReport } from "../schema/report.js";
 import { FakeAgentRunner } from "./fake-runner.js";
 import {
   runWithWallClock,
+  runBash,
+  BASH_TRUNCATION_MARKER,
   WALL_CLOCK_5MIN_MS,
   TURNS_5MIN,
   WALL_CLOCK_15MIN_MS,
@@ -484,4 +486,122 @@ describe("budget class constants (PRD §3.5, decision #22)", () => {
   test("bash output cap default is 32 KiB (32768 bytes)", () => {
     expect(DEFAULT_BASH_OUTPUT_CAP).toBe(32 * 1024);
   });
+});
+
+// ---------------------------------------------------------------------------
+// runBash — bash-level limits (T13 acceptance)
+// These tests use real child_process.spawn (no fake timers) with small limits.
+// ---------------------------------------------------------------------------
+
+describe("runBash — timeout (T13: sleep command hits timeout, output-so-far returned)", () => {
+  test("returns timedOut: true when process exceeds timeoutMs", async () => {
+    const result = await runBash("sleep 10", { cwd: "/tmp", timeoutMs: 50, outputCap: 32_768 });
+    expect(result.timedOut).toBe(true);
+  }, 3_000);
+
+  test("exitCode is null when process is killed by timeout", async () => {
+    const result = await runBash("sleep 10", { cwd: "/tmp", timeoutMs: 50, outputCap: 32_768 });
+    expect(result.exitCode).toBeNull();
+  }, 3_000);
+
+  test("output-so-far is returned (empty for sleep)", async () => {
+    const result = await runBash("sleep 10", { cwd: "/tmp", timeoutMs: 50, outputCap: 32_768 });
+    expect(result.output).toBe("");
+  }, 3_000);
+
+  test("truncated is false when timeout fires without cap hit", async () => {
+    const result = await runBash("sleep 10", { cwd: "/tmp", timeoutMs: 50, outputCap: 32_768 });
+    expect(result.truncated).toBe(false);
+  }, 3_000);
+
+  test("output-so-far is returned for a command that emits before hanging", async () => {
+    // Emit one line then hang; timeout should capture the first line
+    const result = await runBash("echo started && sleep 10", {
+      cwd: "/tmp",
+      timeoutMs: 200,
+      outputCap: 32_768,
+    });
+    expect(result.timedOut).toBe(true);
+    expect(result.output).toContain("started");
+  }, 3_000);
+});
+
+describe("runBash — output cap (T13: output over 32KB capped with exact marker)", () => {
+  test("returns truncated: true when output exceeds outputCap", async () => {
+    // printf generates exactly 201 bytes (200 spaces + newline); cap at 50 triggers truncation
+    const result = await runBash("printf '%200s\\n'", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 50,
+    });
+    expect(result.truncated).toBe(true);
+  }, 5_000);
+
+  test("output contains the exact BASH_TRUNCATION_MARKER", async () => {
+    const result = await runBash("printf '%200s\\n'", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 50,
+    });
+    expect(result.output).toContain("…[stet: output truncated at 32KB]");
+  }, 5_000);
+
+  test("BASH_TRUNCATION_MARKER is the exact string appended (plan §2a, T13)", () => {
+    expect(BASH_TRUNCATION_MARKER).toBe("\n…[stet: output truncated at 32KB]");
+  });
+
+  test("output does not grow unboundedly past outputCap + marker length", async () => {
+    const result = await runBash("printf '%200s\\n'", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 50,
+    });
+    const maxExpected = 50 + BASH_TRUNCATION_MARKER.length + 1; // +1 for a chunk boundary
+    expect(result.output.length).toBeLessThan(maxExpected + 50);
+  }, 5_000);
+
+  test("exitCode is null when process is killed by output cap", async () => {
+    // yes generates infinite output — cap forces kill
+    const result = await runBash("yes", { cwd: "/tmp", timeoutMs: 5_000, outputCap: 50 });
+    expect(result.truncated).toBe(true);
+    expect(result.exitCode).toBeNull();
+  }, 5_000);
+});
+
+describe("runBash — normal completion (no limits hit)", () => {
+  test("returns the command output when within limits", async () => {
+    const result = await runBash("echo hello", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 32_768,
+    });
+    expect(result.output).toBe("hello\n");
+  }, 5_000);
+
+  test("timedOut and truncated are false on normal completion", async () => {
+    const result = await runBash("echo hello", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 32_768,
+    });
+    expect(result.timedOut).toBe(false);
+    expect(result.truncated).toBe(false);
+  }, 5_000);
+
+  test("exitCode reflects the command exit code", async () => {
+    const success = await runBash("exit 0", { cwd: "/tmp", timeoutMs: 5_000, outputCap: 32_768 });
+    expect(success.exitCode).toBe(0);
+    const fail = await runBash("exit 2", { cwd: "/tmp", timeoutMs: 5_000, outputCap: 32_768 });
+    expect(fail.exitCode).toBe(2);
+  }, 5_000);
+
+  test("stderr is captured alongside stdout", async () => {
+    const result = await runBash("echo out && echo err >&2", {
+      cwd: "/tmp",
+      timeoutMs: 5_000,
+      outputCap: 32_768,
+    });
+    expect(result.output).toContain("out");
+    expect(result.output).toContain("err");
+  }, 5_000);
 });

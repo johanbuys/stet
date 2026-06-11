@@ -19,6 +19,7 @@
 import {
   AuthStorage,
   createAgentSession,
+  createBashToolDefinition,
   DefaultResourceLoader,
   defineTool,
   getAgentDir,
@@ -26,11 +27,16 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentToolResult,
+  BashOperations,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { Result } from "better-result";
 import { CancelledError, ModelError, NoSubmitError } from "../errors.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunInputs, AgentRunSuccess, AgentRunner } from "./runner.js";
+import { runBash } from "./budgets.js";
 import { SUBMIT_TOOL_NAME, SubmitTool } from "./submit-tool.js";
 
 // ---------------------------------------------------------------------------
@@ -162,9 +168,37 @@ export class PiAgentRunner implements AgentRunner {
     // inputs.toolset is forwarded verbatim (mutation-free, phase-owned).
     // SUBMIT_TOOL_NAME is ensured present as the single completion tool —
     // a safety net in case a phase omits it, but stub-agent already includes it.
-    const toolset = inputs.toolset.includes(SUBMIT_TOOL_NAME)
+    const toolsetWithSubmit = inputs.toolset.includes(SUBMIT_TOOL_NAME)
       ? inputs.toolset
       : [...inputs.toolset, SUBMIT_TOOL_NAME];
+
+    // T13: replace the built-in "bash" with a custom bash tool that enforces
+    // the per-call timeout and output cap from inputs.budgets (PRD §3.5, plan §2a/T13).
+    // The string "bash" selects the SDK's default shell (no limits); our custom tool
+    // delegates to runBash() which kills on timeout and truncates at outputCap.
+    const hasBash = toolsetWithSubmit.includes("bash");
+    const toolset = hasBash ? toolsetWithSubmit.filter((t) => t !== "bash") : toolsetWithSubmit;
+
+    const bashOps: BashOperations = {
+      exec: async (command, cwd, { onData, signal, env }) => {
+        const result = await runBash(command, {
+          cwd,
+          timeoutMs: inputs.budgets.bashTimeoutMs,
+          outputCap: inputs.budgets.bashOutputCap,
+          signal,
+          env: env ?? undefined,
+        });
+        if (result.output) {
+          onData(Buffer.from(result.output, "utf8"));
+        }
+        return { exitCode: result.exitCode };
+      },
+    };
+    // Cast needed: createBashToolDefinition returns a more-specific ToolDefinition
+    // generic than the base ToolDefinition<TSchema, unknown, any> that customTools expects.
+    const bashToolDef: ToolDefinition | null = hasBash
+      ? (createBashToolDefinition(inputs.cwd, { operations: bashOps }) as ToolDefinition)
+      : null;
 
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
     // Captured inside the try block, before dispose(), while the session is live.
@@ -198,7 +232,7 @@ export class PiAgentRunner implements AgentRunner {
         modelRegistry,
         resourceLoader: loader,
         tools: toolset,
-        customTools: [submitTool],
+        customTools: [submitTool, ...(bashToolDef ? [bashToolDef] : [])],
         sessionManager: SessionManager.inMemory(inputs.cwd),
         settingsManager: SettingsManager.inMemory({
           compaction: { enabled: true },
