@@ -16,3 +16,13 @@
 - `PhaseId` pattern `^[a-z][a-z0-9-]*$` rejects dots — don't use dotted finding ids as phase ids in tests. Finding ids like `"x.test"` are fine (they're `string`, not `PhaseId`).
 - vp check --fix reformatted `budgets.test.ts` and `fake-runner.ts` (trailing whitespace + line wrapping). Always run `vp check --fix` before committing.
 ----
+
+## 2026-06-11 - T12 follow-up: Added budget class constants
+
+**What was done:** Added budget class constants to `src/agent/budgets.ts` (WALL_CLOCK_5MIN_MS=300_000, TURNS_5MIN=50, WALL_CLOCK_15MIN_MS=900_000, TURNS_15MIN=120, DEFAULT_BASH_TIMEOUT_MS=60_000, DEFAULT_BASH_OUTPUT_CAP=32*1024) per PRD §3.5 / decision #22, and 6 constant-verification tests to `budgets.test.ts`. Prior agent's implementation already landed the main `runWithWallClock` function and 20 tests.
+
+**Learnings:**
+- When a prior agent has already committed to the branch, check git status first to avoid diverged commits. Use `git fetch origin && git log origin/<branch>` to see what's there.
+- The prior agent used `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync()` which is the correct pattern for timer tests — no real sleeps, tests run in 16ms not 200ms.
+
+----

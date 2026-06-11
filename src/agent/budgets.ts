@@ -19,6 +19,24 @@ import { BudgetError } from "../errors.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunner, AgentRunInputs, AgentRunSuccess } from "./runner.js";
 
+// ---------------------------------------------------------------------------
+// Budget class constants (PRD §3.5, decision #22)
+// ---------------------------------------------------------------------------
+
+/** 5-minute budget class — static agent phases (PRD §3.5). */
+export const WALL_CLOCK_5MIN_MS = 5 * 60 * 1000;
+export const TURNS_5MIN = 50;
+
+/** 15-minute budget class — gate phases and behavioral phases (PRD §3.5). */
+export const WALL_CLOCK_15MIN_MS = 15 * 60 * 1000;
+export const TURNS_15MIN = 120;
+
+/** Bash tool timeout in milliseconds (PRD §3.5, T13). */
+export const DEFAULT_BASH_TIMEOUT_MS = 60_000;
+
+/** Bash output cap in bytes — 32 KiB (PRD §3.5, T13). */
+export const DEFAULT_BASH_OUTPUT_CAP = 32 * 1024;
+
 /**
  * Race the runner.run() promise against a wall-clock timeout.
  *

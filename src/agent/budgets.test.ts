@@ -20,7 +20,15 @@ import { describe, expect, test, vi, afterEach } from "vite-plus/test";
 import { BudgetError } from "../errors.js";
 import { PhaseReport } from "../schema/report.js";
 import { FakeAgentRunner } from "./fake-runner.js";
-import { runWithWallClock } from "./budgets.js";
+import {
+  runWithWallClock,
+  WALL_CLOCK_5MIN_MS,
+  TURNS_5MIN,
+  WALL_CLOCK_15MIN_MS,
+  TURNS_15MIN,
+  DEFAULT_BASH_TIMEOUT_MS,
+  DEFAULT_BASH_OUTPUT_CAP,
+} from "./budgets.js";
 import { makeAgentPhase } from "../phases/agent-phase.js";
 import type { AgentRunInputs } from "./runner.js";
 import type { PhaseContext } from "../phases/types.js";
@@ -445,5 +453,35 @@ describe("makeAgentPhase — turn count budget exceeded (T12 acceptance: runner-
     const report = await phase.run(makeCtx());
 
     expect(report.cost.durationMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Budget class constants (PRD §3.5, decision #22)
+// ---------------------------------------------------------------------------
+
+describe("budget class constants (PRD §3.5, decision #22)", () => {
+  test("5-min class: wall clock is 300_000ms", () => {
+    expect(WALL_CLOCK_5MIN_MS).toBe(300_000);
+  });
+
+  test("5-min class: turn ceiling is 50", () => {
+    expect(TURNS_5MIN).toBe(50);
+  });
+
+  test("15-min class: wall clock is 900_000ms", () => {
+    expect(WALL_CLOCK_15MIN_MS).toBe(900_000);
+  });
+
+  test("15-min class: turn ceiling is 120", () => {
+    expect(TURNS_15MIN).toBe(120);
+  });
+
+  test("bash timeout default is 60_000ms", () => {
+    expect(DEFAULT_BASH_TIMEOUT_MS).toBe(60_000);
+  });
+
+  test("bash output cap default is 32 KiB (32768 bytes)", () => {
+    expect(DEFAULT_BASH_OUTPUT_CAP).toBe(32 * 1024);
   });
 });
