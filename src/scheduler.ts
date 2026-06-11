@@ -44,7 +44,7 @@ export interface SchedulerContext {
 }
 
 // ---------------------------------------------------------------------------
-// Skipped report builder
+// Report builders for non-running phases
 // ---------------------------------------------------------------------------
 
 /**
@@ -63,6 +63,40 @@ function skippedReport(phase: PhaseConfiguration): PhaseReport {
     audit: {},
     cost: { durationMs: 0 },
   };
+}
+
+/**
+ * Synthesize a PhaseReport for a phase cancelled before it got to run.
+ * T15: used when the gate abort signal fires before a phase's activation completes.
+ */
+function cancelledReport(phase: PhaseConfiguration, reason: string): PhaseReport {
+  return {
+    phase: phase.id,
+    status: "cancelled",
+    reason,
+    findings: [],
+    audit: {},
+    cost: { durationMs: 0 },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gate failure detection
+// ---------------------------------------------------------------------------
+
+/**
+ * A cancel-class gate "fails" (for cancellation purposes) when it completed its run
+ * AND reported at least one error-severity finding.
+ *
+ * PRD §3.4.3: "A gate timeout is always report-only regardless of class — a merely-slow
+ * suite must not nuke the AI phases; only a failing gate proves the code doesn't function."
+ *
+ * status "error" covers both budget expiry (timeout) and spawn failures — both are
+ * report-only under this rule. status "completed" with error findings = the gate ran
+ * and explicitly reported failure.
+ */
+function isGateFailure(report: PhaseReport): boolean {
+  return report.status === "completed" && report.findings.some((f) => f.severity === "error");
 }
 
 // ---------------------------------------------------------------------------
@@ -113,40 +147,82 @@ async function runPhaseGuarded(
 /**
  * Run all configured phases and return one PhaseReport per phase, in registration order.
  *
- * - Activated phases run concurrently via Promise.all (all promises start before the await).
- *   Real cancellation machinery and scheduler policies arrive in M4.
- * - Non-activated phases are synthesized as `skipped` with the rule named.
- * - Every configured phase appears exactly once (PRD §4.5 acceptance #6).
- * - Each phase receives its own config slice (`config.phases?.[id]`).
- *   Phases validate their own slice; the scheduler passes it through untyped.
+ * Execution model (PRD §3.4.2): all activated phases launch concurrently via Promise.all.
+ * Wall-clock ≈ slowest phase (proven by T14).
  *
- * INFALLIBLE: this function never throws. Each phase's `run()` is wrapped in
- * `runPhaseGuarded`, which catches any throw/rejection and synthesizes a
- * PhaseReport { status: "error" } so the pipeline always completes.
+ * Cancellation classes (T15, PRD §3.4.3):
+ * - An internal AbortController (`gateController`) fires when a cancel-class gate fails.
+ * - The external scheduler signal (T16: SIGINT/SIGTERM) and the internal gate signal are
+ *   merged via AbortSignal.any so either can abort in-flight agent phases.
+ * - Cancel-class gate failure: phase.cancelClass === true AND the gate completed with
+ *   error-severity findings (status "completed"). A gate timeout (status "error") is always
+ *   report-only regardless of cancelClass (PRD §3.4.3 — "only a failing gate proves the code
+ *   doesn't function").
+ * - Phases that haven't started yet when the abort fires are synthesized as "cancelled".
+ * - In-flight agent phases receive the combined signal and return "cancelled" (T15 agent-phase).
+ *
+ * Non-activated phases → "skipped" with reason. Every phase appears exactly once (acceptance #6).
+ * Each phase receives its own config slice; phases validate their own slice.
+ *
+ * INFALLIBLE: this function never throws. Each phase's `run()` is wrapped in `runPhaseGuarded`,
+ * and activation errors are caught inline — the pipeline always completes.
  */
 export async function runPhases(
   phases: PhaseConfiguration[],
   ctx: SchedulerContext,
 ): Promise<PhaseReport[]> {
+  // Internal gate-cancellation controller (T15): fires when a cancel-class gate fails.
+  const gateController = new AbortController();
+
+  // Merge external cancellation signal (T16: POSIX signals) with the internal gate signal.
+  // Either firing aborts all in-flight agent phases. AbortSignal.any propagates the reason
+  // of whichever signal fires first, so agent phases see "gates failed: <id>" or the T16 reason.
+  const combinedSignal: AbortSignal =
+    ctx.signal !== undefined
+      ? AbortSignal.any([ctx.signal, gateController.signal])
+      : gateController.signal;
+
+  const innerCtx: SchedulerContext = { ...ctx, signal: combinedSignal };
+
   return Promise.all(
-    phases.map((phase) => {
+    phases.map(async (phase): Promise<PhaseReport> => {
       // Guard activation() — a throwing activation is a contract violation just like a
-      // throwing run(). Catch it here so the Promise.all never rejects due to a buggy phase.
+      // throwing run(). Catch it here so Promise.all never rejects due to a buggy phase.
       let activated: boolean;
       try {
         activated = phase.activation({ scope: ctx.scope });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return Promise.resolve<PhaseReport>({
+        return {
           phase: phase.id,
           status: "error",
           reason: `phase violated its contract: activation threw: ${message}`,
           findings: [],
           audit: {},
           cost: { durationMs: 0 },
-        });
+        };
       }
-      return activated ? runPhaseGuarded(phase, ctx) : Promise.resolve(skippedReport(phase));
+
+      if (!activated) {
+        return skippedReport(phase);
+      }
+
+      // T15: if the abort signal already fired before this phase starts (e.g. another
+      // cancel-class gate already failed), cancel it immediately without running.
+      if (combinedSignal.aborted) {
+        return cancelledReport(phase, String(combinedSignal.reason));
+      }
+
+      const report = await runPhaseGuarded(phase, innerCtx);
+
+      // T15: cancel-class gate failure → abort all other in-flight agent phases.
+      // Only trigger if: this phase is cancel-class, the gate hasn't fired yet, and the gate
+      // actually FAILED (not timed out or errored internally — those are always report-only).
+      if (phase.cancelClass === true && !gateController.signal.aborted && isGateFailure(report)) {
+        gateController.abort(`gates failed: ${phase.id}`);
+      }
+
+      return report;
     }),
   );
 }

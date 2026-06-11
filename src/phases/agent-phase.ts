@@ -285,6 +285,22 @@ export function makeAgentPhase(runner: AgentRunner, cfg: AgentPhaseConfig): Phas
 
       // --- Error path ---
       if (runResult.isErr()) {
+        // T15: scheduler-signal cancellation → status "cancelled", not "error".
+        // When ctx.signal fired and the runner returned CancelledError, the abort is
+        // external (gate failure or T16 POSIX signal), not a budget expiry.
+        // signal.reason carries the cancellation context, e.g. "gates failed: stub-det".
+        if (ctx.signal?.aborted && runResult.error._tag === "CancelledError") {
+          const reason =
+            typeof ctx.signal.reason === "string" ? ctx.signal.reason : "cancelled by scheduler";
+          return {
+            phase: cfg.id,
+            status: "cancelled",
+            reason,
+            findings: [],
+            audit: {},
+            cost: { durationMs },
+          };
+        }
         return agentErrorToReport(cfg.id, runResult.error, durationMs);
       }
 

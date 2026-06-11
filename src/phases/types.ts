@@ -80,4 +80,16 @@ export interface PhaseConfiguration {
    * M2+: set by makeAgentPhase(); deterministic phases (stub-det) leave it undefined.
    */
   toolset?: string[];
+  /**
+   * Cancel class (M4/T15): when true, a failure in this phase triggers cancellation of
+   * all in-flight agent phases (PRD §3.4.3). Absent (or false) → report-only: failures
+   * become findings but do not abort other phases.
+   *
+   * A gate timeout (phase status "error" from budget expiry) is always report-only
+   * regardless of this flag — only a gate that actually ran and failed proves the code
+   * doesn't function.
+   *
+   * Config override: `gates.<name>.cancel: true|false` in stet.config.yml (M5/T17).
+   */
+  cancelClass?: boolean;
 }
