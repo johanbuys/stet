@@ -24,7 +24,7 @@
 import { runWithSignals, signalExitCode } from "../../src/signals.js";
 import { runPhases } from "../../src/scheduler.js";
 import { makeDelayAgentPhase } from "../../src/test-support/agent-fixtures.js";
-import type { StetConfig } from "../../src/schema/config.js";
+import type { StetConfig } from "../../src/config/schema.js";
 
 function makeSlowPhase(id: string) {
   return makeDelayAgentPhase(id, 30_000);

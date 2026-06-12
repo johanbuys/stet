@@ -12,8 +12,17 @@ import { type Static, Type } from "@sinclair/typebox";
 export const PhaseId = Type.String({
   pattern: "^[a-z][a-z0-9-]*$",
   description:
-    "Open kebab-case phase identifier. Built-in set: gates, spec, review, test-quality, behavioral.",
+    "Open kebab-case phase identifier. Built-in set: gates, spec, review, test-quality, behavioral. " +
+    '"harness" is reserved for harness-emitted findings and cannot name a real phase.',
 });
+
+/**
+ * Reserved phase id for findings the harness itself emits (config-load warnings,
+ * and future harness-level sources like partial-coverage). The CLI injects a
+ * synthetic PhaseReport under this id and rejects any real phase that claims it —
+ * the RunReport contract is "one entry per configured phase" (PRD §4.5).
+ */
+export const HARNESS_PHASE_ID = "harness";
 
 /** The gating severity vocabulary (PRD §4.2, decision #1). */
 export const Severity = Type.Union([

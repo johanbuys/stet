@@ -27,11 +27,14 @@ export interface CapturedIo {
  * Build a CliIo that captures stdout and stderr writes into arrays.
  * No network, no disk — pure in-memory capture for test assertions.
  */
-export function makeIo(cwd: string): CapturedIo {
+export function makeIo(cwd: string, homeDir: string = cwd): CapturedIo {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
   const io: CliIo = {
     cwd,
+    // Default homeDir to cwd (a temp dir) so e2e tests never read the real
+    // ~/.config/stet/config.yml off the host machine. Override per test as needed.
+    homeDir,
     stdout: (line) => stdoutLines.push(line),
     stderr: (line) => stderrLines.push(line),
   };

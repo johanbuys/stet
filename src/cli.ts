@@ -30,14 +30,17 @@
  */
 
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { matchError, Result } from "better-result";
-import { ConfigError, type StetError } from "./errors.js";
-import { loadConfig } from "./schema/config.js";
-import type { Severity } from "./schema/finding.js";
-import { parseRunReport } from "./schema/report.js";
+import { ConfigError, SchemaError, type StetError } from "./errors.js";
+import { loadConfig } from "./config/load.js";
+import { BUILT_IN_DEFAULTS, type StetConfig } from "./config/schema.js";
+import { HARNESS_PHASE_ID, type Severity } from "./schema/finding.js";
+import type { PhaseReport } from "./schema/report.js";
+import { parseRunReport, syntheticPhaseReport } from "./schema/report.js";
 import { detectScope, type ScopeFlags } from "./scope.js";
 import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases/index.js";
 import type { PhaseConfiguration } from "./phases/types.js";
@@ -116,6 +119,8 @@ export function resolveExit(result: Result<{ exitCode: 0 | 1 | 2 }, StetError>):
 
 export interface CliIo {
   cwd: string;
+  /** Home directory — source of the user config layer. Injected so e2e tests stay hermetic. */
+  homeDir: string;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
 }
@@ -219,19 +224,16 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
 }
 
 // ---------------------------------------------------------------------------
-// failOn precedence helper
+// Flag → config overlay
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve the effective failOn.
- * Precedence (M1 slice of PRD §3.7): flag > project config output.failOn > default "error".
- * Full 4-layer merge (including user-layer config) is M5 (T18).
- */
-function resolveFailOn(
-  flagFailOn: Severity | undefined,
-  configFailOn: Severity | undefined,
-): Severity {
-  return flagFailOn ?? configFailOn ?? "error";
+/** Build the flag overlay partial config from parsed CLI flags (M5, T17). */
+function buildFlagOverride(flags: ParsedFlags): StetConfig {
+  const override: StetConfig = {};
+  if (flags.failOn !== undefined) {
+    override.output = { failOn: flags.failOn };
+  }
+  return override;
 }
 
 // ---------------------------------------------------------------------------
@@ -307,10 +309,24 @@ export async function main(
     return Result.ok({ exitCode: 0 });
   }
 
-  // ── 3. Load project config ────────────────────────────────────────────────
-  const configResult = await loadConfig(io.cwd);
+  // ── 2a. Reject the reserved harness phase id ──────────────────────────────
+  // The synthetic config-warning report uses HARNESS_PHASE_ID; a real phase with
+  // the same id would put two entries with phase === "harness" in the RunReport,
+  // breaking "one entry per configured phase" (PRD §4.5). Embedder misuse → exit 2.
+  if (phases.some((p) => p.id === HARNESS_PHASE_ID)) {
+    return Result.err(
+      new SchemaError({
+        message: `phase id "${HARNESS_PHASE_ID}" is reserved for harness-emitted findings and cannot name a real phase`,
+        errors: [],
+      }),
+    );
+  }
+
+  // ── 3. Load merged config (all four layers: built-in→user→project→flags) ───
+  const flagOverride = buildFlagOverride(flags);
+  const configResult = await loadConfig({ cwd: io.cwd, homeDir: io.homeDir, flagOverride });
   if (configResult.isErr()) return Result.err(configResult.error);
-  const config = configResult.value;
+  const { config, findings: configFindings } = configResult.value;
 
   // ── 4. Detect scope ───────────────────────────────────────────────────────
   const scopeFlags: ScopeFlags = {
@@ -353,12 +369,23 @@ export async function main(
     signal?.aborted === true && phaseReports.some((p) => p.status === "cancelled");
 
   // ── 7. Assemble report ────────────────────────────────────────────────────
-  const failOn = resolveFailOn(flags.failOn, config.output?.failOn);
+  // flags.failOn is already merged into config via flagOverride (M5), so failOn is
+  // always present after loadConfig; the fallback only restates the built-in layer
+  // for the type system and can never change the value (single source of truth).
+  const failOn = config.output?.failOn ?? BUILT_IN_DEFAULTS.output.failOn;
+
+  // Inject a synthetic "harness" phase report for config-load warnings (T18, PRD §3.7).
+  // Only present when there are findings to surface; omitted when the config is clean.
+  const harnessPhaseReport: PhaseReport | undefined =
+    configFindings.length > 0
+      ? syntheticPhaseReport(HARNESS_PHASE_ID, "completed", { findings: configFindings })
+      : undefined;
+
   const { report, exitCode } = assembleReport({
     stetVersion: STET_VERSION,
     startedAt,
     scope,
-    phases: phaseReports,
+    phases: harnessPhaseReport !== undefined ? [harnessPhaseReport, ...phaseReports] : phaseReports,
     failOn,
     durationMs,
     interrupted,
@@ -384,6 +411,11 @@ export async function main(
           : `${findingCount} finding${findingCount === 1 ? "" : "s"}`;
       const reasonSuffix = phase.reason !== undefined ? ` (${phase.reason})` : "";
       io.stdout(`  ${phase.phase}: ${phase.status}${reasonSuffix} — ${findingSummary}`);
+      // One line per finding — a count alone hides WHAT is wrong ("nothing passes
+      // silently"); e.g. the T18 unknown-config-key warning must name the key here.
+      for (const finding of phase.findings) {
+        io.stdout(`    ${finding.severity} ${finding.id} — ${finding.message}`);
+      }
     }
     const exitLabel = exitCode === 0 ? "ok" : exitCode === 1 ? "findings gate" : "interrupted";
     io.stdout(`\nresult: exit ${exitCode} (${exitLabel}), failOn: ${report.result.failOn}`);
@@ -422,6 +454,7 @@ const isEntryPoint = computeIsEntryPoint();
 if (isEntryPoint) {
   const realIo: CliIo = {
     cwd: process.cwd(),
+    homeDir: homedir(),
     stdout: (line) => process.stdout.write(line + "\n"),
     stderr: (line) => process.stderr.write(line + "\n"),
   };

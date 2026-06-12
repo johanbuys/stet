@@ -12,7 +12,7 @@
  * Plan refs: §M1 test plan, §2a (fixture state), decision P10 (explicit stub registration).
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
@@ -281,6 +281,129 @@ describe("CLI e2e — stub-det", () => {
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error._tag).toBe("ConfigError");
+    }
+  });
+
+  // ── Slice 13: unknown config key surfaces as a harness phase in the report ──
+  //
+  // T18 (PRD §3.7): an unknown top-level config key produces a warning finding
+  // from loadConfig. cli.ts must INJECT that finding into the RunReport as a
+  // synthetic "harness" phase. The load.test.ts unit tests only prove loadConfig
+  // *returns* the finding — these prove cli.ts actually *surfaces* it, and that
+  // the finding participates in exit-code gating per --fail-on.
+
+  // Overwrite the project config with one that keeps stub-det runnable but adds
+  // an unknown top-level key (the likeliest real-world typo / forward-compat key).
+  async function writeProjectConfigWithUnknownKey(): Promise<void> {
+    await writeFile(
+      join(tmpDir, "stet.config.yml"),
+      'phases:\n  stub-det:\n    command: "echo ok"\nunknownFutureKey: someValue\n',
+    );
+  }
+
+  it("unknown config key → JSON report carries a harness phase with the warning finding (exit 0 under default failOn)", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    await writeProjectConfigWithUnknownKey();
+    const { io, stdoutLines } = makeIo(tmpDir);
+
+    const result = await main(["--format", "json"], io, [stubDet]);
+
+    // Default failOn is "error" — a warning does not gate, so the run exits 0.
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.exitCode).toBe(0);
+    }
+
+    const parsed = JSON.parse(stdoutLines[0]!);
+    const valid = parseRunReport(parsed);
+    expect(valid.isOk()).toBe(true);
+
+    // The harness phase is injected ahead of the real phases.
+    const harness = parsed.phases.find((p: { phase: string }) => p.phase === "harness");
+    expect(harness).toBeDefined();
+    expect(harness.status).toBe("completed");
+    expect(harness.findings).toHaveLength(1);
+    expect(harness.findings[0].id).toBe("harness.unknown-config-key");
+    expect(harness.findings[0].severity).toBe("warning");
+    expect(harness.findings[0].message).toContain("unknownFutureKey");
+
+    // The real phase still ran and the warning did NOT gate the exit.
+    expect(parsed.phases.some((p: { phase: string }) => p.phase === "stub-det")).toBe(true);
+    expect(parsed.result.exitCode).toBe(0);
+    expect(parsed.result.gating).toEqual([]);
+  });
+
+  it("unknown config key under --fail-on warning → finding gates, exit 1, gating names it", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    await writeProjectConfigWithUnknownKey();
+    const { io, stdoutLines } = makeIo(tmpDir);
+
+    const result = await main(["--format", "json", "--fail-on", "warning"], io, [stubDet]);
+
+    // warning + high confidence now gates → exit 1.
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.exitCode).toBe(1);
+    }
+
+    const parsed = JSON.parse(stdoutLines[0]!);
+    expect(parsed.result.exitCode).toBe(1);
+    expect(parsed.result.gating).toHaveLength(1);
+    expect(parsed.result.gating[0].id).toBe("harness.unknown-config-key");
+  });
+
+  it("clean config → no harness phase is injected", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    const { io, stdoutLines } = makeIo(tmpDir);
+
+    const result = await main(["--format", "json"], io, [stubDet]);
+
+    expect(result.isOk()).toBe(true);
+    const parsed = JSON.parse(stdoutLines[0]!);
+    // Only the real phase — the synthetic harness phase is omitted on clean config.
+    expect(parsed.phases.some((p: { phase: string }) => p.phase === "harness")).toBe(false);
+    expect(parsed.phases).toHaveLength(1);
+    expect(parsed.phases[0].phase).toBe("stub-det");
+  });
+
+  it("unknown config key → default (human) output names the offending key", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    await writeProjectConfigWithUnknownKey();
+    const { io, stdoutLines } = makeIo(tmpDir);
+
+    // No --format flag: the default human format must surface the key name, not
+    // just a finding count — otherwise the T18 warning is unreachable in the
+    // default invocation ("nothing passes silently").
+    const result = await main([], io, [stubDet]);
+
+    expect(result.isOk()).toBe(true);
+    const output = stdoutLines.join("\n");
+    expect(output).toContain("unknownFutureKey");
+    expect(output).toContain("harness.unknown-config-key");
+  });
+
+  // ── "harness" is a reserved phase id ────────────────────────────────────────
+  //
+  // The synthetic config-warning phase report uses the id "harness". A real phase
+  // with the same id would produce two RunReport entries with phase === "harness",
+  // violating the "one entry per configured phase" contract — main() rejects it
+  // up front with a SchemaError (exit 2: embedder misuse is a stet-level error).
+
+  it("a phase registered with the reserved id 'harness' → Err(SchemaError)", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    const { io } = makeIo(tmpDir);
+
+    const harnessImpostor = {
+      ...stubDet,
+      id: "harness",
+    };
+    const result = await main(["--format", "json"], io, [stubDet, harnessImpostor]);
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("SchemaError");
+      expect(result.error.message).toContain("harness");
+      expect(result.error.message).toContain("reserved");
     }
   });
 });

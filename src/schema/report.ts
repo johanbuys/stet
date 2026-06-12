@@ -13,6 +13,7 @@ import { Result } from "better-result";
 import { SchemaError } from "../errors.js";
 import { Finding, PhaseId, Severity } from "./finding.js";
 import { Scope } from "./scope.js";
+import { collectSchemaErrors } from "./validation.js";
 
 // ---------------------------------------------------------------------------
 // Check (PRD §4.3)
@@ -243,16 +244,39 @@ export type RunReport = Static<typeof RunReport>;
  */
 export function parseRunReport(value: unknown): Result<RunReport, SchemaError> {
   if (!Value.Check(RunReport, value)) {
-    const errors = [...Value.Errors(RunReport, value)];
-    const firstFew = errors.slice(0, 5);
-    const details = firstFew.map((e) => `${e.path || "/"}: ${e.message}`).join("; ");
-    const message = `RunReport validation failed — ${details}`;
+    const { details, errors } = collectSchemaErrors(RunReport, value, 5);
     return Result.err(
       new SchemaError({
-        message,
-        errors: firstFew.map((e) => ({ path: e.path, message: e.message })),
+        message: `RunReport validation failed — ${details}`,
+        errors,
       }),
     );
   }
   return Result.ok(value);
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic phase reports
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a PhaseReport for a phase that did not actually run: scheduler-synthesized
+ * skipped/cancelled entries and the harness's own config-warning entry. One factory
+ * so every synthesizer tracks the PhaseReport contract together — a new required
+ * field is added here once, not hunted across inline literals.
+ */
+export function syntheticPhaseReport(
+  phase: PhaseId,
+  status: PhaseReport["status"],
+  opts: { reason?: string; findings?: Finding[] } = {},
+): PhaseReport {
+  const report: PhaseReport = {
+    phase,
+    status,
+    findings: opts.findings ?? [],
+    audit: {},
+    cost: { durationMs: 0 },
+  };
+  if (opts.reason !== undefined) report.reason = opts.reason;
+  return report;
 }

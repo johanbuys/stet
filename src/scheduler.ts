@@ -14,8 +14,9 @@
  *           §3.4.3 (cancellation classes), §3.4.4 (teardown), §4.4 (PhaseReport).
  */
 
-import type { StetConfig } from "./schema/config.js";
+import type { StetConfig } from "./config/schema.js";
 import type { PhaseReport } from "./schema/report.js";
+import { syntheticPhaseReport } from "./schema/report.js";
 import type { Scope } from "./scope.js";
 import type { PhaseConfiguration } from "./phases/types.js";
 
@@ -72,16 +73,11 @@ function abortReason(signal: AbortSignal, fallback = "cancelled by scheduler"): 
  * PRD §4.5 acceptance #6: every configured phase appears exactly once.
  */
 function skippedReport(phase: PhaseConfiguration): PhaseReport {
-  return {
-    phase: phase.id,
-    status: "skipped",
-    // Name the mechanism — the specific human-readable rule is in the PhaseConfiguration's
-    // activation predicate description; here we name the mechanism (PRD §3.4.1).
+  // Name the mechanism — the specific human-readable rule is in the PhaseConfiguration's
+  // activation predicate description; here we name the mechanism (PRD §3.4.1).
+  return syntheticPhaseReport(phase.id, "skipped", {
     reason: "activation: phase predicate returned false",
-    findings: [],
-    audit: {},
-    cost: { durationMs: 0 },
-  };
+  });
 }
 
 /**
@@ -89,14 +85,7 @@ function skippedReport(phase: PhaseConfiguration): PhaseReport {
  * T15: used when the gate abort signal fires before a phase's activation completes.
  */
 function cancelledReport(phase: PhaseConfiguration, reason: string): PhaseReport {
-  return {
-    phase: phase.id,
-    status: "cancelled",
-    reason,
-    findings: [],
-    audit: {},
-    cost: { durationMs: 0 },
-  };
+  return syntheticPhaseReport(phase.id, "cancelled", { reason });
 }
 
 // ---------------------------------------------------------------------------
