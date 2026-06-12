@@ -83,8 +83,9 @@ export async function loadConfig(
 ): Promise<Result<StetConfigType, ConfigError>> {
   const { cwd, homeDir = osHomedir(), flagOverride } = opts;
 
-  // Layer 1: built-in defaults
-  let config: StetConfigType = { ...BUILT_IN_DEFAULTS };
+  // Layer 1: built-in defaults. Deep copy so the module-level constant's nested
+  // objects can never be aliased into a returned config (the spread is shallow).
+  let config: StetConfigType = structuredClone(BUILT_IN_DEFAULTS);
 
   // Layer 2: user config
   const userConfigPath = join(homeDir, USER_CONFIG_SUBPATH);

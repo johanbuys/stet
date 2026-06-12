@@ -189,6 +189,48 @@ describe("loadConfig — four-layer precedence", () => {
     }
   });
 
+  // ── readYamlLayer behaviors (per-layer parse/validate; tested via project layer) ──
+
+  it("empty project config file → Ok (parses to no-op layer, built-in defaults survive)", async () => {
+    await writeProjectConfig("");
+    const result = await loadConfig({ cwd: projectDir, homeDir });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.output?.failOn).toBe("error");
+    }
+  });
+
+  it("schema-invalid value (output.failOn: critical) → Err(ConfigError) with details", async () => {
+    await writeProjectConfig("output:\n  failOn: critical\n");
+    const result = await loadConfig({ cwd: projectDir, homeDir });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ConfigError");
+      expect(result.error.path).toContain("stet.config.yml");
+      expect(result.error.message).toContain("invalid config");
+    }
+  });
+
+  it("unknown top-level key → Ok (forward compat; T18 will warn)", async () => {
+    await writeProjectConfig("phases: {}\nunknownFutureKey: someValue\n");
+    const result = await loadConfig({ cwd: projectDir, homeDir });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect((result.value as Record<string, unknown>)["unknownFutureKey"]).toBe("someValue");
+    }
+  });
+
+  it("unknown keys inside phases.<id> → Ok (phase validates its own slice)", async () => {
+    await writeProjectConfig("phases:\n  stub-det:\n    command: echo ok\n    someFutureKey: 42\n");
+    const result = await loadConfig({ cwd: projectDir, homeDir });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const slice = (result.value.phases as Record<string, Record<string, unknown>>)?.["stub-det"];
+      expect(slice?.["command"]).toBe("echo ok");
+      expect(slice?.["someFutureKey"]).toBe(42);
+    }
+  });
+
   // ── Slice 12: flag override deep merges with project config ──────────────────
 
   it("flag override merges leaf-by-leaf with project config (both keys survive)", async () => {
