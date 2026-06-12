@@ -35,12 +35,12 @@ import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { matchError, Result } from "better-result";
-import { ConfigError, type StetError } from "./errors.js";
+import { ConfigError, SchemaError, type StetError } from "./errors.js";
 import { loadConfig } from "./config/load.js";
-import type { StetConfig } from "./config/schema.js";
-import type { Severity } from "./schema/finding.js";
+import { BUILT_IN_DEFAULTS, type StetConfig } from "./config/schema.js";
+import { HARNESS_PHASE_ID, type Severity } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
-import { parseRunReport } from "./schema/report.js";
+import { parseRunReport, syntheticPhaseReport } from "./schema/report.js";
 import { detectScope, type ScopeFlags } from "./scope.js";
 import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases/index.js";
 import type { PhaseConfiguration } from "./phases/types.js";
@@ -309,6 +309,19 @@ export async function main(
     return Result.ok({ exitCode: 0 });
   }
 
+  // ── 2a. Reject the reserved harness phase id ──────────────────────────────
+  // The synthetic config-warning report uses HARNESS_PHASE_ID; a real phase with
+  // the same id would put two entries with phase === "harness" in the RunReport,
+  // breaking "one entry per configured phase" (PRD §4.5). Embedder misuse → exit 2.
+  if (phases.some((p) => p.id === HARNESS_PHASE_ID)) {
+    return Result.err(
+      new SchemaError({
+        message: `phase id "${HARNESS_PHASE_ID}" is reserved for harness-emitted findings and cannot name a real phase`,
+        errors: [],
+      }),
+    );
+  }
+
   // ── 3. Load merged config (all four layers: built-in→user→project→flags) ───
   const flagOverride = buildFlagOverride(flags);
   const configResult = await loadConfig({ cwd: io.cwd, homeDir: io.homeDir, flagOverride });
@@ -356,20 +369,16 @@ export async function main(
     signal?.aborted === true && phaseReports.some((p) => p.status === "cancelled");
 
   // ── 7. Assemble report ────────────────────────────────────────────────────
-  // flags.failOn is already merged into config via flagOverride (M5); built-in default is "error".
-  const failOn = config.output?.failOn ?? "error";
+  // flags.failOn is already merged into config via flagOverride (M5), so failOn is
+  // always present after loadConfig; the fallback only restates the built-in layer
+  // for the type system and can never change the value (single source of truth).
+  const failOn = config.output?.failOn ?? BUILT_IN_DEFAULTS.output.failOn;
 
   // Inject a synthetic "harness" phase report for config-load warnings (T18, PRD §3.7).
   // Only present when there are findings to surface; omitted when the config is clean.
   const harnessPhaseReport: PhaseReport | undefined =
     configFindings.length > 0
-      ? {
-          phase: "harness",
-          status: "completed",
-          findings: configFindings,
-          audit: {},
-          cost: { durationMs: 0 },
-        }
+      ? syntheticPhaseReport(HARNESS_PHASE_ID, "completed", { findings: configFindings })
       : undefined;
 
   const { report, exitCode } = assembleReport({
@@ -402,6 +411,11 @@ export async function main(
           : `${findingCount} finding${findingCount === 1 ? "" : "s"}`;
       const reasonSuffix = phase.reason !== undefined ? ` (${phase.reason})` : "";
       io.stdout(`  ${phase.phase}: ${phase.status}${reasonSuffix} — ${findingSummary}`);
+      // One line per finding — a count alone hides WHAT is wrong ("nothing passes
+      // silently"); e.g. the T18 unknown-config-key warning must name the key here.
+      for (const finding of phase.findings) {
+        io.stdout(`    ${finding.severity} ${finding.id} — ${finding.message}`);
+      }
     }
     const exitLabel = exitCode === 0 ? "ok" : exitCode === 1 ? "findings gate" : "interrupted";
     io.stdout(`\nresult: exit ${exitCode} (${exitLabel}), failOn: ${report.result.failOn}`);

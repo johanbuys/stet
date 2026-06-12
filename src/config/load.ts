@@ -12,42 +12,99 @@
  * Unknown keys pass through; T18 turns them into warning findings.
  */
 
-import { homedir as osHomedir } from "node:os";
 import { join } from "node:path";
 import { readFile } from "node:fs/promises";
 import { Value } from "@sinclair/typebox/value";
 import { Result } from "better-result";
 import { parse as parseYaml, YAMLParseError } from "yaml";
 import { ConfigError } from "../errors.js";
-import type { Finding } from "../schema/finding.js";
-import { BUILT_IN_DEFAULTS, StetConfig, type StetConfig as StetConfigType } from "./schema.js";
-import { deepMerge } from "./merge.js";
+import { HARNESS_PHASE_ID, type Finding } from "../schema/finding.js";
+import { collectSchemaErrors } from "../schema/validation.js";
+import { BUILT_IN_DEFAULTS, StetConfig } from "./schema.js";
+import { deepMerge, isPlainObject } from "./merge.js";
 
 const PROJECT_CONFIG_FILE = "stet.config.yml";
 const USER_CONFIG_SUBPATH = join(".config", "stet", "config.yml");
 
-// Keys known at the top level of StetConfig; anything else is unknown (forward-compat warning).
-const KNOWN_TOP_LEVEL_KEYS = new Set(Object.keys(StetConfig.properties));
+/**
+ * Error codes that mean "this layer's config file does not exist" (PRD §3.7:
+ * zero-config is valid). ENOENT — no file; ENOTDIR — a path component is a
+ * regular file (e.g. ~/.config itself), so the config path cannot exist either.
+ * Anything else (EACCES, EISDIR, …) is a real problem at the expected location
+ * and surfaces as a ConfigError.
+ */
+const LAYER_ABSENT_CODES = new Set(["ENOENT", "ENOTDIR"]);
 
 export interface LoadConfigOpts {
   /** Project root — source of `stet.config.yml`. */
   cwd: string;
-  /** Home directory for user config. Defaults to `os.homedir()`. Injected in tests. */
-  homeDir?: string;
+  /**
+   * Home directory — source of the user config layer. Required so hermeticity is
+   * structural: the only place that may consult os.homedir() is the CLI entry block.
+   */
+  homeDir: string;
   /** Flag overlay: a partial config built from parsed CLI flags (highest priority). */
-  flagOverride?: StetConfigType;
+  flagOverride?: StetConfig;
 }
 
 /** The successful result of loadConfig — the merged config plus any forward-compat warnings. */
 export interface LoadConfigResult {
-  config: StetConfigType;
-  /** harness.unknown-config-key warnings for unknown top-level keys in any config file. */
+  config: StetConfig;
+  /** harness.unknown-config-key warnings for unknown keys in any config file. */
   findings: Finding[];
 }
 
 interface YamlLayerResult {
-  data: StetConfigType | null;
+  data: StetConfig | null;
   findings: Finding[];
+}
+
+/**
+ * Minimal structural view of a TypeBox object schema, for the unknown-key walk.
+ * Schemas without `properties` (Record, Unknown, unions, scalars) end the walk —
+ * their contents are validated elsewhere (e.g. each phase validates its own
+ * `phases.<id>` slice) or have no sub-keys to check.
+ */
+interface ObjectishSchema {
+  properties?: Record<string, ObjectishSchema>;
+}
+
+function unknownKeyFinding(keyPath: string, configPath: string): Finding {
+  return {
+    id: `${HARNESS_PHASE_ID}.unknown-config-key`,
+    phase: HARNESS_PHASE_ID,
+    severity: "warning",
+    confidence: "high",
+    message: `Unknown config key "${keyPath}" in ${configPath} — not recognized, may be misspelled (ignored for forward compatibility).`,
+    location: { file: configPath },
+  };
+}
+
+/**
+ * Walk the schema-known object subtree and warn on every key the schema does not
+ * name (T18, PRD §3.7: "unknown keys ⇒ warning, not error" — at every depth the
+ * schema describes, not just the top level; `output.failOnn` is exactly the typo
+ * class this exists to catch). Recursion stops where the schema stops describing
+ * keys (`phases.<id>` is a Record — each phase validates its own slice, T18-6).
+ */
+function unknownKeyFindings(
+  data: Record<string, unknown>,
+  schema: ObjectishSchema,
+  prefix: string,
+  configPath: string,
+): Finding[] {
+  const props = schema.properties;
+  if (props === undefined) return [];
+  const findings: Finding[] = [];
+  for (const [key, value] of Object.entries(data)) {
+    // Object.hasOwn, not `in`: inherited keys ("constructor", …) must not count as known.
+    if (!Object.hasOwn(props, key)) {
+      findings.push(unknownKeyFinding(`${prefix}${key}`, configPath));
+    } else if (isPlainObject(value)) {
+      findings.push(...unknownKeyFindings(value, props[key]!, `${prefix}${key}.`, configPath));
+    }
+  }
+  return findings;
 }
 
 /** Read and validate a YAML config file. Returns null when the file does not exist. */
@@ -56,7 +113,9 @@ async function readYamlLayer(configPath: string): Promise<Result<YamlLayerResult
   try {
     raw = await readFile(configPath, "utf8");
   } catch (err) {
-    if (isNodeError(err) && err.code === "ENOENT") return Result.ok({ data: null, findings: [] });
+    if (isNodeError(err) && err.code !== undefined && LAYER_ABSENT_CODES.has(err.code)) {
+      return Result.ok({ data: null, findings: [] });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return Result.err(new ConfigError({ path: configPath, message }));
   }
@@ -72,30 +131,19 @@ async function readYamlLayer(configPath: string): Promise<Result<YamlLayerResult
   if (parsed === null || parsed === undefined) return Result.ok({ data: {}, findings: [] });
 
   if (!Value.Check(StetConfig, parsed)) {
-    const errors = [...Value.Errors(StetConfig, parsed)];
-    const details = errors
-      .slice(0, 3)
-      .map((e) => `${e.path || "/"}: ${e.message}`)
-      .join("; ");
+    const { details } = collectSchemaErrors(StetConfig, parsed);
     return Result.err(
       new ConfigError({ path: configPath, message: `invalid config — ${details}` }),
     );
   }
 
-  // Detect unknown top-level keys — forward-compat warning (T18, PRD §3.7).
-  const findings: Finding[] = [];
-  for (const key of Object.keys(parsed as Record<string, unknown>)) {
-    if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
-      findings.push({
-        id: "harness.unknown-config-key",
-        phase: "harness",
-        severity: "warning",
-        confidence: "high",
-        message: `Unknown config key "${key}" in ${configPath} — not recognized, may be misspelled (ignored for forward compatibility).`,
-        location: { file: configPath },
-      });
-    }
-  }
+  // Detect unknown keys in the schema-described subtree — forward-compat warning (T18).
+  const findings = unknownKeyFindings(
+    parsed as Record<string, unknown>,
+    StetConfig as unknown as ObjectishSchema,
+    "",
+    configPath,
+  );
 
   return Result.ok({ data: parsed, findings });
 }
@@ -105,19 +153,19 @@ async function readYamlLayer(configPath: string): Promise<Result<YamlLayerResult
  *
  * - Missing files are silently skipped (zero-config is valid; PRD §3.7).
  * - Malformed YAML in any file → Err(ConfigError) naming the path + line.
- * - Unknown top-level keys → warning findings in the Ok result (never error; PRD §3.7).
+ * - Unknown keys → warning findings in the Ok result (never error; PRD §3.7).
  * - Never throws.
  */
 export async function loadConfig(
   opts: LoadConfigOpts,
 ): Promise<Result<LoadConfigResult, ConfigError>> {
-  const { cwd, homeDir = osHomedir(), flagOverride } = opts;
+  const { cwd, homeDir, flagOverride } = opts;
 
   const allFindings: Finding[] = [];
 
   // Layer 1: built-in defaults. Deep copy so the module-level constant's nested
   // objects can never be aliased into a returned config (the spread is shallow).
-  let config: StetConfigType = structuredClone(BUILT_IN_DEFAULTS);
+  let config: StetConfig = structuredClone(BUILT_IN_DEFAULTS);
 
   // Layer 2: user config
   const userConfigPath = join(homeDir, USER_CONFIG_SUBPATH);

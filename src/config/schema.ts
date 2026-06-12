@@ -28,9 +28,15 @@ export const StetConfig = Type.Object(
 
 export type StetConfig = Static<typeof StetConfig>;
 
-/** The lowest-priority layer; every setting here is overridden by any explicit config. */
-export const BUILT_IN_DEFAULTS: StetConfig = {
+/**
+ * The lowest-priority layer; every setting here is overridden by any explicit config.
+ *
+ * Typed with `satisfies` (not `: StetConfig`) so consumers see the literal shape —
+ * `BUILT_IN_DEFAULTS.output.failOn` is the single source of truth for the default
+ * gating severity (the CLI references it instead of repeating the literal).
+ */
+export const BUILT_IN_DEFAULTS = {
   output: {
     failOn: "error",
   },
-};
+} as const satisfies StetConfig;

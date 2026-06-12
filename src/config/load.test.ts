@@ -5,7 +5,7 @@
  * The `homeDir` option is injected to avoid touching the real ~/.config/stet/.
  *
  * PRD §3.7: flags > project > user > built-in; nested keys merge leaf-by-leaf;
- * unknown top-level keys ⇒ warning finding, not error (T18).
+ * unknown keys ⇒ warning finding, not error (T18).
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -14,32 +14,34 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { loadConfig } from "./load.js";
 
+// ── Shared fixture: one temp tree per test, both describe blocks ──────────────
+
+let tmpDir: string;
+let projectDir: string;
+let homeDir: string;
+
+beforeEach(async () => {
+  tmpDir = await mkdtemp(join(tmpdir(), "stet-config-load-"));
+  projectDir = join(tmpDir, "project");
+  homeDir = join(tmpDir, "home");
+  await mkdir(projectDir, { recursive: true });
+  await mkdir(homeDir, { recursive: true });
+});
+
+afterEach(async () => {
+  await rm(tmpDir, { recursive: true, force: true });
+});
+
+async function writeUserConfig(yaml: string): Promise<void> {
+  await mkdir(join(homeDir, ".config", "stet"), { recursive: true });
+  await writeFile(join(homeDir, ".config", "stet", "config.yml"), yaml);
+}
+
+async function writeProjectConfig(yaml: string): Promise<void> {
+  await writeFile(join(projectDir, "stet.config.yml"), yaml);
+}
+
 describe("loadConfig — four-layer precedence", () => {
-  let tmpDir: string;
-  let projectDir: string;
-  let homeDir: string;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "stet-config-load-"));
-    projectDir = join(tmpDir, "project");
-    homeDir = join(tmpDir, "home");
-    await mkdir(projectDir, { recursive: true });
-    await mkdir(homeDir, { recursive: true });
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  async function writeUserConfig(yaml: string): Promise<void> {
-    await mkdir(join(homeDir, ".config", "stet"), { recursive: true });
-    await writeFile(join(homeDir, ".config", "stet", "config.yml"), yaml);
-  }
-
-  async function writeProjectConfig(yaml: string): Promise<void> {
-    await writeFile(join(projectDir, "stet.config.yml"), yaml);
-  }
-
   // ── Slice 1: no files → built-in defaults ──────────────────────────────────
 
   it("no config files → Ok with built-in defaults (failOn: error)", async () => {
@@ -168,6 +170,23 @@ describe("loadConfig — four-layer precedence", () => {
     }
   });
 
+  // ── Slice 9a: a path component being a regular file ⇒ layer absent ──────────
+  //
+  // ENOTDIR (e.g. ~/.config is a regular file, so ~/.config/stet/config.yml cannot
+  // exist) means the same thing as ENOENT for this layer: there is no config file.
+  // It must NOT become a hard ConfigError → exit 2 on every run.
+
+  it("~/.config being a regular file → Ok (user layer treated as absent)", async () => {
+    await writeFile(join(homeDir, ".config"), "i am a file, not a directory\n");
+    await writeProjectConfig("output:\n  failOn: warning\n");
+    const result = await loadConfig({ cwd: projectDir, homeDir });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.config.output?.failOn).toBe("warning");
+      expect(result.value.findings).toHaveLength(0);
+    }
+  });
+
   // ── Slice 10: malformed project config → Err(ConfigError) with path ─────────
 
   it("malformed project config YAML → Err(ConfigError) with path in error", async () => {
@@ -248,38 +267,13 @@ describe("loadConfig — four-layer precedence", () => {
   });
 });
 
-// ── T18: unknown top-level key → warning finding ────────────────────────────────
+// ── T18: unknown key → warning finding ──────────────────────────────────────────
 //
 // PRD §3.7: "unknown keys ⇒ warning (forward compatibility), not error."
 // Unknown keys pass through in the merged config AND appear as findings so
 // the caller can surface them without blocking the run.
 
 describe("loadConfig — T18: unknown key warning findings", () => {
-  let tmpDir: string;
-  let projectDir: string;
-  let homeDir: string;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "stet-config-t18-"));
-    projectDir = join(tmpDir, "project");
-    homeDir = join(tmpDir, "home");
-    await mkdir(projectDir, { recursive: true });
-    await mkdir(homeDir, { recursive: true });
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  async function writeUserConfig(yaml: string): Promise<void> {
-    await mkdir(join(homeDir, ".config", "stet"), { recursive: true });
-    await writeFile(join(homeDir, ".config", "stet", "config.yml"), yaml);
-  }
-
-  async function writeProjectConfig(yaml: string): Promise<void> {
-    await writeFile(join(projectDir, "stet.config.yml"), yaml);
-  }
-
   // ── T18-1: single unknown top-level key in project config ──────────────────
 
   it("unknown top-level key in project config → Ok + warning finding naming the key", async () => {
@@ -379,6 +373,57 @@ describe("loadConfig — T18: unknown key warning findings", () => {
     if (result.isOk()) {
       expect(result.value.config.output?.failOn).toBe("error"); // config still usable
       expect(result.value.findings[0]?.severity).toBe("warning");
+    }
+  });
+
+  // ── T18-8: unknown keys NESTED under a known section (output) also warn ──────
+  //
+  // The schema-known subtree is walked, not just the top level — `output.failOnn`
+  // (typo of failOn) is exactly the typo class T18 exists to catch. phases.<id>
+  // remains exempt (each phase validates its own slice; T18-6).
+
+  it("unknown key nested under output (output.failOnn typo) → warning finding naming output.failOnn", async () => {
+    await writeProjectConfig("output:\n  failOnn: warning\n");
+    const result = await loadConfig({ cwd: projectDir, homeDir });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      // The typo did NOT change the effective failOn — built-in default survives
+      expect(result.value.config.output?.failOn).toBe("error");
+      expect(result.value.findings).toHaveLength(1);
+      const f = result.value.findings[0]!;
+      expect(f.id).toBe("harness.unknown-config-key");
+      expect(f.severity).toBe("warning");
+      expect(f.message).toContain("output.failOnn");
+      expect(f.location?.file).toContain("stet.config.yml");
+    }
+  });
+
+  it("unknown key nested under output in user config → warning naming the user file", async () => {
+    await writeUserConfig("output:\n  fail_on: info\n");
+    const result = await loadConfig({ cwd: projectDir, homeDir });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.findings).toHaveLength(1);
+      expect(result.value.findings[0]!.message).toContain("output.fail_on");
+    }
+  });
+
+  // ── Prototype-pollution: __proto__ in YAML must not poison the merged config ──
+  //
+  // The yaml package emits `__proto__:` as an OWN key; the merge must drop it
+  // (see deepMerge) and the unknown-key warning must still name it.
+
+  it("__proto__ key in config YAML neither pollutes the merged config nor passes silently", async () => {
+    await writeProjectConfig('__proto__:\n  phases:\n    evil:\n      command: "bad"\n');
+    const result = await loadConfig({ cwd: projectDir, homeDir });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      const config = result.value.config as Record<string, unknown>;
+      // Prototype intact, and no phases slice injected via the prototype chain.
+      expect(Object.getPrototypeOf(config)).toBe(Object.prototype);
+      expect(config["phases"]).toBeUndefined();
+      // The key is surfaced as an unknown-key warning, not silently dropped.
+      expect(result.value.findings.some((f) => f.message.includes("__proto__"))).toBe(true);
     }
   });
 });

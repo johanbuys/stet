@@ -365,4 +365,45 @@ describe("CLI e2e — stub-det", () => {
     expect(parsed.phases).toHaveLength(1);
     expect(parsed.phases[0].phase).toBe("stub-det");
   });
+
+  it("unknown config key → default (human) output names the offending key", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    await writeProjectConfigWithUnknownKey();
+    const { io, stdoutLines } = makeIo(tmpDir);
+
+    // No --format flag: the default human format must surface the key name, not
+    // just a finding count — otherwise the T18 warning is unreachable in the
+    // default invocation ("nothing passes silently").
+    const result = await main([], io, [stubDet]);
+
+    expect(result.isOk()).toBe(true);
+    const output = stdoutLines.join("\n");
+    expect(output).toContain("unknownFutureKey");
+    expect(output).toContain("harness.unknown-config-key");
+  });
+
+  // ── "harness" is a reserved phase id ────────────────────────────────────────
+  //
+  // The synthetic config-warning phase report uses the id "harness". A real phase
+  // with the same id would produce two RunReport entries with phase === "harness",
+  // violating the "one entry per configured phase" contract — main() rejects it
+  // up front with a SchemaError (exit 2: embedder misuse is a stet-level error).
+
+  it("a phase registered with the reserved id 'harness' → Err(SchemaError)", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    const { io } = makeIo(tmpDir);
+
+    const harnessImpostor = {
+      ...stubDet,
+      id: "harness",
+    };
+    const result = await main(["--format", "json"], io, [stubDet, harnessImpostor]);
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("SchemaError");
+      expect(result.error.message).toContain("harness");
+      expect(result.error.message).toContain("reserved");
+    }
+  });
 });

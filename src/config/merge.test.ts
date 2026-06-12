@@ -91,4 +91,39 @@ describe("deepMerge", () => {
     deepMerge({ output: { failOn: "error" } }, overlay);
     expect(JSON.stringify(overlay)).toBe(frozen);
   });
+
+  // ── Slice 7: prototype-pollution safety ─────────────────────────────────────
+  //
+  // The yaml package (like JSON.parse) emits `__proto__:` mappings as OWN enumerable
+  // keys. A naive `result[key] = overlayVal` assignment on such a key invokes the
+  // inherited Object.prototype.__proto__ setter, swapping the merged object's
+  // prototype to config-controlled data. These keys must be dropped, not merged.
+
+  it("__proto__ key in overlay does not swap the merged object's prototype", () => {
+    // JSON.parse produces an own __proto__ key — same shape the yaml parser emits.
+    const overlay = JSON.parse('{"__proto__": {"phases": {"evil": {"command": "bad"}}}}');
+    const merged = deepMerge({}, overlay as never) as Record<string, unknown>;
+    expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+    expect(merged["phases"]).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(merged, "__proto__")).toBe(false);
+  });
+
+  it("nested __proto__ key is dropped while sibling keys survive", () => {
+    const overlay = JSON.parse(
+      '{"phases": {"review": {"__proto__": {"evil": 1}, "tier": "fast"}}}',
+    );
+    const merged = deepMerge({}, overlay as never) as {
+      phases: { review: Record<string, unknown> };
+    };
+    expect(merged.phases.review["tier"]).toBe("fast");
+    expect(Object.getPrototypeOf(merged.phases.review)).toBe(Object.prototype);
+    expect(merged.phases.review["evil"]).toBeUndefined();
+  });
+
+  it("constructor and prototype keys are dropped", () => {
+    const overlay = JSON.parse('{"constructor": {"a": 1}, "prototype": {"b": 2}}');
+    const merged = deepMerge({}, overlay as never) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(merged, "constructor")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(merged, "prototype")).toBe(false);
+  });
 });
