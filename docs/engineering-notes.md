@@ -188,6 +188,13 @@ so these matter most.
 - **Run the keyed real-SDK smoke before stacking new work on the runner.**
   `PI_TEST_MODEL=openai-codex/gpt-5.4-mini vp test pi-runner.integration` exercises the live path.
 
+## Config loading (`src/config/`, M5/T17)
+
+- **TypeBox `{ additionalProperties: true }` does NOT add an index signature to the TypeScript `Static<>` type.** At the TypeScript level, `Type.Object({ failOn: ... }, { additionalProperties: true })` produces `{ failOn?: Severity }` — no `[key: string]: unknown`. Tests or callers that try to pass extra keys (e.g. `{ failOn: "error", format: "json" }`) get a `TS2353` error. Use `phases.<id>` (typed `Record<string, unknown>`) for test scenarios requiring extra keys, or cast. (T17.)
+- **Plain `{ ...base, ...overlay }` silently drops base values when overlay has `undefined` entries.** The four-layer merge must skip `undefined` overlay values explicitly (iterate `Object.entries`, check `if (overlayVal === undefined) continue`) — otherwise a flag overlay that only sets `output.failOn` would wipe out any other keys that weren't specified in the flag object. (T17.)
+- **`BUILT_IN_DEFAULTS` makes the "all four layers simultaneously" acceptance test concrete.** Without a non-empty built-in layer there is nothing to distinguish from "no config at all". Setting `output.failOn: "error"` as the built-in default also removes the `?? "error"` fallback from the CLI's old `resolveFailOn` — the merged config always has a `failOn` value after loading. (T17.)
+- **`bun install` adds workspace catalog fields to `package.json` and creates `bun.lock`.** Both are gitignored (settled decision from T13 review). Revert `package.json` with `git checkout -- package.json` after installing deps. Do NOT commit `bun.lock`. (T17, recurring trap.)
+
 ## Known residual issues / watch-items
 
 - **`bash` mutation surface** — decision #34 (above); the M2 mutation-free test asserts only the

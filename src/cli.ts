@@ -35,7 +35,8 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { matchError, Result } from "better-result";
 import { ConfigError, type StetError } from "./errors.js";
-import { loadConfig } from "./schema/config.js";
+import { loadConfig } from "./config/load.js";
+import type { StetConfig } from "./config/schema.js";
 import type { Severity } from "./schema/finding.js";
 import { parseRunReport } from "./schema/report.js";
 import { detectScope, type ScopeFlags } from "./scope.js";
@@ -219,19 +220,16 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
 }
 
 // ---------------------------------------------------------------------------
-// failOn precedence helper
+// Flag → config overlay
 // ---------------------------------------------------------------------------
 
-/**
- * Resolve the effective failOn.
- * Precedence (M1 slice of PRD §3.7): flag > project config output.failOn > default "error".
- * Full 4-layer merge (including user-layer config) is M5 (T18).
- */
-function resolveFailOn(
-  flagFailOn: Severity | undefined,
-  configFailOn: Severity | undefined,
-): Severity {
-  return flagFailOn ?? configFailOn ?? "error";
+/** Build the flag overlay partial config from parsed CLI flags (M5, T17). */
+function buildFlagOverride(flags: ParsedFlags): StetConfig {
+  const override: StetConfig = {};
+  if (flags.failOn !== undefined) {
+    override.output = { failOn: flags.failOn };
+  }
+  return override;
 }
 
 // ---------------------------------------------------------------------------
@@ -307,8 +305,9 @@ export async function main(
     return Result.ok({ exitCode: 0 });
   }
 
-  // ── 3. Load project config ────────────────────────────────────────────────
-  const configResult = await loadConfig(io.cwd);
+  // ── 3. Load merged config (all four layers: built-in→user→project→flags) ───
+  const flagOverride = buildFlagOverride(flags);
+  const configResult = await loadConfig({ cwd: io.cwd, flagOverride });
   if (configResult.isErr()) return Result.err(configResult.error);
   const config = configResult.value;
 
@@ -353,7 +352,8 @@ export async function main(
     signal?.aborted === true && phaseReports.some((p) => p.status === "cancelled");
 
   // ── 7. Assemble report ────────────────────────────────────────────────────
-  const failOn = resolveFailOn(flags.failOn, config.output?.failOn);
+  // flags.failOn is already merged into config via flagOverride (M5); built-in default is "error".
+  const failOn = config.output?.failOn ?? "error";
   const { report, exitCode } = assembleReport({
     stetVersion: STET_VERSION,
     startedAt,

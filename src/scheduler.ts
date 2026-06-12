@@ -14,7 +14,7 @@
  *           §3.4.3 (cancellation classes), §3.4.4 (teardown), §4.4 (PhaseReport).
  */
 
-import type { StetConfig } from "./schema/config.js";
+import type { StetConfig } from "./config/schema.js";
 import type { PhaseReport } from "./schema/report.js";
 import type { Scope } from "./scope.js";
 import type { PhaseConfiguration } from "./phases/types.js";
