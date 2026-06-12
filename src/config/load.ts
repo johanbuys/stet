@@ -19,11 +19,15 @@ import { Value } from "@sinclair/typebox/value";
 import { Result } from "better-result";
 import { parse as parseYaml, YAMLParseError } from "yaml";
 import { ConfigError } from "../errors.js";
+import type { Finding } from "../schema/finding.js";
 import { BUILT_IN_DEFAULTS, StetConfig, type StetConfig as StetConfigType } from "./schema.js";
 import { deepMerge } from "./merge.js";
 
 const PROJECT_CONFIG_FILE = "stet.config.yml";
 const USER_CONFIG_SUBPATH = join(".config", "stet", "config.yml");
+
+// Keys known at the top level of StetConfig; anything else is unknown (forward-compat warning).
+const KNOWN_TOP_LEVEL_KEYS = new Set(Object.keys(StetConfig.properties));
 
 export interface LoadConfigOpts {
   /** Project root — source of `stet.config.yml`. */
@@ -34,15 +38,25 @@ export interface LoadConfigOpts {
   flagOverride?: StetConfigType;
 }
 
+/** The successful result of loadConfig — the merged config plus any forward-compat warnings. */
+export interface LoadConfigResult {
+  config: StetConfigType;
+  /** harness.unknown-config-key warnings for unknown top-level keys in any config file. */
+  findings: Finding[];
+}
+
+interface YamlLayerResult {
+  data: StetConfigType | null;
+  findings: Finding[];
+}
+
 /** Read and validate a YAML config file. Returns null when the file does not exist. */
-async function readYamlLayer(
-  configPath: string,
-): Promise<Result<StetConfigType | null, ConfigError>> {
+async function readYamlLayer(configPath: string): Promise<Result<YamlLayerResult, ConfigError>> {
   let raw: string;
   try {
     raw = await readFile(configPath, "utf8");
   } catch (err) {
-    if (isNodeError(err) && err.code === "ENOENT") return Result.ok(null);
+    if (isNodeError(err) && err.code === "ENOENT") return Result.ok({ data: null, findings: [] });
     const message = err instanceof Error ? err.message : String(err);
     return Result.err(new ConfigError({ path: configPath, message }));
   }
@@ -55,7 +69,7 @@ async function readYamlLayer(
     return Result.err(new ConfigError({ path: configPath, message }));
   }
 
-  if (parsed === null || parsed === undefined) return Result.ok({});
+  if (parsed === null || parsed === undefined) return Result.ok({ data: {}, findings: [] });
 
   if (!Value.Check(StetConfig, parsed)) {
     const errors = [...Value.Errors(StetConfig, parsed)];
@@ -68,7 +82,22 @@ async function readYamlLayer(
     );
   }
 
-  return Result.ok(parsed);
+  // Detect unknown top-level keys — forward-compat warning (T18, PRD §3.7).
+  const findings: Finding[] = [];
+  for (const key of Object.keys(parsed as Record<string, unknown>)) {
+    if (!KNOWN_TOP_LEVEL_KEYS.has(key)) {
+      findings.push({
+        id: "harness.unknown-config-key",
+        phase: "harness",
+        severity: "warning",
+        confidence: "high",
+        message: `Unknown config key "${key}" in ${configPath} — not recognized, may be misspelled (ignored for forward compatibility).`,
+        location: { file: configPath },
+      });
+    }
+  }
+
+  return Result.ok({ data: parsed, findings });
 }
 
 /**
@@ -76,12 +105,15 @@ async function readYamlLayer(
  *
  * - Missing files are silently skipped (zero-config is valid; PRD §3.7).
  * - Malformed YAML in any file → Err(ConfigError) naming the path + line.
+ * - Unknown top-level keys → warning findings in the Ok result (never error; PRD §3.7).
  * - Never throws.
  */
 export async function loadConfig(
   opts: LoadConfigOpts,
-): Promise<Result<StetConfigType, ConfigError>> {
+): Promise<Result<LoadConfigResult, ConfigError>> {
   const { cwd, homeDir = osHomedir(), flagOverride } = opts;
+
+  const allFindings: Finding[] = [];
 
   // Layer 1: built-in defaults. Deep copy so the module-level constant's nested
   // objects can never be aliased into a returned config (the spread is shallow).
@@ -91,18 +123,20 @@ export async function loadConfig(
   const userConfigPath = join(homeDir, USER_CONFIG_SUBPATH);
   const userResult = await readYamlLayer(userConfigPath);
   if (userResult.isErr()) return Result.err(userResult.error);
-  if (userResult.value !== null) config = deepMerge(config, userResult.value);
+  if (userResult.value.data !== null) config = deepMerge(config, userResult.value.data);
+  allFindings.push(...userResult.value.findings);
 
   // Layer 3: project config
   const projectConfigPath = join(cwd, PROJECT_CONFIG_FILE);
   const projectResult = await readYamlLayer(projectConfigPath);
   if (projectResult.isErr()) return Result.err(projectResult.error);
-  if (projectResult.value !== null) config = deepMerge(config, projectResult.value);
+  if (projectResult.value.data !== null) config = deepMerge(config, projectResult.value.data);
+  allFindings.push(...projectResult.value.findings);
 
-  // Layer 4: flag overrides
+  // Layer 4: flag overrides (programmatically constructed — no unknown-key check needed)
   if (flagOverride !== undefined) config = deepMerge(config, flagOverride);
 
-  return Result.ok(config);
+  return Result.ok({ config, findings: allFindings });
 }
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {

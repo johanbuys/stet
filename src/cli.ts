@@ -39,6 +39,7 @@ import { ConfigError, type StetError } from "./errors.js";
 import { loadConfig } from "./config/load.js";
 import type { StetConfig } from "./config/schema.js";
 import type { Severity } from "./schema/finding.js";
+import type { PhaseReport } from "./schema/report.js";
 import { parseRunReport } from "./schema/report.js";
 import { detectScope, type ScopeFlags } from "./scope.js";
 import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases/index.js";
@@ -312,7 +313,7 @@ export async function main(
   const flagOverride = buildFlagOverride(flags);
   const configResult = await loadConfig({ cwd: io.cwd, homeDir: io.homeDir, flagOverride });
   if (configResult.isErr()) return Result.err(configResult.error);
-  const config = configResult.value;
+  const { config, findings: configFindings } = configResult.value;
 
   // ── 4. Detect scope ───────────────────────────────────────────────────────
   const scopeFlags: ScopeFlags = {
@@ -357,11 +358,25 @@ export async function main(
   // ── 7. Assemble report ────────────────────────────────────────────────────
   // flags.failOn is already merged into config via flagOverride (M5); built-in default is "error".
   const failOn = config.output?.failOn ?? "error";
+
+  // Inject a synthetic "harness" phase report for config-load warnings (T18, PRD §3.7).
+  // Only present when there are findings to surface; omitted when the config is clean.
+  const harnessPhaseReport: PhaseReport | undefined =
+    configFindings.length > 0
+      ? {
+          phase: "harness",
+          status: "completed",
+          findings: configFindings,
+          audit: {},
+          cost: { durationMs: 0 },
+        }
+      : undefined;
+
   const { report, exitCode } = assembleReport({
     stetVersion: STET_VERSION,
     startedAt,
     scope,
-    phases: phaseReports,
+    phases: harnessPhaseReport !== undefined ? [harnessPhaseReport, ...phaseReports] : phaseReports,
     failOn,
     durationMs,
     interrupted,
