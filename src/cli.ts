@@ -30,6 +30,7 @@
  */
 
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -117,6 +118,8 @@ export function resolveExit(result: Result<{ exitCode: 0 | 1 | 2 }, StetError>):
 
 export interface CliIo {
   cwd: string;
+  /** Home directory — source of the user config layer. Injected so e2e tests stay hermetic. */
+  homeDir: string;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
 }
@@ -307,7 +310,7 @@ export async function main(
 
   // ── 3. Load merged config (all four layers: built-in→user→project→flags) ───
   const flagOverride = buildFlagOverride(flags);
-  const configResult = await loadConfig({ cwd: io.cwd, flagOverride });
+  const configResult = await loadConfig({ cwd: io.cwd, homeDir: io.homeDir, flagOverride });
   if (configResult.isErr()) return Result.err(configResult.error);
   const config = configResult.value;
 
@@ -422,6 +425,7 @@ const isEntryPoint = computeIsEntryPoint();
 if (isEntryPoint) {
   const realIo: CliIo = {
     cwd: process.cwd(),
+    homeDir: homedir(),
     stdout: (line) => process.stdout.write(line + "\n"),
     stderr: (line) => process.stderr.write(line + "\n"),
   };
