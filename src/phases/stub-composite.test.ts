@@ -299,6 +299,37 @@ describe("stub-composite — partial failure isolation", () => {
     expect(report.findings).toHaveLength(0);
     expect(Object.keys(report.cost.specialists ?? {})).toHaveLength(3);
   });
+
+  // T22 acceptance: one specialist ModelError + one BudgetError + one survives.
+  it("T22: survivor findings preserved when one specialist errors and one hits budget breach", async () => {
+    const phase = makeStubComposite({
+      alpha: okRunner(
+        [fakeFinding({ id: "stub-composite.alpha.survivor", message: "alpha survives" })],
+        "fake/alpha",
+      ),
+      beta: new FakeAgentRunner({
+        kind: "err",
+        error: new ModelError({ message: "model unavailable", cost: { durationMs: 0 } }),
+      }),
+      gamma: new FakeAgentRunner({
+        kind: "err",
+        error: new BudgetError({ limit: "wallClockMs", message: "budget exceeded" }),
+      }),
+    });
+    const report = await phase.run(ctx());
+    // Composite completes — never blocked by individual failures.
+    expect(report.status).toBe("completed");
+    // Survivor's findings are preserved.
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]!.specialist).toBe("alpha");
+    expect(report.findings[0]!.phase).toBe("stub-composite");
+    // Both failing specialists appear in cost.specialists.
+    expect(report.cost.specialists!["beta"]).toBeDefined();
+    expect(report.cost.specialists!["gamma"]).toBeDefined();
+    // No findings from failed specialists.
+    expect(report.findings.some((f) => f.specialist === "beta")).toBe(false);
+    expect(report.findings.some((f) => f.specialist === "gamma")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
