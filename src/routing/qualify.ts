@@ -64,7 +64,7 @@ export function checkQualification(
   if (qualified) return null;
 
   return {
-    id: "harness.unqualified-model",
+    id: `${HARNESS_PHASE_ID}.unqualified-model`,
     phase: HARNESS_PHASE_ID,
     severity: "warning",
     confidence: "high",

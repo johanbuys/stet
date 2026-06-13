@@ -18,16 +18,22 @@
  *   No credentialed provider for any tier → Err(RoutingError) → exit 2.
  */
 
+import { type Static, Type } from "@sinclair/typebox";
 import { Result } from "better-result";
-import { RoutingError } from "../errors.js";
-import type { ModelError } from "../errors.js";
+import { ConfigError, ModelError, RoutingError } from "../errors.js";
+import type { Cost } from "../schema/report.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** Capability tier — the config-facing abstraction over concrete model IDs. */
-export type ModelTier = "robust" | "fast";
+/**
+ * Capability tier — the config-facing abstraction over concrete model IDs.
+ * Defined as a TypeBox union so the manifest reader can validate the `tier`
+ * field against the same source of truth (src/routing/manifest.ts).
+ */
+export const ModelTierSchema = Type.Union([Type.Literal("robust"), Type.Literal("fast")]);
+export type ModelTier = Static<typeof ModelTierSchema>;
 
 /** A concrete model resolved from a tier. */
 export interface ResolvedModel {
@@ -115,10 +121,32 @@ export function resolveTier(
 }
 
 /**
+ * Resolve a pinned override to a single-entry list, but only when its provider
+ * is credentialed. An override is still subject to preflight's "every phase has a
+ * credentialed model" guarantee (PRD §3.2) — a pin to a provider the user can't
+ * authenticate must fail fast at preflight, not mid-run with an auth error.
+ */
+function resolveOverride(
+  override: ModelOverride,
+  registry: RoutingRegistry,
+): Result<ResolvedModel[], RoutingError> {
+  const provider = providerOf(override.model);
+  if (!registry.isCredentialed(provider)) {
+    return Result.err(
+      new RoutingError({
+        message: `Model override "${override.model}" needs credentials for provider "${provider}", which are not available.`,
+      }),
+    );
+  }
+  return Result.ok([{ model: override.model }]);
+}
+
+/**
  * Resolve models for a specific phase, applying model overrides if present.
  *
  * Override priority (PRD §3.2): specific (phaseId match) > general (no phaseId) > tier.
- * The returned list is single-entry for overrides (overrides are pinned, no failback needed).
+ * The returned list is single-entry for overrides (overrides are pinned, no failback
+ * needed); an override whose provider is not credentialed is Err(RoutingError).
  */
 export function resolveForPhase(
   phaseId: string,
@@ -126,12 +154,10 @@ export function resolveForPhase(
   registry: RoutingRegistry,
   overrides?: ModelOverride[],
 ): Result<ResolvedModel[], RoutingError> {
-  if (overrides !== undefined && overrides.length > 0) {
-    const specific = overrides.find((o) => o.phaseId === phaseId);
-    if (specific !== undefined) return Result.ok([{ model: specific.model }]);
-    const general = overrides.find((o) => o.phaseId === undefined);
-    if (general !== undefined) return Result.ok([{ model: general.model }]);
-  }
+  const specific = overrides?.find((o) => o.phaseId === phaseId);
+  if (specific !== undefined) return resolveOverride(specific, registry);
+  const general = overrides?.find((o) => o.phaseId === undefined);
+  if (general !== undefined) return resolveOverride(general, registry);
   return resolveTier(tier, registry);
 }
 
@@ -141,12 +167,28 @@ export function resolveForPhase(
  * Called before any phase launches (PRD §3.2, acceptance #13). Err(RoutingError)
  * when any phase can't resolve — the CLI shell maps this to exit 2 via the StetError
  * union (RoutingError is already in StetError; resolveExit handles it).
+ *
+ * Also validates that every specific override names a configured phase, so a typo'd
+ * `--model reveiw=…` fails fast here instead of being silently dropped (and the run
+ * completing on the wrong model).
  */
 export function preflightAll(
   phases: ReadonlyArray<{ id: string; tier: ModelTier }>,
   registry: RoutingRegistry,
   overrides?: ModelOverride[],
 ): Result<void, RoutingError> {
+  const phaseIds = new Set(phases.map((p) => p.id));
+  for (const override of overrides ?? []) {
+    if (override.phaseId !== undefined && !phaseIds.has(override.phaseId)) {
+      const known = [...phaseIds].join(", ");
+      return Result.err(
+        new RoutingError({
+          message: `--model override targets unknown phase "${override.phaseId}". Known phases: ${known}.`,
+        }),
+      );
+    }
+  }
+
   for (const phase of phases) {
     const result = resolveForPhase(phase.id, phase.tier, registry, overrides);
     if (result.isErr()) return Result.err(result.error);
@@ -158,6 +200,30 @@ export function preflightAll(
 // Failback
 // ---------------------------------------------------------------------------
 
+/** Sum a set of attempt costs into one, so a failed phase still accounts for its spend. */
+function sumCost(costs: Cost[]): Cost {
+  let durationMs = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let hasInput = false;
+  let hasOutput = false;
+  for (const c of costs) {
+    durationMs += c.durationMs;
+    if (c.inputTokens !== undefined) {
+      inputTokens += c.inputTokens;
+      hasInput = true;
+    }
+    if (c.outputTokens !== undefined) {
+      outputTokens += c.outputTokens;
+      hasOutput = true;
+    }
+  }
+  const total: Cost = { durationMs };
+  if (hasInput) total.inputTokens = inputTokens;
+  if (hasOutput) total.outputTokens = outputTokens;
+  return total;
+}
+
 /**
  * Try each model in the ordered list until one succeeds or all fail.
  *
@@ -168,33 +234,41 @@ export function preflightAll(
  * caller explicitly marks it as retryable). Pass a provider-specific predicate — e.g.
  * `err => err.message.includes("5xx")` — for production use.
  *
- * Err(RoutingError) when the list is empty or all models fail with retryable errors.
+ * Returns Err(ModelError) — a phase-level error, NOT an exit-2 RoutingError (see the
+ * error taxonomy in src/errors.ts) — when the list is empty or every model fails. The
+ * returned ModelError carries the accumulated cost of every attempt (so the phase wrapper
+ * can record the spend) and a message naming each model and its underlying error.
  */
 export async function runWithFallback<T>(
   models: ResolvedModel[],
   attempt: (model: string) => Promise<Result<T, ModelError>>,
   isRetryable: (err: ModelError) => boolean = () => false,
-): Promise<Result<T, RoutingError>> {
-  if (models.length === 0) {
-    return Result.err(new RoutingError({ message: "No models available for failback." }));
-  }
+): Promise<Result<T, ModelError>> {
+  const failures: { model: string; error: ModelError }[] = [];
 
   for (const resolved of models) {
     const result = await attempt(resolved.model);
     if (result.isOk()) return Result.ok(result.value);
+    failures.push({ model: resolved.model, error: result.error });
     if (!isRetryable(result.error)) {
+      // Non-retryable: surface immediately, preserving the underlying cost.
       return Result.err(
-        new RoutingError({
+        new ModelError({
           message: `Model "${resolved.model}" failed (non-retryable): ${result.error.message}`,
+          cost: result.error.cost,
         }),
       );
     }
     // Retryable: advance to the next model in the preference list.
   }
 
-  return Result.err(
-    new RoutingError({ message: `All ${models.length} model(s) failed with retryable errors.` }),
-  );
+  // Exhausted: empty list, or every model failed with a retryable error.
+  const message =
+    failures.length === 0
+      ? "No models available for failback."
+      : `All ${failures.length} model(s) failed: ` +
+        failures.map((f) => `${f.model} (${f.error.message})`).join("; ");
+  return Result.err(new ModelError({ message, cost: sumCost(failures.map((f) => f.error.cost)) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -208,18 +282,27 @@ export async function runWithFallback<T>(
  *   provider/id          → general override (applies to all agent phases)
  *   <phase>=provider/id  → specific override (applies only to named phase)
  *
- * Returns null when the argument is malformed (caller may emit Err(ConfigError)).
+ * Returns Err(ConfigError) with an actionable message when the argument is malformed —
+ * the format knowledge lives here, so every caller surfaces the same explanation
+ * (better-result discipline: a fallible boundary returns Result, never a bare null).
  * The first "=" splits phaseId from model, so "review=provider/model=extra" parses
  * correctly as { phaseId: "review", model: "provider/model=extra" }.
  */
-export function parseModelOverride(arg: string): ModelOverride | null {
-  if (arg.length === 0) return null;
+export function parseModelOverride(arg: string): Result<ModelOverride, ConfigError> {
+  const malformed = () =>
+    Result.err(
+      new ConfigError({
+        path: "--model",
+        message: `Invalid --model value "${arg}": expected "[<phase>=]<provider>/<model>".`,
+      }),
+    );
+
   const eqIdx = arg.indexOf("=");
   if (eqIdx === -1) {
-    return { model: arg };
+    return arg.length === 0 ? malformed() : Result.ok({ model: arg });
   }
   const phaseId = arg.slice(0, eqIdx);
   const model = arg.slice(eqIdx + 1);
-  if (phaseId.length === 0 || model.length === 0) return null;
-  return { phaseId, model };
+  if (phaseId.length === 0 || model.length === 0) return malformed();
+  return Result.ok({ phaseId, model });
 }

@@ -8,16 +8,20 @@
  * PRD refs: §3.2, acceptance #15; plan M6 (b).
  */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vite-plus/test";
+import { useTempDir } from "../test-support/temp-dir.js";
+import { TIER_PREFERENCES, type ModelTier } from "./resolve.js";
 import { readManifest, type ManifestEntry } from "./manifest.js";
 import {
   checkQualification,
   CURRENT_FIXTURE_SET_VERSION,
   CURRENT_RUBRIC_VERSION,
 } from "./qualify.js";
+
+const MANIFEST_PATH = fileURLToPath(new URL("../../fixtures/manifest.json", import.meta.url));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -129,18 +133,10 @@ describe("checkQualification", () => {
 // ---------------------------------------------------------------------------
 
 describe("readManifest", () => {
-  let tmpDir: string;
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), "stet-manifest-"));
-  });
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true });
-  });
+  const tmpDir = useTempDir("stet-manifest-");
 
   it("valid manifest file → Ok with parsed entries", async () => {
-    const path = join(tmpDir, "manifest.json");
+    const path = join(tmpDir(), "manifest.json");
     await writeFile(
       path,
       JSON.stringify({
@@ -168,7 +164,7 @@ describe("readManifest", () => {
   });
 
   it("empty entries array → Ok with empty list", async () => {
-    const path = join(tmpDir, "manifest.json");
+    const path = join(tmpDir(), "manifest.json");
     await writeFile(path, JSON.stringify({ entries: [] }));
     const result = await readManifest(path);
     expect(result.isOk()).toBe(true);
@@ -178,7 +174,7 @@ describe("readManifest", () => {
   });
 
   it("missing file → Ok with empty list (no qualifications)", async () => {
-    const path = join(tmpDir, "nonexistent.json");
+    const path = join(tmpDir(), "nonexistent.json");
     const result = await readManifest(path);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
@@ -187,7 +183,7 @@ describe("readManifest", () => {
   });
 
   it("malformed JSON → Err(ConfigError)", async () => {
-    const path = join(tmpDir, "manifest.json");
+    const path = join(tmpDir(), "manifest.json");
     await writeFile(path, "not valid json {{{");
     const result = await readManifest(path);
     expect(result.isErr()).toBe(true);
@@ -198,7 +194,7 @@ describe("readManifest", () => {
   });
 
   it("missing 'entries' field → Err(ConfigError)", async () => {
-    const path = join(tmpDir, "manifest.json");
+    const path = join(tmpDir(), "manifest.json");
     await writeFile(path, JSON.stringify({ models: [] }));
     const result = await readManifest(path);
     expect(result.isErr()).toBe(true);
@@ -208,7 +204,7 @@ describe("readManifest", () => {
   });
 
   it("entry missing required field → Err(ConfigError)", async () => {
-    const path = join(tmpDir, "manifest.json");
+    const path = join(tmpDir(), "manifest.json");
     await writeFile(
       path,
       JSON.stringify({
@@ -222,8 +218,30 @@ describe("readManifest", () => {
     }
   });
 
+  it("entry with a tier outside the union → Err(ConfigError)", async () => {
+    const path = join(tmpDir(), "manifest.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        entries: [
+          {
+            model: "anthropic/claude-opus-4-8",
+            tier: "Robust", // case slip — not in the ModelTier union
+            rubricVersion: "1.0.0",
+            fixtureSetVersion: "1.0.0",
+          },
+        ],
+      }),
+    );
+    const result = await readManifest(path);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ConfigError");
+    }
+  });
+
   it("multiple valid entries → Ok with all entries", async () => {
-    const path = join(tmpDir, "manifest.json");
+    const path = join(tmpDir(), "manifest.json");
     const entries = [
       {
         model: "anthropic/claude-opus-4-8",
@@ -247,8 +265,7 @@ describe("readManifest", () => {
   });
 
   it("shipped fixtures/manifest.json is readable and has entries", async () => {
-    const manifestPath = new URL("../../fixtures/manifest.json", import.meta.url).pathname;
-    const result = await readManifest(manifestPath);
+    const result = await readManifest(MANIFEST_PATH);
     expect(result.isOk()).toBe(true);
     if (result.isOk()) {
       expect(result.value.length).toBeGreaterThan(0);
@@ -257,6 +274,29 @@ describe("readManifest", () => {
         expect(["robust", "fast"]).toContain(entry.tier);
         expect(typeof entry.rubricVersion).toBe("string");
         expect(typeof entry.fixtureSetVersion).toBe("string");
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drift guard: shipped defaults must be qualified in the shipped manifest
+// ---------------------------------------------------------------------------
+
+describe("shipped manifest covers the default preference table", () => {
+  it("every TIER_PREFERENCES model has a current-version manifest entry for its tier", async () => {
+    const result = await readManifest(MANIFEST_PATH);
+    expect(result.isOk()).toBe(true);
+    if (!result.isOk()) return;
+    const entries = result.value;
+    for (const tier of ["robust", "fast"] satisfies ModelTier[]) {
+      for (const model of TIER_PREFERENCES[tier]) {
+        // If this fails, TIER_PREFERENCES and fixtures/manifest.json have drifted:
+        // a zero-config run would emit harness.unqualified-model for stet's own default.
+        expect(
+          checkQualification(model, tier, entries),
+          `${model} (${tier}) must be qualified in the shipped manifest`,
+        ).toBeNull();
       }
     }
   });

@@ -142,7 +142,8 @@ describe("resolveForPhase", () => {
   });
 
   it("general override (no phaseId) → uses override model regardless of tier", () => {
-    const result = resolveForPhase("review", "robust", noCredRegistry, [
+    // Override provider must still be credentialed; the tier's own providers are not.
+    const result = resolveForPhase("review", "robust", makeRegistry(["custom"]), [
       { model: "custom/my-model" },
     ]);
     expect(result.isOk()).toBe(true);
@@ -151,8 +152,19 @@ describe("resolveForPhase", () => {
     }
   });
 
-  it("specific override (phaseId matches) → uses specific model", () => {
+  it("override to an uncredentialed provider → Err(RoutingError)", () => {
     const result = resolveForPhase("review", "robust", noCredRegistry, [
+      { model: "custom/my-model" },
+    ]);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("RoutingError");
+      expect(result.error.message).toContain("custom");
+    }
+  });
+
+  it("specific override (phaseId matches) → uses specific model", () => {
+    const result = resolveForPhase("review", "robust", makeRegistry(["custom"]), [
       { model: "custom/general" },
       { phaseId: "review", model: "custom/specific" },
     ]);
@@ -163,7 +175,7 @@ describe("resolveForPhase", () => {
   });
 
   it("specific override for different phase: does not apply; general override wins", () => {
-    const result = resolveForPhase("gates", "fast", noCredRegistry, [
+    const result = resolveForPhase("gates", "fast", makeRegistry(["custom"]), [
       { model: "custom/general" },
       { phaseId: "review", model: "custom/review-only" },
     ]);
@@ -197,41 +209,33 @@ describe("resolveForPhase", () => {
     }
   });
 
-  it("per-phase independence: phase A resolves, phase B does not — separate results", () => {
-    const [firstRobustModel] = TIER_PREFERENCES.robust;
-    const robustProvider = firstRobustModel!.split("/")[0]!;
-    // Only the robust provider is credentialed. fast tier has a different provider first.
-    const fastModels = TIER_PREFERENCES.fast;
-    const fastFirstProvider = fastModels[0]!.split("/")[0]!;
-    // Ensure the first fast provider is different from robust provider
-    // so we get the independence scenario.
-    const registry = makeRegistry([robustProvider]);
+  it("per-phase independence: one phase resolves while another fails — results are independent", () => {
+    // anthropic is credentialed; "missing" is not. Deterministic regardless of the
+    // preference table: phase A resolves via tier, phase B's pinned provider fails.
+    const registry = makeRegistry(["anthropic"]);
 
     const resultA = resolveForPhase("review", "robust", registry);
-    // Fast tier's first entry is either the same or different provider.
-    // If same, this test needs adjustment — but the logic is independent regardless.
-    const resultB = resolveForPhase("gates", "fast", registry);
+    const resultB = resolveForPhase("gates", "fast", registry, [
+      { phaseId: "gates", model: "missing/model" },
+    ]);
 
-    // Phase A should succeed (robust provider credentialed)
+    // Phase A succeeds (anthropic leads the robust table and is credentialed).
     expect(resultA.isOk()).toBe(true);
-
-    // Phase B result is independent — success only if fastFirstProvider === robustProvider
-    if (fastFirstProvider === robustProvider) {
-      expect(resultB.isOk()).toBe(true);
-    } else {
-      // These are independent: A's result doesn't affect B's
-      // (The result may be Ok or Err depending on fast tier's preference table)
-      expect(resultA.isOk()).toBe(true); // A is still Ok regardless
+    if (resultA.isOk()) {
+      expect(resultA.value[0]!.model).toBe(TIER_PREFERENCES.robust[0]);
     }
+    // Phase B fails independently — A's success is unaffected by B's failure.
+    expect(resultB.isErr()).toBe(true);
   });
 
   it("single-phase failure: phase with no provider Errs independently of other phases", () => {
-    // Phase A has an override → always Ok
-    const resultA = resolveForPhase("review", "robust", noCredRegistry, [
+    const registry = makeRegistry(["custom"]);
+    // Phase A has a credentialed override → Ok
+    const resultA = resolveForPhase("review", "robust", registry, [
       { phaseId: "review", model: "custom/ok" },
     ]);
-    // Phase B has no override, no credentials → Err
-    const resultB = resolveForPhase("gates", "fast", noCredRegistry);
+    // Phase B has no override; the fast tier's providers are not credentialed → Err
+    const resultB = resolveForPhase("gates", "fast", registry);
 
     expect(resultA.isOk()).toBe(true);
     expect(resultB.isErr()).toBe(true);
@@ -272,30 +276,52 @@ describe("preflightAll", () => {
   });
 
   it("mixed: one phase credentialed, one not → Err (preflight is all-or-nothing)", () => {
-    // Phase A: override → always resolves
-    // Phase B: no override, no credentials → fails
+    // Phase A (review): credentialed override → resolves
+    // Phase B (gates): no override, no credentials → fails ⇒ whole preflight Errs
     const result = preflightAll(
       [
         { id: "review", tier: "robust" as ModelTier },
         { id: "gates", tier: "fast" as ModelTier },
       ],
-      noCredRegistry,
-      [{ phaseId: "review", model: "custom/ok" }], // only review has override
+      makeRegistry(["custom"]),
+      [{ phaseId: "review", model: "custom/ok" }], // only review has an override
     );
-    // "gates" has no override and no credentials → preflight Err
     expect(result.isErr()).toBe(true);
   });
 
-  it("all phases have overrides → Ok even with no credentials", () => {
+  it("all phases have a credentialed general override → Ok regardless of tier providers", () => {
     const result = preflightAll(
       [
         { id: "review", tier: "robust" as ModelTier },
         { id: "gates", tier: "fast" as ModelTier },
       ],
-      noCredRegistry,
+      makeRegistry(["custom"]),
       [{ model: "custom/override" }], // general override applies to all
     );
     expect(result.isOk()).toBe(true);
+  });
+
+  it("general override to an uncredentialed provider → Err (preflight catches it pre-launch)", () => {
+    const result = preflightAll([{ id: "review", tier: "robust" as ModelTier }], noCredRegistry, [
+      { model: "custom/override" },
+    ]);
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("RoutingError");
+    }
+  });
+
+  it("override naming an unknown phase → Err (typo'd --model fails fast, not silently dropped)", () => {
+    const result = preflightAll(
+      [{ id: "review", tier: "robust" as ModelTier }],
+      allCredRegistry,
+      [{ phaseId: "reveiw", model: "custom/typo" }], // "reveiw" is not a configured phase
+    );
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("RoutingError");
+      expect(result.error.message).toContain("reveiw");
+    }
   });
 
   it("preflight Err message is actionable (names the failing tier)", () => {
@@ -377,16 +403,33 @@ describe("runWithFallback", () => {
 
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error._tag).toBe("RoutingError");
+      // Phase-level ModelError, not an exit-2 RoutingError (error taxonomy).
+      expect(result.error._tag).toBe("ModelError");
+      // Underlying per-model errors are preserved, not collapsed to a bare count.
+      expect(result.error.message).toContain("providerA/model1");
+      expect(result.error.message).toContain("providerB/model2");
     }
     expect(calls).toHaveLength(2); // both tried
   });
 
-  it("empty model list → Err(RoutingError)", async () => {
+  it("accumulates the cost of every failed attempt into the returned ModelError", async () => {
+    const attempt = async (): Promise<Result<string, ModelError>> =>
+      Result.err(new ModelError({ message: "transient", cost: { durationMs: 100 } }));
+
+    const models = [{ model: "providerA/model1" }, { model: "providerB/model2" }];
+    const result = await runWithFallback(models, attempt, () => true);
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.cost.durationMs).toBe(200); // 100 + 100, not dropped
+    }
+  });
+
+  it("empty model list → Err(ModelError)", async () => {
     const result = await runWithFallback([], async () => Result.ok("unreachable"));
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
-      expect(result.error._tag).toBe("RoutingError");
+      expect(result.error._tag).toBe("ModelError");
     }
   });
 
@@ -409,31 +452,52 @@ describe("runWithFallback", () => {
 // ---------------------------------------------------------------------------
 
 describe("parseModelOverride", () => {
-  it("general format (no =) → { model }", () => {
+  it("general format (no =) → Ok({ model })", () => {
     const result = parseModelOverride("anthropic/claude-opus-4-8");
-    expect(result).toEqual({ model: "anthropic/claude-opus-4-8" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ model: "anthropic/claude-opus-4-8" });
+    }
   });
 
-  it("specific format (phaseId=model) → { phaseId, model }", () => {
+  it("specific format (phaseId=model) → Ok({ phaseId, model })", () => {
     const result = parseModelOverride("review=anthropic/claude-opus-4-8");
-    expect(result).toEqual({ phaseId: "review", model: "anthropic/claude-opus-4-8" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ phaseId: "review", model: "anthropic/claude-opus-4-8" });
+    }
   });
 
-  it("empty string → null", () => {
-    expect(parseModelOverride("")).toBeNull();
+  it("empty string → Err(ConfigError)", () => {
+    const result = parseModelOverride("");
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ConfigError");
+    }
   });
 
-  it("missing model after = → null", () => {
-    expect(parseModelOverride("review=")).toBeNull();
+  it("missing model after = → Err(ConfigError)", () => {
+    expect(parseModelOverride("review=").isErr()).toBe(true);
   });
 
-  it("= with no phaseId → null (empty phaseId is invalid)", () => {
-    expect(parseModelOverride("=anthropic/claude-opus-4-8")).toBeNull();
+  it("= with no phaseId → Err(ConfigError) (empty phaseId is invalid)", () => {
+    expect(parseModelOverride("=anthropic/claude-opus-4-8").isErr()).toBe(true);
+  });
+
+  it("malformed Err message is actionable (names the bad value)", () => {
+    const result = parseModelOverride("review=");
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error.message).toContain("review=");
+    }
   });
 
   it("phaseId with multiple = → first = splits phaseId/model (model may contain =)", () => {
     // Edge case: "review=provider/model=extra" → phaseId="review", model="provider/model=extra"
     const result = parseModelOverride("review=provider/model=extra");
-    expect(result).toEqual({ phaseId: "review", model: "provider/model=extra" });
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value).toEqual({ phaseId: "review", model: "provider/model=extra" });
+    }
   });
 });

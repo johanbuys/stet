@@ -10,25 +10,38 @@
  */
 
 import { readFile } from "node:fs/promises";
+import { type Static, Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { Result } from "better-result";
 import { ConfigError } from "../errors.js";
-import type { ModelTier } from "./resolve.js";
+import { isFileAbsentError } from "../fs-util.js";
+import { collectSchemaErrors } from "../schema/validation.js";
+import { ModelTierSchema } from "./resolve.js";
 
 // ---------------------------------------------------------------------------
-// Types
+// Schema
 // ---------------------------------------------------------------------------
 
-/** A single qualification entry from the manifest. */
-export interface ManifestEntry {
+/**
+ * A single qualification entry from the manifest. Validated at the boundary so an
+ * out-of-union `tier` (e.g. "Robust") is rejected with a path-named error instead of
+ * being cast into ModelTier and silently never matching in checkQualification.
+ * `tier` shares ModelTierSchema with the resolver, so the two can't drift.
+ */
+export const ManifestEntry = Type.Object({
   /** Fully-qualified "provider/model-id" string. */
-  model: string;
+  model: Type.String(),
   /** The tier this entry qualifies the model for. */
-  tier: ModelTier;
+  tier: ModelTierSchema,
   /** Version of the phase rubric used during qualification. */
-  rubricVersion: string;
+  rubricVersion: Type.String(),
   /** Version of the fixture set used during qualification. */
-  fixtureSetVersion: string;
-}
+  fixtureSetVersion: Type.String(),
+});
+export type ManifestEntry = Static<typeof ManifestEntry>;
+
+/** The manifest wire shape: a JSON object with an `entries` array. */
+const Manifest = Type.Object({ entries: Type.Array(ManifestEntry) });
 
 // ---------------------------------------------------------------------------
 // Reader
@@ -45,13 +58,11 @@ export async function readManifest(path: string): Promise<Result<ManifestEntry[]
   try {
     raw = await readFile(path, "utf8");
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") {
+    if (isFileAbsentError(err)) {
       return Result.ok([]);
     }
-    return Result.err(
-      new ConfigError({ path, message: `Failed to read manifest: ${String(err)}` }),
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    return Result.err(new ConfigError({ path, message: `Failed to read manifest: ${message}` }));
   }
 
   let parsed: unknown;
@@ -63,37 +74,10 @@ export async function readManifest(path: string): Promise<Result<ManifestEntry[]
     );
   }
 
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !Array.isArray((parsed as Record<string, unknown>).entries)
-  ) {
-    return Result.err(
-      new ConfigError({ path, message: 'Manifest must be a JSON object with an "entries" array.' }),
-    );
+  if (!Value.Check(Manifest, parsed)) {
+    const { details } = collectSchemaErrors(Manifest, parsed);
+    return Result.err(new ConfigError({ path, message: `invalid manifest — ${details}` }));
   }
 
-  const rawEntries = (parsed as { entries: unknown[] }).entries;
-  const entries: ManifestEntry[] = [];
-  for (const item of rawEntries) {
-    if (
-      typeof item !== "object" ||
-      item === null ||
-      typeof (item as Record<string, unknown>).model !== "string" ||
-      typeof (item as Record<string, unknown>).tier !== "string" ||
-      typeof (item as Record<string, unknown>).rubricVersion !== "string" ||
-      typeof (item as Record<string, unknown>).fixtureSetVersion !== "string"
-    ) {
-      return Result.err(
-        new ConfigError({
-          path,
-          message:
-            "Each manifest entry must have string fields: model, tier, rubricVersion, fixtureSetVersion.",
-        }),
-      );
-    }
-    entries.push(item as ManifestEntry);
-  }
-
-  return Result.ok(entries);
+  return Result.ok(parsed.entries);
 }
