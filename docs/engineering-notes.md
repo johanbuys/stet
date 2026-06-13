@@ -196,6 +196,14 @@ so these matter most.
 - **`deepMerge` must skip `__proto__`/`constructor`/`prototype` keys.** The `yaml` package (like `JSON.parse`) emits a `__proto__:` mapping as an OWN enumerable key, and `result[key] = overlayVal` on that key invokes the inherited prototype setter — swapping the merged config's prototype to config-file-controlled data (invisible to `Object.keys`/`JSON.stringify`, visible to every `config.x?.y` lookup). Verified by runtime repro during the T17/T18 review. (T17 review.)
 - **`bun install` adds workspace catalog fields to `package.json` and creates `bun.lock`.** Both are gitignored (settled decision from T13 review). Revert `package.json` with `git checkout -- package.json` after installing deps. Do NOT commit `bun.lock`. (T17, recurring trap.)
 
+## Model routing (`src/routing/`, M6/T19–T20)
+
+- **`bun install` modifies `package.json`** — adds `workspaces.catalog` and `overrides` fields. Revert with `git checkout -- package.json` before committing. `bun.lock` is gitignored; `package.json` is not. (T20, recurring trap from T17.)
+- **`qualify.ts` is pure (no I/O) by design.** `checkQualification(model, tier, entries)` takes the already-read manifest entries as a parameter. The I/O is in `readManifest(path)`. This separation means qualification logic is testable without temp files and the caller controls where the manifest comes from. (T20.)
+- **Missing manifest → `Ok([])`**, not an error. An absent `fixtures/manifest.json` means zero qualification entries, which causes the `harness.unqualified-model` warning for every model. Conservative default — callers with no manifest see a warning, not a crash. (T20.)
+- **Version bump invalidation is implicit.** `CURRENT_RUBRIC_VERSION` and `CURRENT_FIXTURE_SET_VERSION` are the harness's "expected" values. Bumping either constant invalidates all manifest entries that don't match, without editing the manifest itself. Entries with old versions simply stop matching `checkQualification`'s four-field equality check. (T20.)
+- **`HARNESS_PHASE_ID`** is in `src/schema/finding.ts`. Import it from there in any module that emits harness findings — don't redeclare locally. (T20.)
+
 ## Known residual issues / watch-items
 
 - **`bash` mutation surface** — decision #34 (above); the M2 mutation-free test asserts only the

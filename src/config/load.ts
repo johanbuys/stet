@@ -18,6 +18,7 @@ import { Value } from "@sinclair/typebox/value";
 import { Result } from "better-result";
 import { parse as parseYaml, YAMLParseError } from "yaml";
 import { ConfigError } from "../errors.js";
+import { isFileAbsentError } from "../fs-util.js";
 import { HARNESS_PHASE_ID, type Finding } from "../schema/finding.js";
 import { collectSchemaErrors } from "../schema/validation.js";
 import { BUILT_IN_DEFAULTS, StetConfig } from "./schema.js";
@@ -25,15 +26,6 @@ import { deepMerge, isPlainObject } from "./merge.js";
 
 const PROJECT_CONFIG_FILE = "stet.config.yml";
 const USER_CONFIG_SUBPATH = join(".config", "stet", "config.yml");
-
-/**
- * Error codes that mean "this layer's config file does not exist" (PRD §3.7:
- * zero-config is valid). ENOENT — no file; ENOTDIR — a path component is a
- * regular file (e.g. ~/.config itself), so the config path cannot exist either.
- * Anything else (EACCES, EISDIR, …) is a real problem at the expected location
- * and surfaces as a ConfigError.
- */
-const LAYER_ABSENT_CODES = new Set(["ENOENT", "ENOTDIR"]);
 
 export interface LoadConfigOpts {
   /** Project root — source of `stet.config.yml`. */
@@ -113,7 +105,8 @@ async function readYamlLayer(configPath: string): Promise<Result<YamlLayerResult
   try {
     raw = await readFile(configPath, "utf8");
   } catch (err) {
-    if (isNodeError(err) && err.code !== undefined && LAYER_ABSENT_CODES.has(err.code)) {
+    // A missing file is a no-op (zero-config is valid; PRD §3.7).
+    if (isFileAbsentError(err)) {
       return Result.ok({ data: null, findings: [] });
     }
     const message = err instanceof Error ? err.message : String(err);
@@ -185,8 +178,4 @@ export async function loadConfig(
   if (flagOverride !== undefined) config = deepMerge(config, flagOverride);
 
   return Result.ok({ config, findings: allFindings });
-}
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && "code" in err;
 }

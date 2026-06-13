@@ -1,0 +1,28 @@
+{
+  "entries": [
+    {
+      "model": "anthropic/claude-opus-4-8",
+      "tier": "robust",
+      "rubricVersion": "1.0.0",
+      "fixtureSetVersion": "1.0.0"
+    },
+    {
+      "model": "openai/gpt-4o",
+      "tier": "robust",
+      "rubricVersion": "1.0.0",
+      "fixtureSetVersion": "1.0.0"
+    },
+    {
+      "model": "anthropic/claude-haiku-4-5",
+      "tier": "fast",
+      "rubricVersion": "1.0.0",
+      "fixtureSetVersion": "1.0.0"
+    },
+    {
+      "model": "openai/gpt-4o-mini",
+      "tier": "fast",
+      "rubricVersion": "1.0.0",
+      "fixtureSetVersion": "1.0.0"
+    }
+  ]
+}
