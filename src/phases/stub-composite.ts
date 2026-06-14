@@ -17,6 +17,7 @@ import { Finding } from "../schema/finding.js";
 import { Audit } from "../schema/report.js";
 import type { PhaseConfiguration } from "./types.js";
 import { makeCompositePhase, type SpecialistConfig } from "./composite.js";
+import type { CoordinatorConfig } from "./coordinator.js";
 
 // ---------------------------------------------------------------------------
 // Submit schema — shared across all stub specialists
@@ -116,6 +117,7 @@ If no NOTE lines are found, submit an empty findings array.`,
  * Build the stub-composite PhaseConfiguration with injected AgentRunners.
  *
  * `runners` must contain an entry for each specialist name ("alpha", "beta", "gamma").
+ * When `opts.coordinator` is provided, `runners["coordinator"]` must also be present.
  * Pass FakeAgentRunners in tests to script each specialist independently.
  *
  * @example
@@ -125,9 +127,13 @@ If no NOTE lines are found, submit an empty findings array.`,
  *     gamma: new FakeAgentRunner({ kind: "err", error: new ModelError(...) }),
  *   });
  */
-export function makeStubComposite(runners: Record<string, AgentRunner>): PhaseConfiguration {
+export function makeStubComposite(
+  runners: Record<string, AgentRunner>,
+  opts?: { coordinator?: CoordinatorConfig },
+): PhaseConfiguration {
   return makeCompositePhase(runners, {
     id: "stub-composite",
     specialists: STUB_COMPOSITE_SPECIALISTS,
+    coordinator: opts?.coordinator,
   });
 }

@@ -285,6 +285,40 @@ export function makeCompositePhase(
               : { ...rest, phase: cfg.id };
           });
 
+          // Constrained authority (PRD #30): deterministic/evidence-backed findings
+          // (carrying evidence.command) are protected from coordinator drops or severity
+          // downgrades. The harness reinstates them unchanged and records them.
+          const SEVERITY_RANK = { error: 2, warning: 1, info: 0 } as const;
+          const finalFindingById = new Map(finalFindings.map((f) => [f.id, f]));
+          const reinstated: { id: string; specialist?: string }[] = [];
+
+          for (const raw of allFindings) {
+            if (raw.evidence?.command === undefined) continue; // not protected
+
+            const inFinal = finalFindingById.get(raw.id);
+            const wasDropped = inFinal === undefined;
+            const wasDowngraded =
+              inFinal !== undefined &&
+              SEVERITY_RANK[inFinal.severity] < SEVERITY_RANK[raw.severity];
+
+            if (wasDropped || wasDowngraded) {
+              // Reinstate original unchanged — phase is harness-controlled; specialist
+              // is already correct on raw (set by the roll-up loop above).
+              const reinstatedFinding = { ...raw, phase: cfg.id };
+              if (wasDropped) {
+                finalFindings.push(reinstatedFinding);
+              } else {
+                const idx = finalFindings.findIndex((f) => f.id === raw.id);
+                finalFindings[idx] = reinstatedFinding;
+              }
+              finalFindingById.set(raw.id, reinstatedFinding);
+              const entry: { id: string; specialist?: string } = { id: raw.id };
+              if (raw.specialist !== undefined) entry.specialist = raw.specialist;
+              reinstated.push(entry);
+            }
+          }
+
+          // dropped = roll-up minus survivors after reinstatement (reinstated are survivors).
           const survivorIds = new Set(finalFindings.map((f) => f.id));
           const dropped = allFindings
             .filter((f) => !survivorIds.has(f.id))
@@ -305,7 +339,7 @@ export function makeCompositePhase(
               coordinator: {
                 received: allFindings.length,
                 dropped,
-                reinstated: [], // T28 populates this (constrained authority, PRD #30).
+                reinstated,
               },
             },
             cost: {
