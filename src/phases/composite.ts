@@ -15,10 +15,12 @@ import { Value } from "@sinclair/typebox/value";
 import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
-import type { Cost, PhaseCost, PhaseReport } from "../schema/report.js";
+import type { Cost, PhaseReport } from "../schema/report.js";
 import { Finding } from "../schema/finding.js";
 import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
+import type { CoordinatorConfig } from "./coordinator.js";
+import { runCoordinatorJudge } from "./coordinator.js";
 
 // ---------------------------------------------------------------------------
 // Specialist config
@@ -51,6 +53,8 @@ export interface SpecialistConfig {
 export interface CompositePhaseConfig {
   id: string;
   specialists: SpecialistConfig[];
+  /** Optional coordinator judge pass (PRD §3.3a). When present, runners["coordinator"] must exist. */
+  coordinator?: CoordinatorConfig;
   activation?: (ctx: ActivationContext) => boolean;
 }
 
@@ -225,17 +229,108 @@ export function makeCompositePhase(
         }
       }
 
-      const cost: PhaseCost = {
-        durationMs: Date.now() - start,
-        specialists: specialistsCost,
-      };
+      // Coordinator judge pass (PRD §3.3a) — runs after roll-up when configured.
+      if (cfg.coordinator) {
+        const coordinatorRunner = runners["coordinator"];
+        if (!coordinatorRunner) {
+          const warnFinding: Finding = {
+            id: `${cfg.id}.coordinator-failed`,
+            phase: cfg.id,
+            severity: "warning",
+            confidence: "high",
+            message: "Coordinator judge has no runner configured.",
+          };
+          return {
+            phase: cfg.id,
+            status: "completed",
+            findings: [...allFindings, warnFinding],
+            audit: {},
+            cost: { durationMs: Date.now() - start, specialists: specialistsCost },
+          };
+        }
 
+        let outcome: Awaited<ReturnType<typeof runCoordinatorJudge>>;
+        try {
+          outcome = await runCoordinatorJudge(coordinatorRunner, cfg.coordinator, allFindings, ctx);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const warnFinding: Finding = {
+            id: `${cfg.id}.coordinator-failed`,
+            phase: cfg.id,
+            severity: "warning",
+            confidence: "high",
+            message: `Coordinator judge threw unexpectedly: ${msg}`,
+          };
+          return {
+            phase: cfg.id,
+            status: "completed",
+            findings: [...allFindings, warnFinding],
+            audit: {},
+            cost: { durationMs: Date.now() - start, specialists: specialistsCost },
+          };
+        }
+
+        if (outcome.kind === "ok") {
+          // Coordinator submission replaces the raw roll-up.
+          // Phase is harness-controlled; specialist is preserved from submission.
+          const finalFindings = outcome.findings.map((f) => ({ ...f, phase: cfg.id }));
+
+          const survivorIds = new Set(finalFindings.map((f) => f.id));
+          const dropped = allFindings
+            .filter((f) => !survivorIds.has(f.id))
+            .map((f) => {
+              const entry: { id: string; specialist?: string; message: string } = {
+                id: f.id,
+                message: f.message,
+              };
+              if (f.specialist !== undefined) entry.specialist = f.specialist;
+              return entry;
+            });
+
+          return {
+            phase: cfg.id,
+            status: "completed",
+            findings: finalFindings,
+            audit: {
+              coordinator: {
+                received: allFindings.length,
+                dropped,
+                reinstated: [], // T28 populates this (constrained authority, PRD #30).
+              },
+            },
+            cost: {
+              durationMs: Date.now() - start,
+              specialists: specialistsCost,
+              coordinator: outcome.cost,
+            },
+          };
+        }
+
+        // Coordinator failed — fall back to raw roll-up (decision #29: never forfeits findings).
+        const failReason = `${outcome.error._tag}: ${outcome.error.message}`;
+        const warnFinding: Finding = {
+          id: `${cfg.id}.coordinator-failed`,
+          phase: cfg.id,
+          severity: "warning",
+          confidence: "high",
+          message: `Coordinator judge failed — ${failReason}. Showing raw specialist roll-up.`,
+        };
+        return {
+          phase: cfg.id,
+          status: "completed",
+          findings: [...allFindings, warnFinding],
+          audit: {},
+          cost: { durationMs: Date.now() - start, specialists: specialistsCost },
+        };
+      }
+
+      // No coordinator — return plain roll-up unchanged.
       return {
         phase: cfg.id,
         status: "completed",
         findings: allFindings,
         audit: {},
-        cost,
+        cost: { durationMs: Date.now() - start, specialists: specialistsCost },
       };
     },
   };
