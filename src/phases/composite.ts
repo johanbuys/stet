@@ -1,0 +1,242 @@
+/**
+ * Composite phase — parallel specialist execution + roll-up (M7 · PRD §3.3).
+ *
+ * A composite phase fans out to N specialists in parallel via the AgentRunner seam,
+ * then rolls their findings up to a single PhaseReport. Each finding carries its
+ * originating specialist. One specialist failing never loses the other specialists'
+ * findings — the composite always aggregates and returns "completed".
+ *
+ * PRD refs: §3.3 (specialists), §4.1 (PhaseConfiguration), §4.4 (PhaseCost, specialists).
+ * Plan refs: M7, decisions P1.
+ */
+
+import type { TSchema } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+import { runWithWallClock } from "../agent/budgets.js";
+import type { AgentError } from "../errors.js";
+import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
+import type { Cost, PhaseCost, PhaseReport } from "../schema/report.js";
+import { Finding } from "../schema/finding.js";
+import type { Result } from "better-result";
+import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Specialist config
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for a single specialist within a composite phase.
+ * PRD §3.3: "each specialist is the same configuration shape (rubric + toolset + model + activation)".
+ */
+export interface SpecialistConfig {
+  /** Unique name within the composite phase — used as the key in cost.specialists and to tag findings. */
+  name: string;
+  rubric: string;
+  /** Tool allowlist. NEVER include edit/write tools (PRD §3.2). */
+  toolset: string[];
+  submitSchema: TSchema;
+  /** Wall-clock enforced per-specialist by runWithWallClock (M3 reuse). */
+  budgets: AgentRunInputs["budgets"];
+  /** Optional model override; inherits from the phase when omitted. */
+  model?: string;
+  buildUserPrompt: (ctx: PhaseContext) => string;
+  /** Narrows which scope this specialist runs for. Defaults to always-true. */
+  activation?: (ctx: ActivationContext) => boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Composite phase config
+// ---------------------------------------------------------------------------
+
+export interface CompositePhaseConfig {
+  id: string;
+  specialists: SpecialistConfig[];
+  activation?: (ctx: ActivationContext) => boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Internal parallel result types
+// ---------------------------------------------------------------------------
+
+interface SpecialistSkipped {
+  name: string;
+  kind: "skipped";
+}
+
+interface SpecialistRan {
+  name: string;
+  kind: "ran";
+  runResult: Result<AgentRunSuccess, AgentError>;
+  durationMs: number;
+}
+
+type SpecialistOutcome = SpecialistSkipped | SpecialistRan;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function costFromError(error: AgentError): Partial<Cost> {
+  if (
+    error._tag === "NoSubmitError" ||
+    error._tag === "CancelledError" ||
+    error._tag === "ModelError"
+  ) {
+    return {
+      model: error.cost.model,
+      inputTokens: error.cost.inputTokens,
+      outputTokens: error.cost.outputTokens,
+    };
+  }
+  // BudgetError carries no cost sub-object.
+  return {};
+}
+
+/**
+ * Parse and validate findings from a submission payload.
+ * Returns the typed array on success, or null on failure.
+ * Failure is silent — invalid submissions contribute no findings rather than aborting the roll-up.
+ */
+function parseFindings(submission: unknown): Finding[] | null {
+  if (
+    typeof submission !== "object" ||
+    submission === null ||
+    !Array.isArray((submission as Record<string, unknown>).findings)
+  ) {
+    return null;
+  }
+  const raw = (submission as Record<string, unknown>).findings as unknown[];
+  const result: Finding[] = [];
+  for (const item of raw) {
+    if (!Value.Check(Finding, item)) return null;
+    result.push(item as Finding);
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a composite PhaseConfiguration that fans out to N specialists in parallel.
+ *
+ * `runners` maps each specialist name to its AgentRunner — one runner per specialist so
+ * tests can script each independently with a FakeAgentRunner.
+ *
+ * INFALLIBLE CONTRACT: run() never throws and never rejects.
+ *
+ * PRD §3.3; plan M7.
+ */
+export function makeCompositePhase(
+  runners: Record<string, AgentRunner>,
+  cfg: CompositePhaseConfig,
+): PhaseConfiguration {
+  return {
+    id: cfg.id,
+    kind: "agent",
+
+    // Expose the merged tool allowlist across all specialists for the mutation-free audit.
+    toolset: [...new Set(cfg.specialists.flatMap((s) => s.toolset))],
+
+    activation: cfg.activation ?? (() => true),
+
+    async run(ctx: PhaseContext): Promise<PhaseReport> {
+      const start = Date.now();
+
+      if (ctx.signal?.aborted) {
+        const reason =
+          typeof ctx.signal.reason === "string" ? ctx.signal.reason : "cancelled by scheduler";
+        return {
+          phase: cfg.id,
+          status: "cancelled",
+          reason,
+          findings: [],
+          audit: {},
+          cost: { durationMs: 0 },
+        };
+      }
+
+      let parallelResults: SpecialistOutcome[];
+      try {
+        parallelResults = await Promise.all(
+          cfg.specialists.map(async (s): Promise<SpecialistOutcome> => {
+            const isActive = (s.activation ?? (() => true))({ scope: ctx.scope });
+            if (!isActive) return { name: s.name, kind: "skipped" };
+
+            const runner = runners[s.name];
+            if (!runner) {
+              throw new Error(`No runner provided for specialist "${s.name}"`);
+            }
+
+            const specialistStart = Date.now();
+            const controller = new AbortController();
+
+            const runResult = await runWithWallClock(
+              runner,
+              {
+                rubric: s.rubric,
+                userPrompt: s.buildUserPrompt(ctx),
+                toolset: s.toolset,
+                submitSchema: s.submitSchema,
+                budgets: s.budgets,
+                model: s.model,
+                cwd: ctx.cwd,
+              },
+              controller,
+              ctx.signal,
+            );
+
+            const durationMs = Date.now() - specialistStart;
+            return { name: s.name, kind: "ran", runResult, durationMs };
+          }),
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          phase: cfg.id,
+          status: "error",
+          reason: `composite phase threw unexpectedly: ${message}`,
+          findings: [],
+          audit: {},
+          cost: { durationMs: Date.now() - start },
+        };
+      }
+
+      const allFindings: Finding[] = [];
+      const specialistsCost: Record<string, Cost> = {};
+
+      for (const r of parallelResults) {
+        if (r.kind === "skipped") continue;
+
+        const { name, runResult, durationMs } = r;
+
+        if (runResult.isOk()) {
+          const { submission, cost } = runResult.value;
+          const findings = parseFindings(submission) ?? [];
+          for (const f of findings) {
+            // Overwrite phase + set specialist: provenance is harness-controlled, not model-controlled.
+            allFindings.push({ ...f, phase: cfg.id, specialist: name });
+          }
+          specialistsCost[name] = { ...cost, durationMs };
+        } else {
+          // Specialist failed: no findings but cost is tracked.
+          specialistsCost[name] = { durationMs, ...costFromError(runResult.error) };
+        }
+      }
+
+      const cost: PhaseCost = {
+        durationMs: Date.now() - start,
+        specialists: specialistsCost,
+      };
+
+      return {
+        phase: cfg.id,
+        status: "completed",
+        findings: allFindings,
+        audit: {},
+        cost,
+      };
+    },
+  };
+}
