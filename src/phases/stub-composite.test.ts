@@ -19,7 +19,12 @@ import { FakeAgentRunner } from "../agent/fake-runner.js";
 import { ModelError, BudgetError } from "../errors.js";
 import type { Finding } from "../schema/finding.js";
 import { PhaseReport } from "../schema/report.js";
-import { makeStubComposite, STUB_COMPOSITE_SPECIALISTS } from "./stub-composite.js";
+import {
+  makeStubComposite,
+  STUB_COMPOSITE_SPECIALISTS,
+  STUB_RISK_LEVELS,
+  STUB_RISK_RULES,
+} from "./stub-composite.js";
 import { makeCompositePhase } from "./composite.js";
 
 // ---------------------------------------------------------------------------
@@ -364,6 +369,233 @@ describe("stub-composite — specialist activation", () => {
     expect(report.findings.some((f) => f.specialist === "never")).toBe(false);
     expect(report.cost.specialists!["always"]).toBeDefined();
     expect(report.cost.specialists!["never"]).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T29 — Risk classifier + level→fan-out/coordinator wiring (PRD §3.4.1a, #26, #32)
+// ---------------------------------------------------------------------------
+
+/**
+ * Helpers for risk classifier wiring tests.
+ * "small" diff = 5 lines (≤10 → "trivial"), "large" diff = 15 lines (>10 → "full").
+ */
+function smallDiff() {
+  return Array.from({ length: 5 }, (_, i) => `+line ${i + 1}`).join("\n");
+}
+function largeDiff() {
+  return Array.from({ length: 15 }, (_, i) => `+line ${i + 1}`).join("\n");
+}
+
+function ctxWithDiff(diff: string) {
+  return {
+    cwd: "/tmp/stet-test",
+    scope: { kind: "staged" as const, files: ["src/main.ts"] },
+    config: {},
+    diff,
+  };
+}
+
+/** All three specialists return one finding each; coordinator merges and drops. */
+function allThreeRunners(coordRunner: FakeAgentRunner) {
+  return {
+    alpha: okRunner([fakeFinding({ id: "risk.alpha.f", message: "alpha finding" })], "fake/alpha"),
+    beta: okRunner([fakeFinding({ id: "risk.beta.f", message: "beta finding" })], "fake/beta"),
+    gamma: okRunner([fakeFinding({ id: "risk.gamma.f", message: "gamma finding" })], "fake/gamma"),
+    coordinator: coordRunner,
+  };
+}
+
+describe("stub-composite — risk classifier wiring (T29, PRD §3.4.1a)", () => {
+  // -------------------------------------------------------------------------
+  // Small diff → "trivial" level
+  // -------------------------------------------------------------------------
+
+  it("small diff resolves to level 'trivial' in report", async () => {
+    const phase = makeStubComposite(
+      {
+        alpha: okRunner([fakeFinding({ id: "risk.alpha.f", message: "alpha" })], "fake/alpha"),
+        beta: okRunner([], "fake/beta"),
+        gamma: okRunner([], "fake/gamma"),
+      },
+      { riskRules: STUB_RISK_RULES, riskLevels: STUB_RISK_LEVELS },
+    );
+    const report = await phase.run(ctxWithDiff(smallDiff()));
+    expect(report.level).toBe("trivial");
+  });
+
+  it("small diff → only alpha specialist runs (beta and gamma skipped)", async () => {
+    const betaSpy = okRunner(
+      [fakeFinding({ id: "risk.beta.f", message: "should not appear" })],
+      "fake/beta",
+    );
+    const gammaSpy = okRunner(
+      [fakeFinding({ id: "risk.gamma.f", message: "should not appear" })],
+      "fake/gamma",
+    );
+    const phase = makeStubComposite(
+      {
+        alpha: okRunner([fakeFinding({ id: "risk.alpha.f", message: "alpha" })], "fake/alpha"),
+        beta: betaSpy,
+        gamma: gammaSpy,
+      },
+      { riskRules: STUB_RISK_RULES, riskLevels: STUB_RISK_LEVELS },
+    );
+    const report = await phase.run(ctxWithDiff(smallDiff()));
+
+    // Only alpha's finding appears.
+    expect(report.findings.some((f) => f.specialist === "alpha")).toBe(true);
+    expect(report.findings.some((f) => f.specialist === "beta")).toBe(false);
+    expect(report.findings.some((f) => f.specialist === "gamma")).toBe(false);
+
+    // beta and gamma have no cost entry (skipped, not run).
+    expect(report.cost.specialists!["beta"]).toBeUndefined();
+    expect(report.cost.specialists!["gamma"]).toBeUndefined();
+  });
+
+  it("small diff → coordinator is skipped (no audit.coordinator)", async () => {
+    const coordRunner = okRunner([], "fake/coordinator");
+    const phase = makeStubComposite(
+      {
+        alpha: okRunner([fakeFinding({ id: "risk.alpha.f", message: "alpha" })], "fake/alpha"),
+        beta: okRunner([], "fake/beta"),
+        gamma: okRunner([], "fake/gamma"),
+        coordinator: coordRunner,
+      },
+      {
+        coordinator: { rubric: "Judge findings.", model: "fake/coordinator" },
+        riskRules: STUB_RISK_RULES,
+        riskLevels: STUB_RISK_LEVELS,
+      },
+    );
+    const report = await phase.run(ctxWithDiff(smallDiff()));
+
+    // Coordinator did not run — no coordinator audit, no coordinator cost.
+    expect(report.audit.coordinator).toBeUndefined();
+    expect(report.cost.coordinator).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Large diff → "full" level
+  // -------------------------------------------------------------------------
+
+  it("large diff resolves to level 'full' in report", async () => {
+    const coordRunner = okRunner([], "fake/coordinator");
+    const phase = makeStubComposite(
+      {
+        ...allThreeRunners(coordRunner),
+      },
+      {
+        coordinator: { rubric: "Judge findings.", model: "fake/coordinator" },
+        riskRules: STUB_RISK_RULES,
+        riskLevels: STUB_RISK_LEVELS,
+      },
+    );
+    const report = await phase.run(ctxWithDiff(largeDiff()));
+    expect(report.level).toBe("full");
+  });
+
+  it("large diff → all three specialists run", async () => {
+    const coordRunner = okRunner(
+      [
+        fakeFinding({ id: "risk.alpha.f", message: "alpha" }),
+        fakeFinding({ id: "risk.beta.f", message: "beta" }),
+        fakeFinding({ id: "risk.gamma.f", message: "gamma" }),
+      ],
+      "fake/coordinator",
+    );
+    const phase = makeStubComposite(
+      { ...allThreeRunners(coordRunner) },
+      {
+        coordinator: { rubric: "Judge findings.", model: "fake/coordinator" },
+        riskRules: STUB_RISK_RULES,
+        riskLevels: STUB_RISK_LEVELS,
+      },
+    );
+    const report = await phase.run(ctxWithDiff(largeDiff()));
+
+    // All three specialists' findings appear in the final (coordinator pass-through here).
+    expect(report.cost.specialists!["alpha"]).toBeDefined();
+    expect(report.cost.specialists!["beta"]).toBeDefined();
+    expect(report.cost.specialists!["gamma"]).toBeDefined();
+  });
+
+  it("large diff → coordinator runs and audit.coordinator is populated", async () => {
+    // Coordinator drops beta finding and keeps alpha + gamma.
+    const coordRunner = okRunner(
+      [
+        fakeFinding({ id: "risk.alpha.f", message: "alpha" }),
+        fakeFinding({ id: "risk.gamma.f", message: "gamma" }),
+      ],
+      "fake/coordinator",
+    );
+    const phase = makeStubComposite(
+      { ...allThreeRunners(coordRunner) },
+      {
+        coordinator: { rubric: "Judge findings.", model: "fake/coordinator" },
+        riskRules: STUB_RISK_RULES,
+        riskLevels: STUB_RISK_LEVELS,
+      },
+    );
+    const report = await phase.run(ctxWithDiff(largeDiff()));
+
+    // Coordinator ran — audit.coordinator is present.
+    expect(report.audit.coordinator).toBeDefined();
+    expect(report.audit.coordinator!.received).toBe(3);
+    // Beta finding was dropped.
+    expect(report.audit.coordinator!.dropped.map((d) => d.id)).toContain("risk.beta.f");
+    // cost.coordinator is populated.
+    expect(report.cost.coordinator).toBeDefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Mechanism inert when no riskRules declared
+  // -------------------------------------------------------------------------
+
+  it("with no riskRules declared, mechanism is inert — all specialists run regardless of diff", async () => {
+    const phase = makeStubComposite({
+      alpha: okRunner([fakeFinding({ id: "risk.alpha.f", message: "alpha" })], "fake/alpha"),
+      beta: okRunner([fakeFinding({ id: "risk.beta.f", message: "beta" })], "fake/beta"),
+      gamma: okRunner([fakeFinding({ id: "risk.gamma.f", message: "gamma" })], "fake/gamma"),
+    });
+    // Pass a tiny diff — without riskRules, all three run.
+    const report = await phase.run(ctxWithDiff(smallDiff()));
+
+    expect(report.level).toBeUndefined();
+    expect(report.cost.specialists!["alpha"]).toBeDefined();
+    expect(report.cost.specialists!["beta"]).toBeDefined();
+    expect(report.cost.specialists!["gamma"]).toBeDefined();
+  });
+
+  it("resolved level appears in the run output (PhaseReport.level)", async () => {
+    const phase = makeStubComposite(
+      {
+        alpha: okRunner([fakeFinding({ id: "risk.alpha.f", message: "alpha" })], "fake/alpha"),
+        beta: okRunner([], "fake/beta"),
+        gamma: okRunner([], "fake/gamma"),
+      },
+      { riskRules: STUB_RISK_RULES, riskLevels: STUB_RISK_LEVELS },
+    );
+    // Small diff → "trivial"
+    const trivialReport = await phase.run(ctxWithDiff(smallDiff()));
+    expect(trivialReport.level).toBe("trivial");
+
+    // Large diff → "full"
+    const fullReport = await phase.run(ctxWithDiff(largeDiff()));
+    expect(fullReport.level).toBe("full");
+  });
+
+  it("report with resolved level validates against TypeBox PhaseReport schema", async () => {
+    const phase = makeStubComposite(
+      {
+        alpha: okRunner([fakeFinding({ id: "risk.alpha.f", message: "alpha" })], "fake/alpha"),
+        beta: okRunner([], "fake/beta"),
+        gamma: okRunner([], "fake/gamma"),
+      },
+      { riskRules: STUB_RISK_RULES, riskLevels: STUB_RISK_LEVELS },
+    );
+    const report = await phase.run(ctxWithDiff(largeDiff()));
+    expect(Value.Check(PhaseReport, report)).toBe(true);
   });
 });
 

@@ -15,10 +15,13 @@ import { Value } from "@sinclair/typebox/value";
 import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
-import type { Cost, PhaseCost, PhaseReport } from "../schema/report.js";
+import type { Cost, PhaseReport } from "../schema/report.js";
 import { Finding } from "../schema/finding.js";
 import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
+import type { CoordinatorConfig } from "./coordinator.js";
+import { runCoordinatorJudge } from "./coordinator.js";
+import { classify, type RiskRule } from "../risk/classify.js";
 
 // ---------------------------------------------------------------------------
 // Specialist config
@@ -48,10 +51,31 @@ export interface SpecialistConfig {
 // Composite phase config
 // ---------------------------------------------------------------------------
 
+/** Maps a resolved risk level to the specialist subset and coordinator on/off (PRD §4.1). */
+export interface RiskLevel {
+  /** Names of specialists to fan out to at this level. Undefined → all specialists run. */
+  specialists?: string[];
+  /** Whether the coordinator runs at this level. Defaults to true when undefined. */
+  coordinator?: boolean;
+}
+
 export interface CompositePhaseConfig {
   id: string;
   specialists: SpecialistConfig[];
+  /** Optional coordinator judge pass (PRD §3.3a). When present, runners["coordinator"] must exist. */
+  coordinator?: CoordinatorConfig;
   activation?: (ctx: ActivationContext) => boolean;
+  /**
+   * Deterministic risk rules (PRD §3.4.1a, #32).
+   * Evaluated once per run before fan-out via classify(diff, paths, rules) → level.
+   * When absent the mechanism is inert — the full panel always runs.
+   */
+  riskRules?: RiskRule[];
+  /**
+   * Mapping of resolved level to specialist subset + coordinator on/off.
+   * Applied only when riskRules is declared and a level is resolved.
+   */
+  riskLevels?: Record<string, RiskLevel>;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,12 +181,35 @@ export function makeCompositePhase(
         };
       }
 
+      // Risk classification (PRD §3.4.1a, #32): evaluated once before fan-out.
+      // With no riskRules the mechanism is inert — full panel runs unchanged.
+      let resolvedLevel: string | undefined;
+      let levelSpecialists: Set<string> | undefined;
+      let skipCoordinatorForLevel = false;
+
+      if (cfg.riskRules && cfg.riskRules.length > 0) {
+        resolvedLevel = classify(ctx.diff ?? "", ctx.scope.files, cfg.riskRules);
+        const levelCfg = cfg.riskLevels?.[resolvedLevel];
+        if (levelCfg) {
+          if (levelCfg.specialists !== undefined) {
+            levelSpecialists = new Set(levelCfg.specialists);
+          }
+          if (levelCfg.coordinator === false) {
+            skipCoordinatorForLevel = true;
+          }
+        }
+      }
+
+      // Convenience: include resolved level in every completed report (PRD §3.4.1a).
+      const levelEntry = resolvedLevel !== undefined ? { level: resolvedLevel } : {};
+
       let parallelResults: SpecialistOutcome[];
       try {
         parallelResults = await Promise.all(
           cfg.specialists.map(async (s): Promise<SpecialistOutcome> => {
             const isActive = (s.activation ?? (() => true))({ scope: ctx.scope });
-            if (!isActive) return { name: s.name, kind: "skipped" };
+            const inLevelSubset = levelSpecialists === undefined || levelSpecialists.has(s.name);
+            if (!isActive || !inLevelSubset) return { name: s.name, kind: "skipped" };
 
             const runner = runners[s.name];
             if (!runner) {
@@ -197,6 +244,7 @@ export function makeCompositePhase(
           phase: cfg.id,
           status: "error",
           reason: `composite phase threw unexpectedly: ${message}`,
+          ...levelEntry,
           findings: [],
           audit: {},
           cost: { durationMs: Date.now() - start },
@@ -225,17 +273,161 @@ export function makeCompositePhase(
         }
       }
 
-      const cost: PhaseCost = {
-        durationMs: Date.now() - start,
-        specialists: specialistsCost,
-      };
+      // Coordinator judge pass (PRD §3.3a) — runs after roll-up when configured and not
+      // suppressed by the risk level (e.g. riskLevels["trivial"].coordinator === false).
+      if (cfg.coordinator && !skipCoordinatorForLevel) {
+        const coordinatorRunner = runners["coordinator"];
+        if (!coordinatorRunner) {
+          const warnFinding: Finding = {
+            id: `${cfg.id}.coordinator-failed`,
+            phase: cfg.id,
+            severity: "warning",
+            confidence: "high",
+            message: "Coordinator judge has no runner configured.",
+          };
+          return {
+            phase: cfg.id,
+            status: "completed",
+            ...levelEntry,
+            findings: [...allFindings, warnFinding],
+            audit: {},
+            cost: { durationMs: Date.now() - start, specialists: specialistsCost },
+          };
+        }
 
+        let outcome: Awaited<ReturnType<typeof runCoordinatorJudge>>;
+        try {
+          outcome = await runCoordinatorJudge(coordinatorRunner, cfg.coordinator, allFindings, ctx);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const warnFinding: Finding = {
+            id: `${cfg.id}.coordinator-failed`,
+            phase: cfg.id,
+            severity: "warning",
+            confidence: "high",
+            message: `Coordinator judge threw unexpectedly: ${msg}`,
+          };
+          return {
+            phase: cfg.id,
+            status: "completed",
+            ...levelEntry,
+            findings: [...allFindings, warnFinding],
+            audit: {},
+            cost: { durationMs: Date.now() - start, specialists: specialistsCost },
+          };
+        }
+
+        if (outcome.kind === "ok") {
+          // Coordinator submission replaces the raw roll-up. Provenance is harness-controlled:
+          // phase is forced, and specialist is re-derived from the originating finding (matched
+          // by id) rather than trusted from the judge — a misbehaving model cannot fabricate a
+          // specialist name nor silently drop the field. Findings the judge raises cross-cutting
+          // (no id match in the roll-up) correctly carry no specialist.
+          const specialistById = new Map(allFindings.map((f) => [f.id, f.specialist]));
+          const finalFindings = outcome.findings.map((f) => {
+            const { specialist: _modelSupplied, ...rest } = f;
+            const origin = specialistById.get(f.id);
+            return origin !== undefined
+              ? { ...rest, phase: cfg.id, specialist: origin }
+              : { ...rest, phase: cfg.id };
+          });
+
+          // Constrained authority (PRD #30, §4.6): deterministic/evidence-backed findings
+          // (carrying evidence.command) are protected from coordinator drops or from any
+          // downgrade of severity *or* confidence. The harness reinstates them unchanged
+          // and records them.
+          const SEVERITY_RANK = { error: 2, warning: 1, info: 0 } as const;
+          const CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 } as const;
+          const finalFindingById = new Map(finalFindings.map((f) => [f.id, f]));
+          const reinstated: { id: string; specialist?: string }[] = [];
+
+          for (const raw of allFindings) {
+            if (raw.evidence?.command === undefined) continue; // not protected
+
+            const inFinal = finalFindingById.get(raw.id);
+            const wasDropped = inFinal === undefined;
+            const wasDowngraded =
+              inFinal !== undefined &&
+              (SEVERITY_RANK[inFinal.severity] < SEVERITY_RANK[raw.severity] ||
+                CONFIDENCE_RANK[inFinal.confidence] < CONFIDENCE_RANK[raw.confidence]);
+
+            if (wasDropped || wasDowngraded) {
+              // Reinstate original unchanged — phase is harness-controlled; specialist
+              // is already correct on raw (set by the roll-up loop above).
+              const reinstatedFinding = { ...raw, phase: cfg.id };
+              if (wasDropped) {
+                finalFindings.push(reinstatedFinding);
+              } else {
+                const idx = finalFindings.findIndex((f) => f.id === raw.id);
+                finalFindings[idx] = reinstatedFinding;
+              }
+              finalFindingById.set(raw.id, reinstatedFinding);
+              const entry: { id: string; specialist?: string } = { id: raw.id };
+              if (raw.specialist !== undefined) entry.specialist = raw.specialist;
+              reinstated.push(entry);
+            }
+          }
+
+          // dropped = roll-up minus survivors after reinstatement (reinstated are survivors).
+          const survivorIds = new Set(finalFindings.map((f) => f.id));
+          const dropped = allFindings
+            .filter((f) => !survivorIds.has(f.id))
+            .map((f) => {
+              const entry: { id: string; specialist?: string; message: string } = {
+                id: f.id,
+                message: f.message,
+              };
+              if (f.specialist !== undefined) entry.specialist = f.specialist;
+              return entry;
+            });
+
+          return {
+            phase: cfg.id,
+            status: "completed",
+            ...levelEntry,
+            findings: finalFindings,
+            audit: {
+              coordinator: {
+                received: allFindings.length,
+                dropped,
+                reinstated,
+              },
+            },
+            cost: {
+              durationMs: Date.now() - start,
+              specialists: specialistsCost,
+              coordinator: outcome.cost,
+            },
+          };
+        }
+
+        // Coordinator failed — fall back to raw roll-up (decision #29: never forfeits findings).
+        const failReason = `${outcome.error._tag}: ${outcome.error.message}`;
+        const warnFinding: Finding = {
+          id: `${cfg.id}.coordinator-failed`,
+          phase: cfg.id,
+          severity: "warning",
+          confidence: "high",
+          message: `Coordinator judge failed — ${failReason}. Showing raw specialist roll-up.`,
+        };
+        return {
+          phase: cfg.id,
+          status: "completed",
+          ...levelEntry,
+          findings: [...allFindings, warnFinding],
+          audit: {},
+          cost: { durationMs: Date.now() - start, specialists: specialistsCost },
+        };
+      }
+
+      // No coordinator (or skipped by risk level) — return plain roll-up unchanged.
       return {
         phase: cfg.id,
         status: "completed",
+        ...levelEntry,
         findings: allFindings,
         audit: {},
-        cost,
+        cost: { durationMs: Date.now() - start, specialists: specialistsCost },
       };
     },
   };

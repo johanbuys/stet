@@ -1,0 +1,51 @@
+## 2026-06-14 - TASK-035 (T29): Deterministic risk classifier + level→fan-out/coordinator wiring
+
+**What was done:** Implemented M7.5 steps 5–6 — the deterministic risk classifier
+mechanism (PRD §3.4.1a, decisions #26, #32):
+
+- `src/risk/classify.ts`: Pure function `classify(diff, paths, rules) → level`.
+  Rules are `RiskRule[]` (ordered predicate/level pairs); first match wins; falls back to
+  "full" (conservative) if no rule matches. 16 table tests cover all edge cases.
+
+- `src/risk/classify.test.ts`: Table tests for `classify` across fixture rules, path-sensitive
+  rules, rule evaluation order, empty/no-match fallback, and multi-level rule sets.
+
+- `src/phases/types.ts`: Added `diff?: string` to `PhaseContext`. Absent until M8 lands
+  (pre-filter will populate it); composite.ts passes `ctx.diff ?? ""` to classify.
+
+- `src/schema/report.ts`: Added `level?: string` to `PhaseReport` TypeBox schema. The
+  resolved level appears in the run output per acceptance #19. Optional field — fully
+  backwards-compatible, existing tests unaffected.
+
+- `src/phases/composite.ts`: Added `RiskLevel` interface and `riskRules?`/`riskLevels?`
+  to `CompositePhaseConfig`. Before the specialist fan-out, if `riskRules` is declared,
+  `classify()` is called and the level drives: (a) filtering which specialists run
+  (`levelSpecialists` Set), (b) whether the coordinator is skipped
+  (`skipCoordinatorForLevel`). With no `riskRules` the mechanism is inert. `levelEntry`
+  is spread into every completed/error `PhaseReport` when a level was resolved.
+
+- `src/phases/stub-composite.ts`: Exported `STUB_RISK_RULES` (lines > 10 ⇒ "full" else
+  "trivial") and `STUB_RISK_LEVELS` ({ trivial: { specialists: ["alpha"], coordinator: false },
+  full: { specialists: [...all], coordinator: true } }). `makeStubComposite` opts extended
+  to accept `riskRules` and `riskLevels`.
+
+- `src/phases/stub-composite.test.ts`: 9 new T29 wiring tests — small diff → level
+  "trivial" → only alpha runs, no coordinator; large diff → level "full" → all three +
+  coordinator runs and audit.coordinator is populated; inert mechanism (no riskRules →
+  all three run regardless); schema compliance with level field; PhaseReport.level round-trip.
+
+**Learnings:**
+- The `levelEntry` const (for spreading level into PhaseReport) must be defined BEFORE the
+  `Promise.all` try/catch, so it's accessible in the catch path (unexpected error return).
+  Defining it after the catch block meant it was unavailable in the error branch.
+- `bun install` is available in this environment (PATH: /home/agent/.bun/bin); `pnpm`/`npx`
+  are not. Use `node_modules/.bin/vp` directly after `bun install`.
+- `vp check --fix` formats both `package.json` and test files; always run it before committing.
+- The `package.json` gets a `workspaces.catalog` + `overrides` block added by `bun install`
+  (bun lockfile migration artifact). This is harmless under the project's pnpm/vp toolchain
+  but was flagged as a blocker in the T27 review (commit 28272d9). The formatter does not
+  revert it, so it remains in `package.json` post-install. Noting for future agents: this is
+  a known bun-install artifact, not a product change.
+- TypeBox `additionalProperties: false` schemas require the new field to be added to the
+  schema object for `Value.Check` to pass — just adding to the TS return type is not enough.
+----
