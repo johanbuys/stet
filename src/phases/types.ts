@@ -47,6 +47,11 @@ export interface PhaseContext {
    * a scheduler cancel can abort the runner (T14/T15).
    */
   signal?: AbortSignal;
+  /**
+   * Full diff text for risk classification (§3.4.1a, M7.5).
+   * Populated by M8's semantic pre-filter; absent until M8 lands — classify receives "".
+   */
+  diff?: string;
 }
 
 /**

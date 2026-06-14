@@ -16,8 +16,9 @@ import { SUBMIT_TOOL_NAME } from "../agent/submit-tool.js";
 import { Finding } from "../schema/finding.js";
 import { Audit } from "../schema/report.js";
 import type { PhaseConfiguration } from "./types.js";
-import { makeCompositePhase, type SpecialistConfig } from "./composite.js";
+import { makeCompositePhase, type RiskLevel, type SpecialistConfig } from "./composite.js";
 import type { CoordinatorConfig } from "./coordinator.js";
+import { type RiskRule } from "../risk/classify.js";
 
 // ---------------------------------------------------------------------------
 // Submit schema — shared across all stub specialists
@@ -110,6 +111,33 @@ If no NOTE lines are found, submit an empty findings array.`,
 ];
 
 // ---------------------------------------------------------------------------
+// Fixture risk rules and levels (T29 · PRD §3.4.1a, plan M7.5 step 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixture risk rules for stub-composite: `lines > 10 ⇒ "full" else "trivial"`.
+ *
+ * Declared on stub-composite so that T29 wiring tests can exercise the classifier
+ * against two synthetic diffs (small/large). Real thresholds are the code-review
+ * PRD's (plan P9 — not built here).
+ */
+export const STUB_RISK_RULES: RiskRule[] = [
+  { predicate: (diff) => diff.split("\n").length > 10, level: "full" },
+  { predicate: () => true, level: "trivial" },
+];
+
+/**
+ * Fixture risk levels for stub-composite.
+ *
+ * - "trivial": only the alpha specialist runs, no coordinator judge.
+ * - "full": all three specialists run and the coordinator judge runs.
+ */
+export const STUB_RISK_LEVELS: Record<string, RiskLevel> = {
+  trivial: { specialists: ["alpha"], coordinator: false },
+  full: { specialists: ["alpha", "beta", "gamma"], coordinator: true },
+};
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
@@ -118,6 +146,8 @@ If no NOTE lines are found, submit an empty findings array.`,
  *
  * `runners` must contain an entry for each specialist name ("alpha", "beta", "gamma").
  * When `opts.coordinator` is provided, `runners["coordinator"]` must also be present.
+ * When `opts.riskRules` / `opts.riskLevels` are provided (e.g. STUB_RISK_RULES /
+ * STUB_RISK_LEVELS), the risk classifier is active and `ctx.diff` drives fan-out.
  * Pass FakeAgentRunners in tests to script each specialist independently.
  *
  * @example
@@ -129,11 +159,17 @@ If no NOTE lines are found, submit an empty findings array.`,
  */
 export function makeStubComposite(
   runners: Record<string, AgentRunner>,
-  opts?: { coordinator?: CoordinatorConfig },
+  opts?: {
+    coordinator?: CoordinatorConfig;
+    riskRules?: RiskRule[];
+    riskLevels?: Record<string, RiskLevel>;
+  },
 ): PhaseConfiguration {
   return makeCompositePhase(runners, {
     id: "stub-composite",
     specialists: STUB_COMPOSITE_SPECIALISTS,
     coordinator: opts?.coordinator,
+    riskRules: opts?.riskRules,
+    riskLevels: opts?.riskLevels,
   });
 }

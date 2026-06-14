@@ -21,6 +21,7 @@ import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
 import type { CoordinatorConfig } from "./coordinator.js";
 import { runCoordinatorJudge } from "./coordinator.js";
+import { classify, type RiskRule } from "../risk/classify.js";
 
 // ---------------------------------------------------------------------------
 // Specialist config
@@ -50,12 +51,31 @@ export interface SpecialistConfig {
 // Composite phase config
 // ---------------------------------------------------------------------------
 
+/** Maps a resolved risk level to the specialist subset and coordinator on/off (PRD §4.1). */
+export interface RiskLevel {
+  /** Names of specialists to fan out to at this level. Undefined → all specialists run. */
+  specialists?: string[];
+  /** Whether the coordinator runs at this level. Defaults to true when undefined. */
+  coordinator?: boolean;
+}
+
 export interface CompositePhaseConfig {
   id: string;
   specialists: SpecialistConfig[];
   /** Optional coordinator judge pass (PRD §3.3a). When present, runners["coordinator"] must exist. */
   coordinator?: CoordinatorConfig;
   activation?: (ctx: ActivationContext) => boolean;
+  /**
+   * Deterministic risk rules (PRD §3.4.1a, #32).
+   * Evaluated once per run before fan-out via classify(diff, paths, rules) → level.
+   * When absent the mechanism is inert — the full panel always runs.
+   */
+  riskRules?: RiskRule[];
+  /**
+   * Mapping of resolved level to specialist subset + coordinator on/off.
+   * Applied only when riskRules is declared and a level is resolved.
+   */
+  riskLevels?: Record<string, RiskLevel>;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,12 +181,35 @@ export function makeCompositePhase(
         };
       }
 
+      // Risk classification (PRD §3.4.1a, #32): evaluated once before fan-out.
+      // With no riskRules the mechanism is inert — full panel runs unchanged.
+      let resolvedLevel: string | undefined;
+      let levelSpecialists: Set<string> | undefined;
+      let skipCoordinatorForLevel = false;
+
+      if (cfg.riskRules && cfg.riskRules.length > 0) {
+        resolvedLevel = classify(ctx.diff ?? "", ctx.scope.files, cfg.riskRules);
+        const levelCfg = cfg.riskLevels?.[resolvedLevel];
+        if (levelCfg) {
+          if (levelCfg.specialists !== undefined) {
+            levelSpecialists = new Set(levelCfg.specialists);
+          }
+          if (levelCfg.coordinator === false) {
+            skipCoordinatorForLevel = true;
+          }
+        }
+      }
+
+      // Convenience: include resolved level in every completed report (PRD §3.4.1a).
+      const levelEntry = resolvedLevel !== undefined ? { level: resolvedLevel } : {};
+
       let parallelResults: SpecialistOutcome[];
       try {
         parallelResults = await Promise.all(
           cfg.specialists.map(async (s): Promise<SpecialistOutcome> => {
             const isActive = (s.activation ?? (() => true))({ scope: ctx.scope });
-            if (!isActive) return { name: s.name, kind: "skipped" };
+            const inLevelSubset = levelSpecialists === undefined || levelSpecialists.has(s.name);
+            if (!isActive || !inLevelSubset) return { name: s.name, kind: "skipped" };
 
             const runner = runners[s.name];
             if (!runner) {
@@ -201,6 +244,7 @@ export function makeCompositePhase(
           phase: cfg.id,
           status: "error",
           reason: `composite phase threw unexpectedly: ${message}`,
+          ...levelEntry,
           findings: [],
           audit: {},
           cost: { durationMs: Date.now() - start },
@@ -229,8 +273,9 @@ export function makeCompositePhase(
         }
       }
 
-      // Coordinator judge pass (PRD §3.3a) — runs after roll-up when configured.
-      if (cfg.coordinator) {
+      // Coordinator judge pass (PRD §3.3a) — runs after roll-up when configured and not
+      // suppressed by the risk level (e.g. riskLevels["trivial"].coordinator === false).
+      if (cfg.coordinator && !skipCoordinatorForLevel) {
         const coordinatorRunner = runners["coordinator"];
         if (!coordinatorRunner) {
           const warnFinding: Finding = {
@@ -243,6 +288,7 @@ export function makeCompositePhase(
           return {
             phase: cfg.id,
             status: "completed",
+            ...levelEntry,
             findings: [...allFindings, warnFinding],
             audit: {},
             cost: { durationMs: Date.now() - start, specialists: specialistsCost },
@@ -264,6 +310,7 @@ export function makeCompositePhase(
           return {
             phase: cfg.id,
             status: "completed",
+            ...levelEntry,
             findings: [...allFindings, warnFinding],
             audit: {},
             cost: { durationMs: Date.now() - start, specialists: specialistsCost },
@@ -337,6 +384,7 @@ export function makeCompositePhase(
           return {
             phase: cfg.id,
             status: "completed",
+            ...levelEntry,
             findings: finalFindings,
             audit: {
               coordinator: {
@@ -365,16 +413,18 @@ export function makeCompositePhase(
         return {
           phase: cfg.id,
           status: "completed",
+          ...levelEntry,
           findings: [...allFindings, warnFinding],
           audit: {},
           cost: { durationMs: Date.now() - start, specialists: specialistsCost },
         };
       }
 
-      // No coordinator — return plain roll-up unchanged.
+      // No coordinator (or skipped by risk level) — return plain roll-up unchanged.
       return {
         phase: cfg.id,
         status: "completed",
+        ...levelEntry,
         findings: allFindings,
         audit: {},
         cost: { durationMs: Date.now() - start, specialists: specialistsCost },
