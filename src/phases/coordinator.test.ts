@@ -145,6 +145,18 @@ describe("coordinator — happy path (roll-up replaced)", () => {
     expect(report.findings[0]!.specialist).toBe("alpha");
   });
 
+  it("harness re-derives specialist from the roll-up, ignoring a misbehaving judge's value", async () => {
+    const coordOutput = [
+      // Judge echoes a fabricated specialist not among the configured specialists —
+      // harness re-derives it from the originating finding (ct.alpha.bug → alpha).
+      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "ghost" }),
+    ];
+    const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
+    const report = await phase.run(ctx());
+
+    expect(report.findings[0]!.specialist).toBe("alpha");
+  });
+
   it("harness controls phase field on coordinator findings", async () => {
     const coordOutput = [
       // Coordinator submits with wrong phase — harness overrides it.

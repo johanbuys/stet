@@ -271,9 +271,19 @@ export function makeCompositePhase(
         }
 
         if (outcome.kind === "ok") {
-          // Coordinator submission replaces the raw roll-up.
-          // Phase is harness-controlled; specialist is preserved from submission.
-          const finalFindings = outcome.findings.map((f) => ({ ...f, phase: cfg.id }));
+          // Coordinator submission replaces the raw roll-up. Provenance is harness-controlled:
+          // phase is forced, and specialist is re-derived from the originating finding (matched
+          // by id) rather than trusted from the judge — a misbehaving model cannot fabricate a
+          // specialist name nor silently drop the field. Findings the judge raises cross-cutting
+          // (no id match in the roll-up) correctly carry no specialist.
+          const specialistById = new Map(allFindings.map((f) => [f.id, f.specialist]));
+          const finalFindings = outcome.findings.map((f) => {
+            const { specialist: _modelSupplied, ...rest } = f;
+            const origin = specialistById.get(f.id);
+            return origin !== undefined
+              ? { ...rest, phase: cfg.id, specialist: origin }
+              : { ...rest, phase: cfg.id };
+          });
 
           const survivorIds = new Set(finalFindings.map((f) => f.id));
           const dropped = allFindings
