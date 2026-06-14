@@ -686,6 +686,31 @@ describe("coordinator — constrained authority (T28, PRD #30)", () => {
     expect(reinstated.map((r) => r.id)).toContain(protectedFinding.id);
   });
 
+  it("coordinator-lowered-confidence evidence-backed finding is reinstated at original confidence", async () => {
+    // Coordinator keeps severity but lowers confidence high → low. Confidence is
+    // protected too (PRD §4.6 / #30): the harness must reinstate the original.
+    const downgraded: Finding = {
+      id: "ct.alpha.deterministic",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "low", // coordinator lowered confidence
+      message: "test failure: command exited 1",
+    };
+    const { phase, protectedFinding } = makePhaseWithProtectedFinding(
+      okRunner([downgraded], "fake/coordinator"),
+      { protectedSeverity: "error" },
+    );
+    const report = await phase.run(ctx());
+
+    const inFindings = report.findings.find((f) => f.id === protectedFinding.id);
+    expect(inFindings).toBeDefined();
+    expect(inFindings!.confidence).toBe("high"); // original confidence, not coordinator's "low"
+    expect(inFindings!.severity).toBe("error");
+
+    const reinstated = report.audit.coordinator!.reinstated;
+    expect(reinstated.map((r) => r.id)).toContain(protectedFinding.id);
+  });
+
   it("non-protected finding is not reinstated when coordinator drops it", async () => {
     // Coordinator drops the beta style finding (no evidence.command) → that drop stands.
     const alphaOnly: Finding = {
@@ -891,6 +916,66 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
     // Harness reinstated the original error severity.
     const finding = report.findings.find((f) => f.id === "ct.alpha.deterministic");
     expect(finding!.severity).toBe("error");
+
+    // Protected finding still gates at failOn=error.
+    const { gating } = deriveExit([report], "error");
+    const gatingIds = gating.map((g) => g.id);
+    expect(gatingIds).toContain("ct.alpha.deterministic");
+  });
+
+  it("protected finding keeps original high confidence and still gates when coordinator lowers confidence", async () => {
+    // Protected finding: error/high with evidence.command. Gating requires
+    // confidence === "high" AND severity >= failOn — a confidence downgrade would
+    // otherwise neutralize it (PRD §4.6 / #30).
+    const protectedFinding: Finding = {
+      id: "ct.alpha.deterministic",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "high",
+      message: "test failed",
+      specialist: "alpha",
+      evidence: { command: "npm test", output: "FAIL" },
+    };
+    // Coordinator keeps severity error but lowers confidence high → low.
+    const downgraded: Finding = {
+      id: "ct.alpha.deterministic",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "low",
+      message: "test failed",
+    };
+
+    const phase = makeCompositePhase(
+      {
+        alpha: okRunner([protectedFinding], "fake/alpha"),
+        coordinator: okRunner([downgraded], "fake/coordinator"),
+      },
+      {
+        id: "coordinator-test-phase",
+        specialists: [
+          {
+            name: "alpha",
+            rubric: "Run tests.",
+            toolset: ["bash"],
+            submitSchema: PhaseReport,
+            budgets: {
+              wallClockMs: 60_000,
+              turns: 10,
+              bashTimeoutMs: 10_000,
+              bashOutputCap: 8_192,
+            },
+            buildUserPrompt: () => "run tests",
+          },
+        ],
+        coordinator: { rubric: "Judge findings.", model: "fake/coordinator" },
+      },
+    );
+
+    const report = await phase.run(ctx());
+
+    // Harness reinstated the original high confidence.
+    const finding = report.findings.find((f) => f.id === "ct.alpha.deterministic");
+    expect(finding!.confidence).toBe("high");
 
     // Protected finding still gates at failOn=error.
     const { gating } = deriveExit([report], "error");

@@ -285,10 +285,12 @@ export function makeCompositePhase(
               : { ...rest, phase: cfg.id };
           });
 
-          // Constrained authority (PRD #30): deterministic/evidence-backed findings
-          // (carrying evidence.command) are protected from coordinator drops or severity
-          // downgrades. The harness reinstates them unchanged and records them.
+          // Constrained authority (PRD #30, §4.6): deterministic/evidence-backed findings
+          // (carrying evidence.command) are protected from coordinator drops or from any
+          // downgrade of severity *or* confidence. The harness reinstates them unchanged
+          // and records them.
           const SEVERITY_RANK = { error: 2, warning: 1, info: 0 } as const;
+          const CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 } as const;
           const finalFindingById = new Map(finalFindings.map((f) => [f.id, f]));
           const reinstated: { id: string; specialist?: string }[] = [];
 
@@ -299,7 +301,8 @@ export function makeCompositePhase(
             const wasDropped = inFinal === undefined;
             const wasDowngraded =
               inFinal !== undefined &&
-              SEVERITY_RANK[inFinal.severity] < SEVERITY_RANK[raw.severity];
+              (SEVERITY_RANK[inFinal.severity] < SEVERITY_RANK[raw.severity] ||
+                CONFIDENCE_RANK[inFinal.confidence] < CONFIDENCE_RANK[raw.confidence]);
 
             if (wasDropped || wasDowngraded) {
               // Reinstate original unchanged — phase is harness-controlled; specialist
