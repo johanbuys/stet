@@ -138,6 +138,44 @@ function parseFindings(submission: unknown): Finding[] | null {
   return result;
 }
 
+/**
+ * Validate the declared risk config at construction time (findings 3 & 4).
+ *
+ * Risk rules and levels are code-defined (RiskRule.predicate is a function, never
+ * deserialized from user YAML), so a mismatch is a programmer error that must fail
+ * loudly at startup rather than silently mis-route fan-out at run time:
+ *   - a level subset naming an unknown specialist would skip the ENTIRE panel
+ *     (`levelSpecialists.has(name)` is false for every real specialist), and
+ *   - a rule resolving to a level absent from riskLevels would fall through to the
+ *     full panel — silently defeating a rule meant to narrow scope.
+ *
+ * Throws (outside run()'s infallible boundary) with an actionable message.
+ */
+function validateRiskConfig(cfg: CompositePhaseConfig): void {
+  if (!cfg.riskLevels) return;
+
+  const specialistNames = new Set(cfg.specialists.map((s) => s.name));
+  for (const [level, levelCfg] of Object.entries(cfg.riskLevels)) {
+    for (const name of levelCfg.specialists ?? []) {
+      if (!specialistNames.has(name)) {
+        throw new Error(
+          `Composite phase "${cfg.id}": riskLevels["${level}"].specialists references unknown ` +
+            `specialist "${name}". Known specialists: ${[...specialistNames].join(", ")}.`,
+        );
+      }
+    }
+  }
+
+  for (const rule of cfg.riskRules ?? []) {
+    if (!(rule.level in cfg.riskLevels)) {
+      throw new Error(
+        `Composite phase "${cfg.id}": a risk rule resolves to level "${rule.level}" which has no ` +
+          `riskLevels entry. Mapped levels: ${Object.keys(cfg.riskLevels).join(", ")}.`,
+      );
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -148,7 +186,8 @@ function parseFindings(submission: unknown): Finding[] | null {
  * `runners` maps each specialist name to its AgentRunner — one runner per specialist so
  * tests can script each independently with a FakeAgentRunner.
  *
- * INFALLIBLE CONTRACT: run() never throws and never rejects.
+ * INFALLIBLE CONTRACT: run() never throws and never rejects. (Construction-time config
+ * validation may throw — see validateRiskConfig — but that is before any run.)
  *
  * PRD §3.3; plan M7.
  */
@@ -156,6 +195,8 @@ export function makeCompositePhase(
   runners: Record<string, AgentRunner>,
   cfg: CompositePhaseConfig,
 ): PhaseConfiguration {
+  validateRiskConfig(cfg);
+
   return {
     id: cfg.id,
     kind: "agent",
@@ -332,54 +373,73 @@ export function makeCompositePhase(
               : { ...rest, phase: cfg.id };
           });
 
-          // Constrained authority (PRD #30, §4.6): deterministic/evidence-backed findings
-          // (carrying evidence.command) are protected from coordinator drops or from any
-          // downgrade of severity *or* confidence. The harness reinstates them unchanged
-          // and records them.
+          // Constrained authority (PRD #30, §4.6) + drop audit (#31).
+          //
+          // Both are reconciled against the roll-up by *multiplicity*, not by id alone.
+          // A single rule id can legitimately appear N>1 times in one roll-up (a specialist
+          // emits one finding per match, all sharing an id). Keying purely by id would
+          // (a) reinstate only the first of N dropped protected copies — silently losing the
+          // rest (#30) — and (b) under-count drops when the judge keeps one copy but drops its
+          // siblings (#31). We hold a per-id pool of surviving finding indices and consume
+          // from it greedily so each raw finding is accounted for individually.
           const SEVERITY_RANK = { error: 2, warning: 1, info: 0 } as const;
           const CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 } as const;
-          const finalFindingById = new Map(finalFindings.map((f) => [f.id, f]));
+
+          const survivorPool = new Map<string, number[]>();
+          finalFindings.forEach((f, i) => {
+            const pool = survivorPool.get(f.id);
+            if (pool) pool.push(i);
+            else survivorPool.set(f.id, [i]);
+          });
+
           const reinstated: { id: string; specialist?: string }[] = [];
+          const dropped: { id: string; specialist?: string; message: string }[] = [];
 
           for (const raw of allFindings) {
-            if (raw.evidence?.command === undefined) continue; // not protected
+            const pool = survivorPool.get(raw.id) ?? [];
 
-            const inFinal = finalFindingById.get(raw.id);
-            const wasDropped = inFinal === undefined;
-            const wasDowngraded =
-              inFinal !== undefined &&
-              (SEVERITY_RANK[inFinal.severity] < SEVERITY_RANK[raw.severity] ||
-                CONFIDENCE_RANK[inFinal.confidence] < CONFIDENCE_RANK[raw.confidence]);
-
-            if (wasDropped || wasDowngraded) {
-              // Reinstate original unchanged — phase is harness-controlled; specialist
-              // is already correct on raw (set by the roll-up loop above).
-              const reinstatedFinding = { ...raw, phase: cfg.id };
-              if (wasDropped) {
-                finalFindings.push(reinstatedFinding);
-              } else {
-                const idx = finalFindings.findIndex((f) => f.id === raw.id);
-                finalFindings[idx] = reinstatedFinding;
+            if (raw.evidence?.command !== undefined) {
+              // Protected: satisfied by any surviving copy the judge did not downgrade in
+              // severity or confidence. Consume that copy if present.
+              const okPos = pool.findIndex((i) => {
+                const s = finalFindings[i]!;
+                return (
+                  SEVERITY_RANK[s.severity] >= SEVERITY_RANK[raw.severity] &&
+                  CONFIDENCE_RANK[s.confidence] >= CONFIDENCE_RANK[raw.confidence]
+                );
+              });
+              if (okPos !== -1) {
+                pool.splice(okPos, 1);
+                continue;
               }
-              finalFindingById.set(raw.id, reinstatedFinding);
+              // No adequate survivor — the judge dropped or downgraded this copy. Reinstate
+              // the original unchanged: replace a downgraded survivor in place if one exists,
+              // else append. phase is harness-controlled; specialist is already correct on raw.
+              const reinstatedFinding = { ...raw, phase: cfg.id };
+              const downgradedPos = pool.shift();
+              if (downgradedPos !== undefined) {
+                finalFindings[downgradedPos] = reinstatedFinding;
+              } else {
+                finalFindings.push(reinstatedFinding);
+              }
               const entry: { id: string; specialist?: string } = { id: raw.id };
               if (raw.specialist !== undefined) entry.specialist = raw.specialist;
               reinstated.push(entry);
+              continue;
+            }
+
+            // Non-protected: kept if a surviving copy is available to match it, else dropped.
+            if (pool.length > 0) {
+              pool.shift();
+            } else {
+              const entry: { id: string; specialist?: string; message: string } = {
+                id: raw.id,
+                message: raw.message,
+              };
+              if (raw.specialist !== undefined) entry.specialist = raw.specialist;
+              dropped.push(entry);
             }
           }
-
-          // dropped = roll-up minus survivors after reinstatement (reinstated are survivors).
-          const survivorIds = new Set(finalFindings.map((f) => f.id));
-          const dropped = allFindings
-            .filter((f) => !survivorIds.has(f.id))
-            .map((f) => {
-              const entry: { id: string; specialist?: string; message: string } = {
-                id: f.id,
-                message: f.message,
-              };
-              if (f.specialist !== undefined) entry.specialist = f.specialist;
-              return entry;
-            });
 
           return {
             phase: cfg.id,

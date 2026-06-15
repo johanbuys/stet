@@ -983,3 +983,147 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
     expect(gatingIds).toContain("ct.alpha.deterministic");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Duplicate finding ids — reconcile by multiplicity, not by id alone.
+//
+// A single rule id can legitimately appear N>1 times in one roll-up (a specialist
+// emits one finding per match, all sharing an id). The coordinator reconciliation
+// must account for each copy individually:
+//   - every dropped protected (evidence-backed) copy is reinstated (#30), and
+//   - the dropped audit counts each dropped copy (#31),
+// rather than collapsing duplicates by id (which loses all-but-one copy).
+// ---------------------------------------------------------------------------
+
+describe("coordinator — duplicate finding ids (reconcile by multiplicity)", () => {
+  /** Single-specialist composite whose specialist emits the given findings, plus a coordinator. */
+  function makePhase(alphaFindings: Finding[], coordRunner: FakeAgentRunner) {
+    return makeCompositePhase(
+      {
+        alpha: okRunner(alphaFindings, "fake/alpha"),
+        coordinator: coordRunner,
+      },
+      {
+        id: "coordinator-test-phase",
+        specialists: [
+          {
+            name: "alpha",
+            rubric: "Find bugs.",
+            toolset: ["read"],
+            submitSchema: PhaseReport,
+            budgets: {
+              wallClockMs: 60_000,
+              turns: 10,
+              bashTimeoutMs: 10_000,
+              bashOutputCap: 8_192,
+            },
+            buildUserPrompt: () => "find bugs",
+          },
+        ],
+        coordinator: { rubric: "Judge findings.", model: "fake/coordinator" },
+      },
+    );
+  }
+
+  it("reinstates EVERY protected copy when N>1 share an id and the judge drops them all", async () => {
+    const protectedA: Finding = {
+      id: "ct.alpha.fixme",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "high",
+      message: "FIXME at line 10",
+      specialist: "alpha",
+      evidence: { command: "npm test", output: "x" },
+    };
+    const protectedB: Finding = { ...protectedA, message: "FIXME at line 20" };
+
+    // Coordinator drops both protected findings (returns nothing).
+    const phase = makePhase([protectedA, protectedB], okRunner([], "fake/coordinator"));
+    const report = await phase.run(ctx());
+
+    const reinstatedFindings = report.findings.filter((f) => f.id === "ct.alpha.fixme");
+    expect(reinstatedFindings).toHaveLength(2);
+    expect(reinstatedFindings.map((f) => f.message).sort()).toEqual([
+      "FIXME at line 10",
+      "FIXME at line 20",
+    ]);
+    // Both copies recorded as reinstated, neither reported dropped.
+    expect(
+      report.audit.coordinator!.reinstated.filter((r) => r.id === "ct.alpha.fixme"),
+    ).toHaveLength(2);
+    expect(report.audit.coordinator!.dropped.map((d) => d.id)).not.toContain("ct.alpha.fixme");
+  });
+
+  it("counts each dropped duplicate when the judge keeps one of N findings sharing an id", async () => {
+    const dupA: Finding = {
+      id: "ct.alpha.dup",
+      phase: "coordinator-test-phase",
+      severity: "warning",
+      confidence: "high",
+      message: "dup at line 10",
+      specialist: "alpha",
+    };
+    const dupB: Finding = { ...dupA, message: "dup at line 20" };
+
+    // Coordinator keeps a single finding with that id (merges the rest).
+    const kept: Finding = {
+      id: "ct.alpha.dup",
+      phase: "coordinator-test-phase",
+      severity: "warning",
+      confidence: "high",
+      message: "merged",
+    };
+    const phase = makePhase([dupA, dupB], okRunner([kept], "fake/coordinator"));
+    const report = await phase.run(ctx());
+
+    expect(report.audit.coordinator!.received).toBe(2);
+    // Exactly one of the two duplicates is reported dropped (not zero).
+    const droppedDup = report.audit.coordinator!.dropped.filter((d) => d.id === "ct.alpha.dup");
+    expect(droppedDup).toHaveLength(1);
+  });
+
+  it("reinstates the dropped protected copy even when one copy survives at full severity", async () => {
+    const protectedA: Finding = {
+      id: "ct.alpha.fixme",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "high",
+      message: "FIXME at line 10",
+      specialist: "alpha",
+      evidence: { command: "npm test", output: "x" },
+    };
+    const protectedB: Finding = { ...protectedA, message: "FIXME at line 20" };
+
+    // Coordinator keeps only ONE of the two protected copies.
+    const survivor: Finding = {
+      id: "ct.alpha.fixme",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "high",
+      message: "FIXME at line 10",
+    };
+    const phase = makePhase([protectedA, protectedB], okRunner([survivor], "fake/coordinator"));
+    const report = await phase.run(ctx());
+
+    // Both protected copies are present: the surviving one + the reinstated dropped one.
+    expect(report.findings.filter((f) => f.id === "ct.alpha.fixme")).toHaveLength(2);
+    expect(
+      report.audit.coordinator!.reinstated.filter((r) => r.id === "ct.alpha.fixme"),
+    ).toHaveLength(1);
+  });
+
+  it("report with reconciled duplicates validates against the PhaseReport schema", async () => {
+    const a: Finding = {
+      id: "ct.alpha.dup",
+      phase: "coordinator-test-phase",
+      severity: "warning",
+      confidence: "high",
+      message: "dup at line 10",
+      specialist: "alpha",
+    };
+    const b: Finding = { ...a, message: "dup at line 20" };
+    const phase = makePhase([a, b], okRunner([], "fake/coordinator"));
+    const report = await phase.run(ctx());
+    expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+});

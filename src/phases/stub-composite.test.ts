@@ -600,6 +600,50 @@ describe("stub-composite — risk classifier wiring (T29, PRD §3.4.1a)", () => 
 });
 
 // ---------------------------------------------------------------------------
+// Risk config validation (construction-time) — a misconfigured riskLevels map
+// must fail loudly, never silently skip every specialist or silently run the
+// full panel (PRD "nothing passes silently"; review findings 3 & 4).
+// ---------------------------------------------------------------------------
+
+describe("composite — risk config validation (construction-time)", () => {
+  it("throws when a riskLevels subset names a specialist that does not exist", () => {
+    expect(() =>
+      makeStubComposite(threeRunners(), {
+        riskRules: STUB_RISK_RULES,
+        // "alfa" is a typo for "alpha" — would otherwise skip ALL specialists silently.
+        riskLevels: {
+          trivial: { specialists: ["alfa"], coordinator: false },
+          full: { specialists: ["alpha", "beta", "gamma"], coordinator: true },
+        },
+      }),
+    ).toThrow(/unknown specialist "alfa"/);
+  });
+
+  it("throws when a risk rule resolves to a level with no riskLevels entry", () => {
+    expect(() =>
+      makeStubComposite(threeRunners(), {
+        // "trivval" is a typo — would otherwise fall through to the full panel silently.
+        riskRules: [{ predicate: () => true, level: "trivval" }],
+        riskLevels: STUB_RISK_LEVELS,
+      }),
+    ).toThrow(/level "trivval".*no riskLevels entry/);
+  });
+
+  it("does not throw for a well-formed risk config", () => {
+    expect(() =>
+      makeStubComposite(threeRunners(), {
+        riskRules: STUB_RISK_RULES,
+        riskLevels: STUB_RISK_LEVELS,
+      }),
+    ).not.toThrow();
+  });
+
+  it("does not validate riskLevels when none are declared (mechanism inert)", () => {
+    expect(() => makeStubComposite(threeRunners())).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Schema compliance
 // ---------------------------------------------------------------------------
 
