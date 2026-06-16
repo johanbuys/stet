@@ -52,6 +52,12 @@ export interface PhaseContext {
    * Populated by M8's semantic pre-filter; absent until M8 lands — classify receives "".
    */
   diff?: string;
+  /**
+   * Combined spec text from --prd/--task/--issue (§3.6, M8/T23).
+   * Empty string when no spec flags were provided; phases that declare spec consumption
+   * check this field. Absent until M8 lands.
+   */
+  spec?: string;
 }
 
 /**

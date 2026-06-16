@@ -92,11 +92,17 @@ describe("assembleReport", () => {
     expect(report.scope.stripped).toEqual(["src/generated.ts", "src/vendor.ts"]);
   });
 
-  // ── Slice 5: spec is M8 placeholder ─────────────────────────────────────
+  // ── Slice 5: spec defaults to provided:false, passes through when provided ─
 
-  it("spec is provided:false with empty sources (M8 placeholder)", () => {
+  it("spec defaults to provided:false with empty sources when absent from input", () => {
     const { report } = assembleReport(baseInput());
     expect(report.spec).toEqual({ provided: false, sources: [] });
+  });
+
+  it("spec is passed through from AssembleInput when provided", () => {
+    const spec = { provided: true, sources: ["--prd docs/spec.md", "--task"] };
+    const { report } = assembleReport(baseInput({ spec }));
+    expect(report.spec).toEqual(spec);
   });
 
   // ── Slice 6: phases array is passed through ──────────────────────────────

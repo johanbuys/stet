@@ -1,3 +1,43 @@
+## 2026-06-16 - TASK-028 (T23): Spec-context combining
+
+**What was done:** Implemented M8/T23 — spec-context combining (PRD §3.6):
+
+- `src/spec-context.ts`: New module. `buildSpecContext(input, deps)` accepts `--prd <file|-|literal>`
+  and `--task <string>`, tries to read prd as a file (ENOENT → treat as literal), concatenates
+  prd text + task text with `\n\n`, and returns `SpecContext { text, sources }` where sources is
+  the CLI-form list (e.g. `["--prd docs/spec.md", "--task"]`). Injectable `readFile` and
+  `readStdin` deps keep the module fully testable. Returns `Err(ConfigError)` for real fs errors.
+
+- `src/spec-context.test.ts`: 13 tests covering all paths: no flags, literal prd, file prd,
+  stdin prd (`-`), task only, prd+task concatenation, stdin+task, EACCES error, stdin error,
+  sources derivation contract.
+
+- `src/phases/types.ts`: Added `spec?: string` to `PhaseContext` — phases that consume spec
+  context read this field.
+
+- `src/scheduler.ts`: Added `spec?: string` to `SchedulerContext`; forwarded to `PhaseContext`
+  in `runPhaseGuarded`.
+
+- `src/report.ts`: Added `spec?: { provided, sources }` to `AssembleInput`; `assembleReport`
+  uses `input.spec ?? { provided: false, sources: [] }` instead of the hardcoded M8 placeholder.
+
+- `src/cli.ts`: Added `--prd` and `--task` to `parseArgs` options and `ParsedFlags`; imported
+  and called `buildSpecContext` between flag parsing and scope detection (step 3b); wired spec
+  text into `runPhases` and spec sources into `assembleReport`. Updated help text.
+
+- `src/report.test.ts`: Updated "Slice 5" test + added spec passthrough test.
+
+**Learnings:**
+- TypeScript does not narrow `Record<string, string>[key]` to `string` after a `key in obj`
+  check — it remains `string | undefined`. Use `const v = obj[key]; if (v !== undefined)` instead.
+- `vp check --fix` fixes formatting but does NOT fix type errors — run `vp check` after `--fix`
+  to catch remaining issues.
+- `isFileAbsentError` from `src/fs-util.ts` is the right tool for ENOENT detection — it covers
+  both ENOENT and ENOTDIR, which is the established project pattern.
+- The `SpecContextDeps` injection pattern (separate `deps` param with defaults) is cleaner than
+  adding fields to `CliIo` — the CLI uses real fs by default, tests inject mocks directly.
+----
+
 ## 2026-06-14 - TASK-035 (T29): Deterministic risk classifier + level→fan-out/coordinator wiring
 
 **What was done:** Implemented M7.5 steps 5–6 — the deterministic risk classifier

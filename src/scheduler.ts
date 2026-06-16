@@ -42,6 +42,12 @@ export interface SchedulerContext {
    * Absent → no external cancellation (normal operation without gate-triggered abort).
    */
   signal?: AbortSignal;
+  /**
+   * Combined spec text from --prd/--task/--issue (§3.6, M8/T23).
+   * Forwarded to each phase's run context for phases that declare spec consumption.
+   * Absent when no spec flags were provided.
+   */
+  spec?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +144,8 @@ async function runPhaseGuarded(
       // Forward the scheduler's cancellation signal so agent phases can abort when
       // a cancel-class gate fails (T15) or the harness tears down (T16).
       signal: ctx.signal,
+      // Forward spec context (M8/T23) so phases that consume spec receive it.
+      spec: ctx.spec,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

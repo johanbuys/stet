@@ -48,6 +48,7 @@ import { runPhases } from "./scheduler.js";
 import { assembleReport } from "./report.js";
 import { runWithSignals, signalExitCode } from "./signals.js";
 import { teardownServices } from "./teardown.js";
+import { buildSpecContext } from "./spec-context.js";
 
 // ---------------------------------------------------------------------------
 // Package version
@@ -144,6 +145,10 @@ interface ParsedFlags {
   failOn?: Severity;
   version: boolean;
   help: boolean;
+  /** M8/T23: spec-context file path, "-" for stdin, or inline literal. */
+  prd?: string;
+  /** M8/T23: spec-context task string to concatenate with --prd. */
+  task?: string;
 }
 
 /** Narrow a raw string to a member of a literal union, or undefined. */
@@ -176,6 +181,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
         "fail-on": { type: "string" },
         version: { type: "boolean", default: false },
         help: { type: "boolean", default: false },
+        prd: { type: "string" },
+        task: { type: "string" },
       },
     });
 
@@ -216,6 +223,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
       failOn,
       version: values.version ?? false,
       help: values.help ?? false,
+      prd: values.prd,
+      task: values.task,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -301,6 +310,10 @@ export async function main(
         "                        Gate exit code on findings at or above this severity",
         "                        (default: error)",
         "",
+        "Spec context flags:",
+        "  --prd <file|-|literal>  Spec / PRD to provide as context (file path, - for stdin, or inline string)",
+        "  --task <string>       Task description to concatenate with --prd",
+        "",
         "Meta flags:",
         "  --version             Print stet version and exit",
         "  --help                Print this usage block and exit",
@@ -327,6 +340,11 @@ export async function main(
   const configResult = await loadConfig({ cwd: io.cwd, homeDir: io.homeDir, flagOverride });
   if (configResult.isErr()) return Result.err(configResult.error);
   const { config, findings: configFindings } = configResult.value;
+
+  // ── 3b. Build spec context from --prd/--task (M8/T23) ───────────────────
+  const specResult = await buildSpecContext({ prd: flags.prd, task: flags.task });
+  if (specResult.isErr()) return Result.err(specResult.error);
+  const specContext = specResult.value;
 
   // ── 4. Detect scope ───────────────────────────────────────────────────────
   const scopeFlags: ScopeFlags = {
@@ -358,6 +376,8 @@ export async function main(
     onTool: (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
     // T16: scheduler cancellation signal (SIGINT/SIGTERM → phases cancelled → partial report).
     signal,
+    // M8/T23: combined spec text from --prd/--task; absent when no spec flags provided.
+    spec: specContext.sources.length > 0 ? specContext.text : undefined,
   });
   const durationMs = Date.now() - runStartMs;
 
@@ -389,6 +409,11 @@ export async function main(
     failOn,
     durationMs,
     interrupted,
+    // M8/T23: wire spec sources into the run report.
+    spec:
+      specContext.sources.length > 0
+        ? { provided: true, sources: specContext.sources }
+        : { provided: false, sources: [] },
   });
 
   // ── 8. Self-check: the report we produce must be valid (stet bug if not) ──
