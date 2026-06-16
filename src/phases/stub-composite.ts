@@ -13,6 +13,7 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentRunner } from "../agent/runner.js";
 import { SUBMIT_TOOL_NAME } from "../agent/submit-tool.js";
+import { FIVE_MINUTE_BUDGETS } from "../agent/budgets.js";
 import { Finding } from "../schema/finding.js";
 import { Audit } from "../schema/report.js";
 import type { PhaseConfiguration } from "./types.js";
@@ -31,17 +32,6 @@ const StubSpecialistSubmitSchema = Type.Object(
   },
   { additionalProperties: false },
 );
-
-// ---------------------------------------------------------------------------
-// Specialist budgets — same sane defaults as stub-agent
-// ---------------------------------------------------------------------------
-
-const STUB_SPECIALIST_BUDGETS = {
-  wallClockMs: 300_000,
-  turns: 50,
-  bashTimeoutMs: 60_000,
-  bashOutputCap: 32_768,
-};
 
 // ---------------------------------------------------------------------------
 // Specialist configs
@@ -64,7 +54,7 @@ and the matched line as the message. Use id "stub-composite.alpha.fixme".
 If no FIXME lines are found, submit an empty findings array.`,
     toolset: ["read", "bash", "grep", "find", SUBMIT_TOOL_NAME],
     submitSchema: StubSpecialistSubmitSchema,
-    budgets: STUB_SPECIALIST_BUDGETS,
+    budgets: FIVE_MINUTE_BUDGETS,
     buildUserPrompt: (ctx) => {
       const fileList = ctx.scope.files.join("\n  - ");
       return `Changed files:\n  - ${fileList}\n\nWorking directory: ${ctx.cwd}`;
@@ -83,7 +73,7 @@ and the matched line as the message. Use id "stub-composite.beta.hack".
 If no HACK lines are found, submit an empty findings array.`,
     toolset: ["read", "bash", "grep", "find", SUBMIT_TOOL_NAME],
     submitSchema: StubSpecialistSubmitSchema,
-    budgets: STUB_SPECIALIST_BUDGETS,
+    budgets: FIVE_MINUTE_BUDGETS,
     buildUserPrompt: (ctx) => {
       const fileList = ctx.scope.files.join("\n  - ");
       return `Changed files:\n  - ${fileList}\n\nWorking directory: ${ctx.cwd}`;
@@ -102,7 +92,7 @@ and the matched line as the message. Use id "stub-composite.gamma.note".
 If no NOTE lines are found, submit an empty findings array.`,
     toolset: ["read", "bash", "grep", "find", SUBMIT_TOOL_NAME],
     submitSchema: StubSpecialistSubmitSchema,
-    budgets: STUB_SPECIALIST_BUDGETS,
+    budgets: FIVE_MINUTE_BUDGETS,
     buildUserPrompt: (ctx) => {
       const fileList = ctx.scope.files.join("\n  - ");
       return `Changed files:\n  - ${fileList}\n\nWorking directory: ${ctx.cwd}`;

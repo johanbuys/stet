@@ -12,12 +12,11 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
-import { runWithWallClock } from "../agent/budgets.js";
+import { runWithWallClock, FIVE_MINUTE_BUDGETS } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunner } from "../agent/runner.js";
 import { SUBMIT_TOOL_NAME } from "../agent/submit-tool.js";
-import { Finding } from "../schema/finding.js";
+import { Finding, parseFindings } from "../schema/finding.js";
 import type { Cost } from "../schema/report.js";
 import { Audit } from "../schema/report.js";
 
@@ -43,13 +42,6 @@ export interface CoordinatorConfig {
   /** Tool allowlist. Defaults to [SUBMIT_TOOL_NAME] — coordinator is a judge, not an investigator. */
   toolset?: string[];
 }
-
-const DEFAULT_COORDINATOR_BUDGETS = {
-  wallClockMs: 300_000,
-  turns: 50,
-  bashTimeoutMs: 60_000,
-  bashOutputCap: 32_768,
-};
 
 // ---------------------------------------------------------------------------
 // Submit schema
@@ -88,27 +80,6 @@ export type CoordinatorJudgeOutcome =
   | { kind: "err"; error: AgentError; durationMs: number };
 
 // ---------------------------------------------------------------------------
-// Parsing
-// ---------------------------------------------------------------------------
-
-function parseCoordinatorFindings(submission: unknown): Finding[] | null {
-  if (
-    typeof submission !== "object" ||
-    submission === null ||
-    !Array.isArray((submission as Record<string, unknown>).findings)
-  ) {
-    return null;
-  }
-  const raw = (submission as Record<string, unknown>).findings as unknown[];
-  const result: Finding[] = [];
-  for (const item of raw) {
-    if (!Value.Check(Finding, item)) return null;
-    result.push(item as Finding);
-  }
-  return result;
-}
-
-// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
@@ -135,7 +106,7 @@ export async function runCoordinatorJudge(
       userPrompt: buildCoordinatorUserPrompt(rawFindings),
       toolset: cfg.toolset ?? [SUBMIT_TOOL_NAME],
       submitSchema: CoordinatorSubmitSchema,
-      budgets: cfg.budgets ?? DEFAULT_COORDINATOR_BUDGETS,
+      budgets: cfg.budgets ?? FIVE_MINUTE_BUDGETS,
       model: cfg.model,
       cwd: phaseCtx.cwd,
     },
@@ -147,7 +118,7 @@ export async function runCoordinatorJudge(
 
   if (result.isOk()) {
     const { submission, cost } = result.value;
-    const findings = parseCoordinatorFindings(submission) ?? [];
+    const findings = parseFindings(submission) ?? [];
     return { kind: "ok", findings, cost: { ...cost, durationMs } };
   }
 

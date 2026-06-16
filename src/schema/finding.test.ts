@@ -1,6 +1,47 @@
 import { Value } from "@sinclair/typebox/value";
 import { describe, expect, it } from "vite-plus/test";
-import { Confidence, Finding, PhaseId, Severity } from "./finding.js";
+import { Confidence, Finding, parseFindings, PhaseId, Severity } from "./finding.js";
+
+const validFinding: Finding = {
+  id: "gates.x",
+  phase: "gates",
+  severity: "error",
+  confidence: "high",
+  message: "msg",
+};
+
+describe("parseFindings", () => {
+  it("returns the typed array when every element is a valid Finding", () => {
+    const second: Finding = { ...validFinding, id: "gates.y", severity: "warning" };
+    const result = parseFindings({ findings: [validFinding, second] });
+    expect(result).toEqual([validFinding, second]);
+  });
+
+  it("returns an empty array for an empty findings array", () => {
+    expect(parseFindings({ findings: [] })).toEqual([]);
+  });
+
+  it("returns null when the submission is not an object", () => {
+    expect(parseFindings(null)).toBeNull();
+    expect(parseFindings(undefined)).toBeNull();
+    expect(parseFindings("nope")).toBeNull();
+  });
+
+  it("returns null when findings is missing or not an array", () => {
+    expect(parseFindings({})).toBeNull();
+    expect(parseFindings({ findings: "x" })).toBeNull();
+  });
+
+  it("returns null (rejects the whole batch) when any element fails the Finding schema", () => {
+    const bad = { id: "gates.x", phase: "gates", severity: "error" }; // missing confidence + message
+    expect(parseFindings({ findings: [validFinding, bad] })).toBeNull();
+  });
+
+  it("ignores extra top-level properties on the submission envelope", () => {
+    const result = parseFindings({ findings: [validFinding], audit: { examined: ["a"] } });
+    expect(result).toEqual([validFinding]);
+  });
+});
 
 describe("PhaseId", () => {
   it("accepts valid kebab-case identifiers", () => {

@@ -11,12 +11,11 @@
  */
 
 import type { TSchema } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
 import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
 import type { Cost, PhaseReport } from "../schema/report.js";
-import { Finding } from "../schema/finding.js";
+import { type Finding, parseFindings } from "../schema/finding.js";
 import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
 import type { CoordinatorConfig } from "./coordinator.js";
@@ -116,26 +115,15 @@ function costFromError(error: AgentError): Partial<Cost> {
   return {};
 }
 
-/**
- * Parse and validate findings from a submission payload.
- * Returns the typed array on success, or null on failure.
- * Failure is silent — invalid submissions contribute no findings rather than aborting the roll-up.
- */
-function parseFindings(submission: unknown): Finding[] | null {
-  if (
-    typeof submission !== "object" ||
-    submission === null ||
-    !Array.isArray((submission as Record<string, unknown>).findings)
-  ) {
-    return null;
-  }
-  const raw = (submission as Record<string, unknown>).findings as unknown[];
-  const result: Finding[] = [];
-  for (const item of raw) {
-    if (!Value.Check(Finding, item)) return null;
-    result.push(item as Finding);
-  }
-  return result;
+/** Build the harness warning emitted when the coordinator judge cannot produce a result. */
+function coordinatorWarning(phaseId: string, message: string): Finding {
+  return {
+    id: `${phaseId}.coordinator-failed`,
+    phase: phaseId,
+    severity: "warning",
+    confidence: "high",
+    message,
+  };
 }
 
 /**
@@ -319,13 +307,10 @@ export function makeCompositePhase(
       if (cfg.coordinator && !skipCoordinatorForLevel) {
         const coordinatorRunner = runners["coordinator"];
         if (!coordinatorRunner) {
-          const warnFinding: Finding = {
-            id: `${cfg.id}.coordinator-failed`,
-            phase: cfg.id,
-            severity: "warning",
-            confidence: "high",
-            message: "Coordinator judge has no runner configured.",
-          };
+          const warnFinding = coordinatorWarning(
+            cfg.id,
+            "Coordinator judge has no runner configured.",
+          );
           return {
             phase: cfg.id,
             status: "completed",
@@ -341,13 +326,10 @@ export function makeCompositePhase(
           outcome = await runCoordinatorJudge(coordinatorRunner, cfg.coordinator, allFindings, ctx);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          const warnFinding: Finding = {
-            id: `${cfg.id}.coordinator-failed`,
-            phase: cfg.id,
-            severity: "warning",
-            confidence: "high",
-            message: `Coordinator judge threw unexpectedly: ${msg}`,
-          };
+          const warnFinding = coordinatorWarning(
+            cfg.id,
+            `Coordinator judge threw unexpectedly: ${msg}`,
+          );
           return {
             phase: cfg.id,
             status: "completed",
@@ -463,13 +445,10 @@ export function makeCompositePhase(
 
         // Coordinator failed — fall back to raw roll-up (decision #29: never forfeits findings).
         const failReason = `${outcome.error._tag}: ${outcome.error.message}`;
-        const warnFinding: Finding = {
-          id: `${cfg.id}.coordinator-failed`,
-          phase: cfg.id,
-          severity: "warning",
-          confidence: "high",
-          message: `Coordinator judge failed — ${failReason}. Showing raw specialist roll-up.`,
-        };
+        const warnFinding = coordinatorWarning(
+          cfg.id,
+          `Coordinator judge failed — ${failReason}. Showing raw specialist roll-up.`,
+        );
         return {
           phase: cfg.id,
           status: "completed",

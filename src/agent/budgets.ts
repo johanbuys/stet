@@ -39,6 +39,14 @@ export const DEFAULT_BASH_TIMEOUT_MS = 60_000;
 /** Bash output cap in bytes — 32 KiB (PRD §3.5, T13). */
 export const DEFAULT_BASH_OUTPUT_CAP = 32 * 1024;
 
+/** Canonical 5-minute budget class (PRD §3.5) — static agent phases, specialists, coordinator. */
+export const FIVE_MINUTE_BUDGETS = {
+  wallClockMs: WALL_CLOCK_5MIN_MS,
+  turns: TURNS_5MIN,
+  bashTimeoutMs: DEFAULT_BASH_TIMEOUT_MS,
+  bashOutputCap: DEFAULT_BASH_OUTPUT_CAP,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Bash-level limits (T13) — timeout + output cap enforced per call
 // ---------------------------------------------------------------------------
