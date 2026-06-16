@@ -11,12 +11,11 @@
  */
 
 import type { TSchema } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
 import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
 import type { Cost, PhaseReport } from "../schema/report.js";
-import { Finding } from "../schema/finding.js";
+import { type Finding, parseFindings } from "../schema/finding.js";
 import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
 import type { CoordinatorConfig } from "./coordinator.js";
@@ -114,28 +113,6 @@ function costFromError(error: AgentError): Partial<Cost> {
   }
   // BudgetError carries no cost sub-object.
   return {};
-}
-
-/**
- * Parse and validate findings from a submission payload.
- * Returns the typed array on success, or null on failure.
- * Failure is silent — invalid submissions contribute no findings rather than aborting the roll-up.
- */
-function parseFindings(submission: unknown): Finding[] | null {
-  if (
-    typeof submission !== "object" ||
-    submission === null ||
-    !Array.isArray((submission as Record<string, unknown>).findings)
-  ) {
-    return null;
-  }
-  const raw = (submission as Record<string, unknown>).findings as unknown[];
-  const result: Finding[] = [];
-  for (const item of raw) {
-    if (!Value.Check(Finding, item)) return null;
-    result.push(item as Finding);
-  }
-  return result;
 }
 
 /**

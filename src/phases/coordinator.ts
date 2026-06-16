@@ -12,12 +12,11 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { Value } from "@sinclair/typebox/value";
 import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunner } from "../agent/runner.js";
 import { SUBMIT_TOOL_NAME } from "../agent/submit-tool.js";
-import { Finding } from "../schema/finding.js";
+import { Finding, parseFindings } from "../schema/finding.js";
 import type { Cost } from "../schema/report.js";
 import { Audit } from "../schema/report.js";
 
@@ -88,27 +87,6 @@ export type CoordinatorJudgeOutcome =
   | { kind: "err"; error: AgentError; durationMs: number };
 
 // ---------------------------------------------------------------------------
-// Parsing
-// ---------------------------------------------------------------------------
-
-function parseCoordinatorFindings(submission: unknown): Finding[] | null {
-  if (
-    typeof submission !== "object" ||
-    submission === null ||
-    !Array.isArray((submission as Record<string, unknown>).findings)
-  ) {
-    return null;
-  }
-  const raw = (submission as Record<string, unknown>).findings as unknown[];
-  const result: Finding[] = [];
-  for (const item of raw) {
-    if (!Value.Check(Finding, item)) return null;
-    result.push(item as Finding);
-  }
-  return result;
-}
-
-// ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
 
@@ -147,7 +125,7 @@ export async function runCoordinatorJudge(
 
   if (result.isOk()) {
     const { submission, cost } = result.value;
-    const findings = parseCoordinatorFindings(submission) ?? [];
+    const findings = parseFindings(submission) ?? [];
     return { kind: "ok", findings, cost: { ...cost, durationMs } };
   }
 

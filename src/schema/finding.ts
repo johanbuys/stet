@@ -7,6 +7,7 @@
  */
 
 import { type Static, Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 
 /** Open phase identifier — kebab-case, not a closed enum (decision #28, PRD §4.1). */
 export const PhaseId = Type.String({
@@ -94,3 +95,32 @@ export type PhaseId = Static<typeof PhaseId>;
 export type Severity = Static<typeof Severity>;
 export type Confidence = Static<typeof Confidence>;
 export type Finding = Static<typeof Finding>;
+
+/**
+ * Parse and validate the `findings` array out of an agent submission payload.
+ *
+ * Returns the typed `Finding[]` when the submission is an object whose `findings`
+ * property is an array of values that each satisfy the {@link Finding} schema.
+ *
+ * Returns `null` on ANY validation failure — a non-object submission, a missing or
+ * non-array `findings`, or any element that fails `Value.Check(Finding, …)`. Callers
+ * treat a `null` as "invalid submission contributes no findings" (typically via
+ * `parseFindings(submission) ?? []`) so a malformed payload is silently skipped
+ * rather than aborting the roll-up.
+ */
+export function parseFindings(submission: unknown): Finding[] | null {
+  if (
+    typeof submission !== "object" ||
+    submission === null ||
+    !Array.isArray((submission as Record<string, unknown>).findings)
+  ) {
+    return null;
+  }
+  const raw = (submission as Record<string, unknown>).findings as unknown[];
+  const result: Finding[] = [];
+  for (const item of raw) {
+    if (!Value.Check(Finding, item)) return null;
+    result.push(item as Finding);
+  }
+  return result;
+}
