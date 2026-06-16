@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { PhaseReport } from "./schema/report.js";
 import type { Scope } from "./scope.js";
 import { runPhases } from "./scheduler.js";
+import { DIFF_BUDGET } from "./phases/coverage.js";
 import type { PhaseConfiguration, PhaseContext } from "./phases/index.js";
 import { makeAgentPhase } from "./phases/agent-phase.js";
 import { FakeAgentRunner } from "./agent/fake-runner.js";
@@ -644,5 +645,117 @@ describe("T15: cancellation classes (PRD §3.4.3, acceptance #5)", () => {
       // "AbortError: This operation was aborted".
       expect(report.reason).toBe("cancelled by scheduler");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T24: per-phase diff budget application (PRD §3.6, decision #14, decision #20)
+//
+// runPhaseGuarded applies applyBudget to ctx.diff and prepends a partial-coverage
+// warning when the diff overflows DIFF_BUDGET. The budget MUST only be applied to
+// phases that actually consume the diff (agent phases) — a deterministic phase runs
+// a command and ignores ctx.diff, so attaching a "files excluded from analysis"
+// warning to it would misattribute the finding (decision #20).
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a single diff file section whose total length is exactly `size` chars.
+ * The section ends with a newline so a following `diff --git` lands at a line start
+ * (the section parser splits on `(?=^diff --git )`, anchored to line starts).
+ */
+function makeDiffSection(path: string, size: number): string {
+  const header = `diff --git a/${path} b/${path}\n`;
+  const padding = "x".repeat(Math.max(0, size - header.length - 1));
+  return `${header}${padding}\n`;
+}
+
+/**
+ * Make a phase of the given kind that records the diff it received and returns a
+ * completed report with one pre-existing finding (so we can assert ordering of any
+ * prepended coverage warning).
+ */
+function makeDiffSpyPhase(
+  id: string,
+  kind: "deterministic" | "agent",
+  sink: { diff?: string },
+): PhaseConfiguration {
+  return {
+    id,
+    kind,
+    activation: () => true,
+    async run(ctx: PhaseContext): Promise<PhaseReport> {
+      sink.diff = ctx.diff;
+      return {
+        phase: id,
+        status: "completed",
+        findings: [
+          {
+            id: `${id}.existing`,
+            phase: id,
+            severity: "info",
+            confidence: "high",
+            message: "pre-existing",
+          },
+        ],
+        audit: {},
+        cost: { durationMs: 1 },
+      };
+    },
+  };
+}
+
+describe("T24: diff budget application (PRD §3.6, decisions #14/#20)", () => {
+  // Two sections of 150k each → 300k total, over the 200k budget. The first fits;
+  // the second pushes past the budget and is excluded.
+  const sectionA = makeDiffSection("src/a.ts", 150_000);
+  const sectionB = makeDiffSection("src/b.ts", 150_000);
+  const bigDiff = sectionA + sectionB;
+
+  it("over-budget diff to an agent phase: trimmed + partial-coverage warning prepended", async () => {
+    expect(bigDiff.length).toBeGreaterThan(DIFF_BUDGET);
+
+    const sink: { diff?: string } = {};
+    const phase = makeDiffSpyPhase("review", "agent", sink);
+    const reports = await runPhases([phase], { ...baseCtx, diff: bigDiff });
+
+    // The phase received the trimmed diff (section A only — section B excluded).
+    expect(sink.diff).toBe(sectionA);
+
+    const report = reports[0]!;
+    // The warning leads the findings (PRD #20), the pre-existing finding follows.
+    expect(report.findings).toHaveLength(2);
+    expect(report.findings[0]?.id).toBe("review.partial-coverage");
+    expect(report.findings[0]?.severity).toBe("warning");
+    expect(report.findings[0]?.message).toContain("src/b.ts");
+    expect(report.findings[1]?.id).toBe("review.existing");
+  });
+
+  it("over-budget diff to a deterministic phase: NOT trimmed, NO partial-coverage warning", async () => {
+    const sink: { diff?: string } = {};
+    // stub-det is deterministic and ignores ctx.diff; it must not be charged a
+    // partial-coverage warning for files it never analyzed (decision #20).
+    const phase = makeDiffSpyPhase("stub-det", "deterministic", sink);
+    const reports = await runPhases([phase], { ...baseCtx, diff: bigDiff });
+
+    // The diff is forwarded untouched (no budget applied to a non-consuming phase).
+    expect(sink.diff).toBe(bigDiff);
+
+    const report = reports[0]!;
+    // Only the phase's own finding — no harness-prepended coverage warning.
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.id).toBe("stub-det.existing");
+    expect(report.findings.some((f) => f.id.endsWith(".partial-coverage"))).toBe(false);
+  });
+
+  it("under-budget diff to an agent phase: forwarded unchanged, no warning", async () => {
+    const sink: { diff?: string } = {};
+    const phase = makeDiffSpyPhase("review", "agent", sink);
+    const smallDiff = makeDiffSection("src/a.ts", 1_000);
+    const reports = await runPhases([phase], { ...baseCtx, diff: smallDiff });
+
+    expect(sink.diff).toBe(smallDiff);
+    const report = reports[0]!;
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.id).toBe("review.existing");
   });
 });

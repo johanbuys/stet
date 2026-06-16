@@ -15,6 +15,7 @@
  */
 
 import type { StetConfig } from "./config/schema.js";
+import type { Finding } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
 import { syntheticPhaseReport } from "./schema/report.js";
 import type { Scope } from "./scope.js";
@@ -145,9 +146,16 @@ async function runPhaseGuarded(
     // M8/T24: apply per-phase diff budget before handing the diff to the phase.
     // When the (pre-filtered) diff exceeds DIFF_BUDGET, reduce it to the largest
     // file-order prefix that fits and emit a partial-coverage warning (PRD #14, #20).
+    //
+    // Only agent phases consume ctx.diff (the risk classifier + specialists read it);
+    // deterministic phases (e.g. stub-det) run a command and ignore it. Applying the
+    // budget — and especially prepending its partial-coverage warning — to a
+    // deterministic phase would misattribute "files excluded from analysis" to a phase
+    // that never analyzed the diff at all (decision #20: harness-emitted findings attach
+    // to the phase they concern). So gate the whole budget step on phase.kind === "agent".
     let phaseDiff = ctx.diff;
-    let coverageWarning = undefined;
-    if (phaseDiff !== undefined) {
+    let coverageWarning: Finding | undefined = undefined;
+    if (phaseDiff !== undefined && phase.kind === "agent") {
       const budget = applyBudget(phaseDiff, DIFF_BUDGET, phase.id);
       phaseDiff = budget.diff;
       coverageWarning = budget.warning;
