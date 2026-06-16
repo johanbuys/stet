@@ -54,18 +54,22 @@ describe("applyBudget (T24)", () => {
   });
 
   it("diff exactly at budget boundary → no truncation", () => {
-    // Build a diff whose total length is exactly the budget
+    // Build a diff whose total length is EXACTLY the budget, deterministically,
+    // so the assertions always run (no `if` guard that can silently skip them).
     const s1 = diffSection("src/file.ts", 10);
-    // Pad remaining budget
-    const remaining = DIFF_BUDGET - s1.length;
-    const s2 = diffSection("src/other.ts", Math.max(0, remaining - 80));
-    const combined = s1 + "\n" + s2;
-    // Make sure it's within budget
-    if (combined.length <= DIFF_BUDGET) {
-      const result = applyBudget(combined, DIFF_BUDGET, "spec");
-      expect(result.excluded).toEqual([]);
-      expect(result.warning).toBeUndefined();
-    }
+    const separator = "\n";
+    // Overhead of the second section's framing with an empty body.
+    const s2Overhead = diffSection("src/other.ts", 0).length;
+    const s2BodySize = DIFF_BUDGET - s1.length - separator.length - s2Overhead;
+    const s2 = diffSection("src/other.ts", s2BodySize);
+    const combined = s1 + separator + s2;
+    // Assert the construction is exact before exercising the boundary.
+    expect(combined.length).toBe(DIFF_BUDGET);
+
+    const result = applyBudget(combined, DIFF_BUDGET, "spec");
+    expect(result.diff).toBe(combined);
+    expect(result.excluded).toEqual([]);
+    expect(result.warning).toBeUndefined();
   });
 
   // ── Over budget: subset + warning ─────────────────────────────────────────

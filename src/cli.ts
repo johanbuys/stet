@@ -412,15 +412,17 @@ export async function main(
   // vendored/@generated-except-migrations), and record stripped paths in
   // scope.stripped (#33). The filtered diff flows to phases via the scheduler.
   const rawDiff = await getDiffText(io.cwd, rawScope);
-  const {
-    filteredFiles: _filteredFiles,
-    strippedFiles,
-    filteredDiff,
-  } = filterDiff(rawScope.files, rawDiff);
-  const scope = strippedFiles.length > 0 ? { ...rawScope, stripped: strippedFiles } : rawScope;
+  const { filteredFiles, strippedFiles, filteredDiff } = filterDiff(rawScope.files, rawDiff);
+  // Hand phases (and through them the risk classifier, PRD #32) the post-filter file
+  // list so lockfile/vendored/minified churn never inflates risk or reaches a specialist;
+  // `stripped` preserves the removed paths for the report (#33), so files ∪ stripped = original.
+  const scope =
+    strippedFiles.length > 0
+      ? { ...rawScope, files: filteredFiles, stripped: strippedFiles }
+      : rawScope;
 
   // Echo scope to stderr (progress / human chrome — JSON consumers read scope from the report).
-  // Include stripped count when pre-filtering removed files (PRD #33 / human scope echo).
+  // scope.files is now the post-filter list; the stripped count is reported alongside (PRD #33).
   const strippedSuffix = strippedFiles.length > 0 ? `, ${strippedFiles.length} stripped` : "";
   io.stderr(
     `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)${strippedSuffix}`,

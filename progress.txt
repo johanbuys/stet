@@ -24,8 +24,11 @@
   kind (staged: `git diff --cached`, working: `git diff HEAD`, against: `git diff ref...HEAD`,
   commit: `git diff sha^1 sha`; commits: empty string, range not recoverable from Scope).
   Degrades to empty string on git failure. Added `filterDiff` call between scope detection and
-  runPhases; updates scope.stripped when files are stripped; extends scope echo with stripped
-  count; passes filteredDiff to SchedulerContext.diff.
+  runPhases; when files are stripped, the scope handed to phases carries `files: filteredFiles`
+  (post-filter list) plus `stripped: strippedFiles`, so `files ∪ stripped` = original and the
+  risk classifier (composite.ts → classify(diff, scope.files, rules)) consumes pre-filtered paths
+  too, not just the pre-filtered diff (PRD #32). Scope echo reports the post-filter file count
+  plus the stripped count; passes filteredDiff to SchedulerContext.diff.
 
 **Learnings:**
 - The `commits` scope kind doesn't store the original range string in the Scope object (only

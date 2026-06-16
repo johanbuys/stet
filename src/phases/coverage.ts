@@ -2,9 +2,10 @@
  * Diff context budget enforcement (M8, T24, PRD §3.6, decision #14).
  *
  * When a (pre-filtered) diff exceeds a phase's context budget, it is reduced
- * to the largest prefix of complete file sections that fits within the budget.
- * Files are considered in git diff --stat order (file order; churn ranking
- * is deferred to a future milestone — plan M8 §4).
+ * to the largest set of complete file sections that fits within the budget,
+ * filled greedily in git diff --stat order (a smaller later section may be
+ * included after a larger earlier one is excluded). Churn ranking is deferred
+ * to a future milestone — plan M8 §4.
  *
  * The harness emits `<phase>.partial-coverage` (warning) naming what was
  * excluded — no silent truncation (PRD decision #14, same ethos as hygiene
@@ -74,9 +75,10 @@ function parseDiffSections(diff: string): DiffSection[] {
 /**
  * Apply a character budget to a diff.
  *
- * Files are evaluated in git diff --stat order (file order). The result is the
- * largest prefix of complete file sections that fits within `budget` characters.
- * Any remaining sections are recorded in `excluded` and named in the warning.
+ * Files are evaluated in git diff --stat order (file order) and included greedily:
+ * each section that still fits within `budget` characters is kept, so a smaller
+ * later section may be included after a larger earlier one is excluded.
+ * Any excluded sections are recorded in `excluded` and named in the warning.
  *
  * - Under budget: `{ diff, excluded: [], warning: undefined }` — no change.
  * - Over budget: `{ diff: truncatedDiff, excluded, warning }` where warning is
