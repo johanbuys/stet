@@ -115,6 +115,17 @@ function costFromError(error: AgentError): Partial<Cost> {
   return {};
 }
 
+/** Build the harness warning emitted when the coordinator judge cannot produce a result. */
+function coordinatorWarning(phaseId: string, message: string): Finding {
+  return {
+    id: `${phaseId}.coordinator-failed`,
+    phase: phaseId,
+    severity: "warning",
+    confidence: "high",
+    message,
+  };
+}
+
 /**
  * Validate the declared risk config at construction time (findings 3 & 4).
  *
@@ -296,13 +307,10 @@ export function makeCompositePhase(
       if (cfg.coordinator && !skipCoordinatorForLevel) {
         const coordinatorRunner = runners["coordinator"];
         if (!coordinatorRunner) {
-          const warnFinding: Finding = {
-            id: `${cfg.id}.coordinator-failed`,
-            phase: cfg.id,
-            severity: "warning",
-            confidence: "high",
-            message: "Coordinator judge has no runner configured.",
-          };
+          const warnFinding = coordinatorWarning(
+            cfg.id,
+            "Coordinator judge has no runner configured.",
+          );
           return {
             phase: cfg.id,
             status: "completed",
@@ -318,13 +326,10 @@ export function makeCompositePhase(
           outcome = await runCoordinatorJudge(coordinatorRunner, cfg.coordinator, allFindings, ctx);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          const warnFinding: Finding = {
-            id: `${cfg.id}.coordinator-failed`,
-            phase: cfg.id,
-            severity: "warning",
-            confidence: "high",
-            message: `Coordinator judge threw unexpectedly: ${msg}`,
-          };
+          const warnFinding = coordinatorWarning(
+            cfg.id,
+            `Coordinator judge threw unexpectedly: ${msg}`,
+          );
           return {
             phase: cfg.id,
             status: "completed",
@@ -440,13 +445,10 @@ export function makeCompositePhase(
 
         // Coordinator failed — fall back to raw roll-up (decision #29: never forfeits findings).
         const failReason = `${outcome.error._tag}: ${outcome.error.message}`;
-        const warnFinding: Finding = {
-          id: `${cfg.id}.coordinator-failed`,
-          phase: cfg.id,
-          severity: "warning",
-          confidence: "high",
-          message: `Coordinator judge failed — ${failReason}. Showing raw specialist roll-up.`,
-        };
+        const warnFinding = coordinatorWarning(
+          cfg.id,
+          `Coordinator judge failed — ${failReason}. Showing raw specialist roll-up.`,
+        );
         return {
           phase: cfg.id,
           status: "completed",
