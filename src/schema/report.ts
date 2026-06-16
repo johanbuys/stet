@@ -157,6 +157,8 @@ export const PhaseReport = Type.Object(
     ]),
     /** Required for skipped | cancelled | error. */
     reason: Type.Optional(Type.String()),
+    /** Risk level resolved by the classifier (§3.4.1a). Present when riskRules are declared. */
+    level: Type.Optional(Type.String()),
     findings: Type.Array(Finding),
     audit: Audit,
     cost: PhaseCost,
