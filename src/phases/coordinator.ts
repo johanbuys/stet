@@ -12,7 +12,7 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import { runWithWallClock } from "../agent/budgets.js";
+import { runWithWallClock, FIVE_MINUTE_BUDGETS } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunner } from "../agent/runner.js";
 import { SUBMIT_TOOL_NAME } from "../agent/submit-tool.js";
@@ -42,13 +42,6 @@ export interface CoordinatorConfig {
   /** Tool allowlist. Defaults to [SUBMIT_TOOL_NAME] — coordinator is a judge, not an investigator. */
   toolset?: string[];
 }
-
-const DEFAULT_COORDINATOR_BUDGETS = {
-  wallClockMs: 300_000,
-  turns: 50,
-  bashTimeoutMs: 60_000,
-  bashOutputCap: 32_768,
-};
 
 // ---------------------------------------------------------------------------
 // Submit schema
@@ -113,7 +106,7 @@ export async function runCoordinatorJudge(
       userPrompt: buildCoordinatorUserPrompt(rawFindings),
       toolset: cfg.toolset ?? [SUBMIT_TOOL_NAME],
       submitSchema: CoordinatorSubmitSchema,
-      budgets: cfg.budgets ?? DEFAULT_COORDINATOR_BUDGETS,
+      budgets: cfg.budgets ?? FIVE_MINUTE_BUDGETS,
       model: cfg.model,
       cwd: phaseCtx.cwd,
     },

@@ -27,6 +27,7 @@
 import { Type } from "@sinclair/typebox";
 import type { AgentRunner } from "../agent/runner.js";
 import { SUBMIT_TOOL_NAME } from "../agent/submit-tool.js";
+import { FIVE_MINUTE_BUDGETS } from "../agent/budgets.js";
 import { Finding } from "../schema/finding.js";
 import { Audit } from "../schema/report.js";
 import type { PhaseConfiguration } from "./types.js";
@@ -80,19 +81,6 @@ Rules:
 After submit_findings is accepted, STOP immediately.`;
 
 // ---------------------------------------------------------------------------
-// Budgets — sane stub defaults.
-// Budget ENFORCEMENT is M3; these values are present now so the interface
-// does not need to change when enforcement arrives.
-// ---------------------------------------------------------------------------
-
-const STUB_AGENT_BUDGETS = {
-  wallClockMs: 300_000, // 5 minutes wall-clock (enforced M3)
-  turns: 50, // 50 agent turns (enforced M3 (T12/T13))
-  bashTimeoutMs: 60_000, // 60 s per bash call (enforced M3 (T12/T13))
-  bashOutputCap: 32_768, // 32 KB bash output cap (enforced M3 (T12/T13))
-};
-
-// ---------------------------------------------------------------------------
 // Public factory: makeStubAgent
 // ---------------------------------------------------------------------------
 
@@ -130,7 +118,7 @@ export function makeStubAgent(runner: AgentRunner, model?: string): PhaseConfigu
     toolset: ["read", "bash", "grep", "find", "ls", SUBMIT_TOOL_NAME],
 
     submitSchema: StubAgentSubmitSchema,
-    budgets: STUB_AGENT_BUDGETS,
+    budgets: FIVE_MINUTE_BUDGETS,
     model,
 
     /**
