@@ -19,6 +19,7 @@ import type { PhaseReport } from "./schema/report.js";
 import { syntheticPhaseReport } from "./schema/report.js";
 import type { Scope } from "./scope.js";
 import type { PhaseConfiguration } from "./phases/types.js";
+import { applyBudget, DIFF_BUDGET } from "./phases/coverage.js";
 
 // ---------------------------------------------------------------------------
 // Context type
@@ -48,6 +49,13 @@ export interface SchedulerContext {
    * Absent when no spec flags were provided.
    */
   spec?: string;
+  /**
+   * Semantically pre-filtered diff text (§3.6, M8/T24).
+   * Populated by filterDiff in the CLI; absent when no diff is available.
+   * Forwarded to each phase's run context; budget-trimmed per-phase before hand-off.
+   * The risk classifier (composite.ts) reads this via PhaseContext.diff.
+   */
+  diff?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +142,18 @@ async function runPhaseGuarded(
 ): Promise<PhaseReport> {
   const start = Date.now();
   try {
-    return await phase.run({
+    // M8/T24: apply per-phase diff budget before handing the diff to the phase.
+    // When the (pre-filtered) diff exceeds DIFF_BUDGET, reduce it to the largest
+    // file-order prefix that fits and emit a partial-coverage warning (PRD #14, #20).
+    let phaseDiff = ctx.diff;
+    let coverageWarning = undefined;
+    if (phaseDiff !== undefined) {
+      const budget = applyBudget(phaseDiff, DIFF_BUDGET, phase.id);
+      phaseDiff = budget.diff;
+      coverageWarning = budget.warning;
+    }
+
+    const report = await phase.run({
       cwd: ctx.cwd,
       scope: ctx.scope,
       config: ctx.config.phases?.[phase.id],
@@ -146,7 +165,15 @@ async function runPhaseGuarded(
       signal: ctx.signal,
       // Forward spec context (M8/T23) so phases that consume spec receive it.
       spec: ctx.spec,
+      // Forward the budget-trimmed diff (M8/T24).
+      diff: phaseDiff,
     });
+
+    // Prepend the partial-coverage warning so it leads the phase's findings (PRD #20).
+    if (coverageWarning !== undefined) {
+      return { ...report, findings: [coverageWarning, ...report.findings] };
+    }
+    return report;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {

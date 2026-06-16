@@ -1,3 +1,46 @@
+## 2026-06-16 - TASK-029 (T24): Large-diff visibility + semantic pre-filtering
+
+**What was done:** Implemented M8/T24 — semantic diff pre-filter + budget enforcement (PRD §3.6):
+
+- `src/diff-filter.ts`: New module. `filterDiff(files, diff) → FilterResult`. Strips lockfiles
+  (package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lockb, Cargo.lock, go.sum, etc.),
+  minified files (*.min.js, *.min.css), sourcemaps (*.map), vendored directories (vendor/,
+  vendors/, third_party/, external/, extern/, node_modules/), and `@generated`-annotated
+  diff sections — EXCEPT migration files (paths containing "migrat"). Stripped paths returned in
+  `strippedFiles` (sorted), non-stripped diff text in `filteredDiff`. Files without diff sections
+  still get path-based filtering. 27 unit tests.
+
+- `src/phases/coverage.ts`: New module. `applyBudget(diff, budget, phaseId) → BudgetResult`.
+  Splits diff into per-file sections, greedily includes sections in file order until budget is
+  reached, returns truncated diff + excluded paths + `<phase>.partial-coverage` warning Finding
+  (severity:"warning", confidence:"high"). No truncation when diff fits budget. Exports
+  `DIFF_BUDGET = 200_000`. 13 unit tests. Warning is a valid Finding (Value.Check passes).
+
+- `src/scheduler.ts`: Added `diff?: string` to `SchedulerContext`; forwarded to `PhaseContext`
+  in `runPhaseGuarded` after applying `applyBudget` per-phase. If truncation occurred, the
+  partial-coverage warning is prepended to the phase's findings (before report merge).
+
+- `src/cli.ts`: Added `getDiffText(cwd, scope)` helper — runs appropriate git command for scope
+  kind (staged: `git diff --cached`, working: `git diff HEAD`, against: `git diff ref...HEAD`,
+  commit: `git diff sha^1 sha`; commits: empty string, range not recoverable from Scope).
+  Degrades to empty string on git failure. Added `filterDiff` call between scope detection and
+  runPhases; updates scope.stripped when files are stripped; extends scope echo with stripped
+  count; passes filteredDiff to SchedulerContext.diff.
+
+**Learnings:**
+- The `commits` scope kind doesn't store the original range string in the Scope object (only
+  files are stored). `getDiffText` can't recover it → returns "" and filters by path only.
+  If `--commits` is used, @generated stripping requires diff content and is skipped.
+- `filterDiff` produces an empty `filteredDiff` when the diff input is empty (no @generated
+  stripping) — path-based rules still apply since they operate on `files`, not diff content.
+- The per-file diff section parser splits on `/(?=^diff --git )/m` — a positive lookahead that
+  preserves the delimiter at the start of each section. This is the same pattern used in both
+  diff-filter.ts and coverage.ts (kept local to avoid coupling).
+- `vp check --fix` reformatted regex patterns (e.g. `/^vendor\//` → `path.startsWith("vendor/")`)
+  and removed redundant `/.../` → `.endsWith(...)` — the formatter prefers string methods over
+  simple prefix/suffix regexes.
+----
+
 ## 2026-06-16 - TASK-028 (T23): Spec-context combining
 
 **What was done:** Implemented M8/T23 — spec-context combining (PRD §3.6):

@@ -34,6 +34,8 @@ import { homedir } from "node:os";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 import { matchError, Result } from "better-result";
 import { ConfigError, SchemaError, type StetError } from "./errors.js";
 import { loadConfig } from "./config/load.js";
@@ -42,6 +44,7 @@ import { HARNESS_PHASE_ID, type Severity } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
 import { parseRunReport, syntheticPhaseReport } from "./schema/report.js";
 import { detectScope, type ScopeFlags } from "./scope.js";
+import type { Scope } from "./schema/scope.js";
 import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases/index.js";
 import type { PhaseConfiguration } from "./phases/types.js";
 import { runPhases } from "./scheduler.js";
@@ -49,6 +52,52 @@ import { assembleReport } from "./report.js";
 import { runWithSignals, signalExitCode } from "./signals.js";
 import { teardownServices } from "./teardown.js";
 import { buildSpecContext } from "./spec-context.js";
+import { filterDiff } from "./diff-filter.js";
+
+// ---------------------------------------------------------------------------
+// Diff text acquisition (M8/T24)
+// ---------------------------------------------------------------------------
+
+const execFile = promisify(execFileCb);
+
+/**
+ * Get the full unified diff text for the given scope.
+ *
+ * Runs the appropriate git command based on scope.kind. Returns an empty string
+ * on any git failure — callers degrade gracefully (filtering falls back to path-only
+ * rules; the @generated check requires diff content).
+ *
+ * This is not injectable (the CLI's impure layer owns git calls; unit tests for
+ * diff-filter and coverage use synthetic strings directly).
+ */
+async function getDiffText(cwd: string, scope: Scope): Promise<string> {
+  try {
+    let args: string[];
+    switch (scope.kind) {
+      case "staged":
+        args = ["diff", "--cached"];
+        break;
+      case "working":
+        args = ["diff", "HEAD"];
+        break;
+      case "against":
+        args = ["diff", `${scope.ref}...HEAD`];
+        break;
+      case "commit":
+        // Use diff against first parent; root commits handled by git gracefully.
+        args = ["diff", `${scope.ref}^1`, scope.ref ?? "HEAD"];
+        break;
+      case "commits":
+        // scope.ref is not set for commits; the range is in the original flag (not stored).
+        // Fall back: produce empty diff — the range isn't directly recoverable from Scope.
+        return "";
+    }
+    const { stdout } = await execFile("git", args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+    return stdout;
+  } catch {
+    return "";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Package version
@@ -356,11 +405,25 @@ export async function main(
   };
   const scopeResult = await detectScope(io.cwd, scopeFlags);
   if (scopeResult.isErr()) return Result.err(scopeResult.error);
-  const scope = scopeResult.value;
+  const rawScope = scopeResult.value;
 
-  // Echo scope to stderr (progress / human chrome — JSON consumers read scope from the report)
+  // ── 4b. Semantic diff pre-filtering (M8/T24) ─────────────────────────────
+  // Get the raw diff text, strip noise files (lockfiles/minified/sourcemaps/
+  // vendored/@generated-except-migrations), and record stripped paths in
+  // scope.stripped (#33). The filtered diff flows to phases via the scheduler.
+  const rawDiff = await getDiffText(io.cwd, rawScope);
+  const {
+    filteredFiles: _filteredFiles,
+    strippedFiles,
+    filteredDiff,
+  } = filterDiff(rawScope.files, rawDiff);
+  const scope = strippedFiles.length > 0 ? { ...rawScope, stripped: strippedFiles } : rawScope;
+
+  // Echo scope to stderr (progress / human chrome — JSON consumers read scope from the report).
+  // Include stripped count when pre-filtering removed files (PRD #33 / human scope echo).
+  const strippedSuffix = strippedFiles.length > 0 ? `, ${strippedFiles.length} stripped` : "";
   io.stderr(
-    `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)`,
+    `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)${strippedSuffix}`,
   );
 
   // ── 5. Run phases ─────────────────────────────────────────────────────────
@@ -378,6 +441,8 @@ export async function main(
     signal,
     // M8/T23: combined spec text from --prd/--task; absent when no spec flags provided.
     spec: specContext.sources.length > 0 ? specContext.text : undefined,
+    // M8/T24: pre-filtered diff for the risk classifier and per-phase budget enforcement.
+    diff: filteredDiff.length > 0 ? filteredDiff : undefined,
   });
   const durationMs = Date.now() - runStartMs;
 
