@@ -30,6 +30,13 @@ export const Scope = Type.Object(
       Type.Literal("commits"),
     ]),
     ref: Type.Optional(Type.String()),
+    /**
+     * The raw commit-range string (e.g. "HEAD~3..HEAD"). Set ONLY for the
+     * "commits" kind so the diff fetch (`getScopeDiff`) can recover the range —
+     * `ref` is unused for ranges. Optional like `stripped`, so it never breaks
+     * pre-existing reports.
+     */
+    range: Type.Optional(Type.String()),
     files: Type.Array(Type.String()),
     /**
      * Paths removed by semantic pre-filtering (§3.6, decision #33).
