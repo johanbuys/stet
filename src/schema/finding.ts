@@ -32,6 +32,21 @@ export const Severity = Type.Union([
   Type.Literal("info"),
 ]);
 
+/**
+ * Canonical severity ordering — higher = more severe (error > warning > info).
+ * The single source of truth for severity comparison; both exit-code gating and
+ * the --show display filter compare through {@link severityAtLeast}.
+ */
+export const SEVERITY_RANK: Record<Severity, number> = { error: 2, warning: 1, info: 0 };
+
+/**
+ * True when severity `a` is at least as severe as `b` (error ≥ warning ≥ info).
+ * Shared by exit-code gating and the --show display filter.
+ */
+export function severityAtLeast(a: Severity, b: Severity): boolean {
+  return SEVERITY_RANK[a] >= SEVERITY_RANK[b];
+}
+
 /** AI judgment confidence level (PRD §4.6). */
 export const Confidence = Type.Union([
   Type.Literal("high"),

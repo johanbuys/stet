@@ -50,6 +50,7 @@ import { runWithSignals, signalExitCode } from "./signals.js";
 import { teardownServices } from "./teardown.js";
 import { buildSpecContext } from "./spec-context.js";
 import { filterDiff } from "./diff-filter.js";
+import { renderHuman } from "./output/human.js";
 
 // ---------------------------------------------------------------------------
 // Package version
@@ -125,6 +126,12 @@ export interface CliIo {
   homeDir: string;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
+  /**
+   * Whether to emit ANSI color codes in human output. Defaults to false (no color)
+   * when absent. The process entry sets this based on process.stdout.isTTY and NO_COLOR.
+   * Tests leave it unset → no color → stable, escape-free assertions.
+   */
+  color?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,11 +157,33 @@ interface ParsedFlags {
   prd?: string;
   /** M8/T23: spec-context task string to concatenate with --prd. */
   task?: string;
+  /** M9/T26: suppress passing phases from human output. */
+  quiet: boolean;
+  /** M9/T26: display-only severity filter (does not affect exit code). */
+  show?: Severity;
 }
 
 /** Narrow a raw string to a member of a literal union, or undefined. */
 function parseEnum<T extends string>(allowed: readonly T[], raw: string): T | undefined {
   return allowed.find((a) => a === raw);
+}
+
+/** Parse a severity-valued flag (--fail-on/--show). Ok(undefined) when absent. */
+function parseSeverityFlag(
+  flagName: string,
+  raw: string | undefined,
+): Result<Severity | undefined, ConfigError> {
+  if (raw === undefined) return Result.ok(undefined);
+  const sev = parseEnum(VALID_FAIL_ON, raw);
+  if (sev === undefined) {
+    return Result.err(
+      new ConfigError({
+        path: "<argv>",
+        message: `${flagName} must be one of: ${VALID_FAIL_ON.join(", ")} (got: ${raw})`,
+      }),
+    );
+  }
+  return Result.ok(sev);
 }
 
 /**
@@ -184,6 +213,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
         help: { type: "boolean", default: false },
         prd: { type: "string" },
         task: { type: "string" },
+        quiet: { type: "boolean", default: false },
+        show: { type: "string" },
       },
     });
 
@@ -199,20 +230,16 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
       );
     }
 
-    // Validate --fail-on
-    const failOnRaw = values["fail-on"];
-    let failOn: Severity | undefined;
-    if (failOnRaw !== undefined) {
-      failOn = parseEnum(VALID_FAIL_ON, failOnRaw);
-      if (failOn === undefined) {
-        return Result.err(
-          new ConfigError({
-            path: "<argv>",
-            message: `--fail-on must be one of: ${VALID_FAIL_ON.join(", ")} (got: ${failOnRaw})`,
-          }),
-        );
-      }
-    }
+    // Validate --fail-on (default "error" is applied later via BUILT_IN_DEFAULTS,
+    // so keep failOn undefined here when the flag is absent).
+    const failOnResult = parseSeverityFlag("--fail-on", values["fail-on"]);
+    if (failOnResult.isErr()) return Result.err(failOnResult.error);
+    const failOn = failOnResult.value;
+
+    // Validate --show
+    const showResult = parseSeverityFlag("--show", values["show"]);
+    if (showResult.isErr()) return Result.err(showResult.error);
+    const show = showResult.value;
 
     return Result.ok({
       staged: values.staged ?? false,
@@ -226,6 +253,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
       help: values.help ?? false,
       prd: values.prd,
       task: values.task,
+      quiet: values.quiet ?? false,
+      show,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -310,6 +339,10 @@ export async function main(
         "  --fail-on <error|warning|info>",
         "                        Gate exit code on findings at or above this severity",
         "                        (default: error)",
+        "  --quiet               Suppress passing phases and progress; findings only",
+        "  --show <error|warning|info>",
+        "                        Display findings at or above this severity only",
+        "                        (display filter; does not affect exit code)",
         "",
         "Spec context flags:",
         "  --prd <file|-|literal>  Spec / PRD to provide as context (file path, - for stdin, or inline string)",
@@ -388,10 +421,14 @@ export async function main(
 
   // Echo scope to stderr (progress / human chrome — JSON consumers read scope from the report).
   // scope.files is now the post-filter list; the stripped count is reported alongside (PRD #33).
+  // --quiet suppresses progress (PRD §3.8): the scope echo is part of the stderr progress
+  // stream, so it is skipped when quiet — findings-only output remains on stdout.
   const strippedSuffix = strippedFiles.length > 0 ? `, ${strippedFiles.length} stripped` : "";
-  io.stderr(
-    `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)${strippedSuffix}`,
-  );
+  if (!flags.quiet) {
+    io.stderr(
+      `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)${strippedSuffix}`,
+    );
+  }
 
   // ── 5. Run phases ─────────────────────────────────────────────────────────
   const startedAt = new Date().toISOString();
@@ -403,7 +440,11 @@ export async function main(
     // Human chrome → stderr so stdout stays exactly the JSON in json mode (PRD §4.8).
     // Format: "stet: <phaseId> · <toolName>" — minimal liveness signal for M2+.
     // M9 polishes the human surface; this wires the plumbing end-to-end.
-    onTool: (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
+    // --quiet suppresses progress (PRD §3.8): the per-tool liveness signal is the
+    // progress stream, so the callback is omitted entirely when quiet.
+    onTool: flags.quiet
+      ? undefined
+      : (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
     // T16: scheduler cancellation signal (SIGINT/SIGTERM → phases cancelled → partial report).
     signal,
     // M8/T23: combined spec text from --prd/--task; absent when no spec flags provided.
@@ -459,23 +500,11 @@ export async function main(
     // EXACTLY the RunReport JSON on stdout. Nothing else on stdout ever (PRD §4.8).
     io.stdout(JSON.stringify(report, null, 2));
   } else {
-    // Human mode — M9 polishes this; for M1 we emit honest-minimal output.
-    for (const phase of report.phases) {
-      const findingCount = phase.findings.length;
-      const findingSummary =
-        findingCount === 0
-          ? "no findings"
-          : `${findingCount} finding${findingCount === 1 ? "" : "s"}`;
-      const reasonSuffix = phase.reason !== undefined ? ` (${phase.reason})` : "";
-      io.stdout(`  ${phase.phase}: ${phase.status}${reasonSuffix} — ${findingSummary}`);
-      // One line per finding — a count alone hides WHAT is wrong ("nothing passes
-      // silently"); e.g. the T18 unknown-config-key warning must name the key here.
-      for (const finding of phase.findings) {
-        io.stdout(`    ${finding.severity} ${finding.id} — ${finding.message}`);
-      }
-    }
-    const exitLabel = exitCode === 0 ? "ok" : exitCode === 1 ? "findings gate" : "interrupted";
-    io.stdout(`\nresult: exit ${exitCode} (${exitLabel}), failOn: ${report.result.failOn}`);
+    // Human mode — grouped findings, severity-colored, file:line located, cost footer.
+    // M9/T25/T26. Color disabled by default; the process entry enables it on real TTYs.
+    io.stdout(
+      renderHuman(report, { color: io.color ?? false, quiet: flags.quiet, show: flags.show }),
+    );
   }
 
   return Result.ok({ exitCode });
@@ -514,6 +543,8 @@ if (isEntryPoint) {
     homeDir: homedir(),
     stdout: (line) => process.stdout.write(line + "\n"),
     stderr: (line) => process.stderr.write(line + "\n"),
+    // Color on when stdout is a real TTY and NO_COLOR is not set (no-color.org spec).
+    color: process.stdout.isTTY === true && process.env.NO_COLOR === undefined,
   };
 
   // Assemble the default phase set here — the only place defaults live.

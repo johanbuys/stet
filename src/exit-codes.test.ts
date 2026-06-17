@@ -8,7 +8,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import type { Finding } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
-import { deriveExit } from "./exit-codes.js";
+import { deriveExit, exitLabel } from "./exit-codes.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -390,5 +390,23 @@ describe("deriveExit — return type", () => {
     const result = deriveExit([makePhase("review", findings)], "error");
     const entry = result.gating[0]!;
     expect(Object.keys(entry).sort()).toEqual(["id", "message", "phase"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// exitLabel
+// ---------------------------------------------------------------------------
+
+describe("exitLabel", () => {
+  test("exitLabel(0) ⇒ 'ok'", () => {
+    expect(exitLabel(0)).toBe("ok");
+  });
+
+  test("exitLabel(1) ⇒ 'findings gate'", () => {
+    expect(exitLabel(1)).toBe("findings gate");
+  });
+
+  test("exitLabel(2) ⇒ 'interrupted'", () => {
+    expect(exitLabel(2)).toBe("interrupted");
   });
 });

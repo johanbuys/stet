@@ -105,6 +105,30 @@ describe("CLI e2e — stub-det", () => {
     expect(parsed.result.gating[0].id).toBe("stub-det.command-failed");
   });
 
+  // ── --quiet suppresses the stderr progress stream (PRD §3.8) ─────────────
+
+  it("--quiet suppresses the scope echo / progress on stderr; exit code unchanged", async () => {
+    await setupStubRepo(tmpDir, "fail");
+
+    // Baseline: without --quiet the scope echo lands on stderr.
+    const loud = makeIo(tmpDir);
+    await main([], loud.io, [stubDet]);
+    expect(loud.stderrLines.some((l) => l.includes("scope detected"))).toBe(true);
+
+    // With --quiet the progress stream is silent — no scope echo, no per-tool chrome.
+    const quiet = makeIo(tmpDir);
+    const result = await main(["--quiet"], quiet.io, [stubDet]);
+
+    expect(quiet.stderrLines.some((l) => l.includes("scope detected"))).toBe(false);
+    expect(quiet.stderrLines.some((l) => l.includes("·"))).toBe(false);
+
+    // --quiet is display-only: the exit code (fail variant → 1) is unaffected.
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.exitCode).toBe(1);
+    }
+  });
+
   // ── Slice 3: scope failure (non-git dir) → Err(ScopeError) ───────────────
 
   it("non-git dir → main returns Err(ScopeError)", async () => {
@@ -177,6 +201,26 @@ describe("CLI e2e — stub-det", () => {
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error._tag).toBe("ConfigError");
+      expect(result.error.message).toBe(
+        "--fail-on must be one of: error, warning, info (got: critical)",
+      );
+    }
+  });
+
+  // ── Slice 7b: invalid --show value → Err(ConfigError) ───────────────────
+
+  it("invalid --show value → Err(ConfigError) with exact message", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    const { io } = makeIo(tmpDir);
+
+    const result = await main(["--show", "critical"], io, [stubDet]);
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ConfigError");
+      expect(result.error.message).toBe(
+        "--show must be one of: error, warning, info (got: critical)",
+      );
     }
   });
 
@@ -266,6 +310,8 @@ describe("CLI e2e — stub-det", () => {
     // Output flags
     expect(combined).toMatch(/--format/);
     expect(combined).toMatch(/--fail-on/);
+    expect(combined).toMatch(/--quiet/);
+    expect(combined).toMatch(/--show/);
     // Meta flags
     expect(combined).toMatch(/--version/);
     expect(combined).toMatch(/--help/);

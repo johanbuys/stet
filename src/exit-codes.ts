@@ -9,15 +9,8 @@
  * Exit 2 is never produced here; that is the CLI shell's domain (error taxonomy).
  */
 
-import type { Severity } from "./schema/finding.js";
+import { severityAtLeast, type Severity } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
-
-/** Numeric rank for severity comparison. Higher = more severe. */
-const SEVERITY_RANK: Record<Severity, number> = {
-  error: 2,
-  warning: 1,
-  info: 0,
-};
 
 /** Result of exit-code derivation. Feeds into RunReport.result (assembled in T6). */
 export interface ExitResult {
@@ -36,12 +29,11 @@ export interface ExitResult {
  * @param failOn - The severity threshold from --fail-on (default "error").
  */
 export function deriveExit(phases: PhaseReport[], failOn: Severity): ExitResult {
-  const threshold = SEVERITY_RANK[failOn];
   const gating: ExitResult["gating"] = [];
 
   for (const phaseReport of phases) {
     for (const finding of phaseReport.findings) {
-      if (finding.confidence === "high" && SEVERITY_RANK[finding.severity] >= threshold) {
+      if (finding.confidence === "high" && severityAtLeast(finding.severity, failOn)) {
         gating.push({
           phase: finding.phase,
           id: finding.id,
@@ -55,4 +47,17 @@ export function deriveExit(phases: PhaseReport[], failOn: Severity): ExitResult 
     exitCode: gating.length > 0 ? 1 : 0,
     gating,
   };
+}
+
+/**
+ * Human-readable label for an exit code.
+ *
+ *   0 → "ok"            (clean run)
+ *   1 → "findings gate" (≥1 gating finding)
+ *   else → "interrupted" (CLI shell error / signal, exit ≥ 2)
+ *
+ * Exit-code domain knowledge — kept here, not in the renderer.
+ */
+export function exitLabel(code: number): string {
+  return code === 0 ? "ok" : code === 1 ? "findings gate" : "interrupted";
 }
