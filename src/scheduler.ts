@@ -15,10 +15,12 @@
  */
 
 import type { StetConfig } from "./config/schema.js";
+import type { Finding } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
 import { syntheticPhaseReport } from "./schema/report.js";
 import type { Scope } from "./scope.js";
 import type { PhaseConfiguration } from "./phases/types.js";
+import { budgetDiff, partialCoverageWarning, DIFF_BUDGET } from "./phases/coverage.js";
 
 // ---------------------------------------------------------------------------
 // Context type
@@ -42,6 +44,19 @@ export interface SchedulerContext {
    * Absent → no external cancellation (normal operation without gate-triggered abort).
    */
   signal?: AbortSignal;
+  /**
+   * Combined spec text from --prd/--task/--issue (§3.6, M8/T23).
+   * Forwarded to each phase's run context for phases that declare spec consumption.
+   * Absent when no spec flags were provided.
+   */
+  spec?: string;
+  /**
+   * Semantically pre-filtered diff text (§3.6, M8/T24).
+   * Populated by filterDiff in the CLI; absent when no diff is available.
+   * Forwarded to each phase's run context; budget-trimmed per-phase before hand-off.
+   * The risk classifier (composite.ts) reads this via PhaseContext.diff.
+   */
+  diff?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,10 +140,35 @@ function isGateFailure(report: PhaseReport): boolean {
 async function runPhaseGuarded(
   phase: PhaseConfiguration,
   ctx: SchedulerContext,
+  budgeted: { diff: string; excluded: string[] } | undefined,
 ): Promise<PhaseReport> {
   const start = Date.now();
   try {
-    return await phase.run({
+    // M8/T24: hand the per-phase diff to the phase. `budgeted` is the run-wide budget
+    // result (computed once in runPhases — finding 9); it is undefined when ctx.diff is.
+    //
+    // Only phases that DECLARE they inject the diff into an agent prompt
+    // (consumesDiff === true) get the budget-trimmed diff and the partial-coverage warning
+    // (PRD #14, #20). Phases without consumesDiff — deterministic gates that ignore the
+    // diff, and the risk classifier (composite.ts), which reads the FULL ctx.diff directly
+    // (finding 6: trimming it would let a risk-relevant file in the over-budget tail escape
+    // content-based risk rules) — receive the untrimmed ctx.diff. Trimming or attaching a
+    // "files excluded from analysis" warning to such a phase would misattribute / under-
+    // classify (decision #20: harness-emitted findings attach to the phase they concern).
+    //
+    // No real phase currently sets consumesDiff: true; the budget mechanism is built ahead
+    // of its first agent-prompt consumer — so the trim/warning branch is intentionally
+    // exercised only by tests for now (not dead code).
+    let phaseDiff = ctx.diff;
+    let coverageWarning: Finding | undefined = undefined;
+    if (phase.consumesDiff === true && budgeted !== undefined) {
+      phaseDiff = budgeted.diff;
+      if (budgeted.excluded.length > 0) {
+        coverageWarning = partialCoverageWarning(phase.id, budgeted.excluded, DIFF_BUDGET);
+      }
+    }
+
+    const report = await phase.run({
       cwd: ctx.cwd,
       scope: ctx.scope,
       config: ctx.config.phases?.[phase.id],
@@ -138,7 +178,17 @@ async function runPhaseGuarded(
       // Forward the scheduler's cancellation signal so agent phases can abort when
       // a cancel-class gate fails (T15) or the harness tears down (T16).
       signal: ctx.signal,
+      // Forward spec context (M8/T23) so phases that consume spec receive it.
+      spec: ctx.spec,
+      // Forward the budget-trimmed diff (M8/T24).
+      diff: phaseDiff,
     });
+
+    // Prepend the partial-coverage warning so it leads the phase's findings (PRD #20).
+    if (coverageWarning !== undefined) {
+      return { ...report, findings: [coverageWarning, ...report.findings] };
+    }
+    return report;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
@@ -192,6 +242,11 @@ export async function runPhases(
 
   const innerCtx: SchedulerContext = { ...ctx, signal: combinedSignal };
 
+  // M8/T24, finding 9: ctx.diff and DIFF_BUDGET are constant across the run, so parse +
+  // trim the diff ONCE here and reuse the result for every diff-consuming phase. Only the
+  // per-phase partial-coverage warning (built in runPhaseGuarded) varies.
+  const budgeted = ctx.diff !== undefined ? budgetDiff(ctx.diff, DIFF_BUDGET) : undefined;
+
   return Promise.all(
     phases.map(async (phase): Promise<PhaseReport> => {
       // Guard activation() — a throwing activation is a contract violation just like a
@@ -224,7 +279,7 @@ export async function runPhases(
         return cancelledReport(phase, abortReason(combinedSignal));
       }
 
-      const report = await runPhaseGuarded(phase, innerCtx);
+      const report = await runPhaseGuarded(phase, innerCtx, budgeted);
 
       // T15: cancel-class gate failure → abort all other in-flight agent phases.
       // Only trigger if: this phase is cancel-class, the gate hasn't fired yet, and the gate

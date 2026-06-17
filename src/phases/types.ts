@@ -52,6 +52,12 @@ export interface PhaseContext {
    * Populated by M8's semantic pre-filter; absent until M8 lands — classify receives "".
    */
   diff?: string;
+  /**
+   * Combined spec text from --prd/--task/--issue (§3.6, M8/T23).
+   * Empty string when no spec flags were provided; phases that declare spec consumption
+   * check this field. Absent until M8 lands.
+   */
+  spec?: string;
 }
 
 /**
@@ -97,4 +103,10 @@ export interface PhaseConfiguration {
    * Config override: `gates.<name>.cancel: true|false` in stet.config.yml (M5/T17).
    */
   cancelClass?: boolean;
+  /**
+   * True when this phase injects the unified diff into an agent prompt and must respect
+   * the per-phase context budget (M8/T24). The deterministic risk classifier reads
+   * `ctx.diff` directly and must NOT set this — it needs the full diff. Default false.
+   */
+  consumesDiff?: boolean;
 }

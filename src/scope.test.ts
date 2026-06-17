@@ -16,7 +16,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
-import { detectScope } from "./scope.js";
+import { detectScope, getScopeDiff } from "./scope.js";
 
 const execFile = promisify(execFileCb);
 
@@ -687,6 +687,193 @@ describe("shallow clone: explicit flags work where refs exist", () => {
     if (result.isOk()) {
       expect(result.value.kind).toBe("staged");
       expect(result.value.files).toEqual([]);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 20. getScopeDiff — produces the unified diff text for a scope
+// ---------------------------------------------------------------------------
+
+describe("getScopeDiff", () => {
+  it("returns the diff for a normal (non-root) commit", async () => {
+    const dir = await makeRepo();
+    try {
+      writeFile(dir, "normal.ts", "export const x = 1;\n");
+      await git(dir, "add", "normal.ts");
+      await git(dir, "commit", "-m", "add normal.ts");
+      const sha = await git(dir, "rev-parse", "HEAD");
+
+      const scopeResult = await detectScope(dir, { commit: sha });
+      expect(scopeResult.isOk()).toBe(true);
+      if (!scopeResult.isOk()) return;
+
+      const diffResult = await getScopeDiff(dir, scopeResult.value);
+      expect(diffResult.isOk()).toBe(true);
+      if (diffResult.isOk()) {
+        expect(diffResult.value).toContain("normal.ts");
+        expect(diffResult.value).toContain("export const x = 1;");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+
+  it("returns a non-empty diff for a ROOT (parentless) commit", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stet-scopediff-root-"));
+    try {
+      await git(dir, "init", "-b", "main");
+      await git(dir, "config", "user.name", "Test User");
+      await git(dir, "config", "user.email", "test@example.com");
+      writeFile(dir, "root.ts", "const root = true;\n");
+      await git(dir, "add", "root.ts");
+      await git(dir, "commit", "-m", "root commit");
+      const rootSha = await git(dir, "rev-parse", "HEAD");
+
+      const scopeResult = await detectScope(dir, { commit: rootSha });
+      expect(scopeResult.isOk()).toBe(true);
+      if (!scopeResult.isOk()) return;
+
+      const diffResult = await getScopeDiff(dir, scopeResult.value);
+      expect(diffResult.isOk()).toBe(true);
+      if (diffResult.isOk()) {
+        expect(diffResult.value.length).toBeGreaterThan(0);
+        expect(diffResult.value).toContain("root.ts");
+        expect(diffResult.value).toContain("const root = true;");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+
+  it("includes untracked files in the working-scope diff", async () => {
+    const dir = await makeRepo();
+    try {
+      writeFile(dir, "brand-new.ts", "const untracked = 42;\n");
+
+      const scopeResult = await detectScope(dir, { working: true });
+      expect(scopeResult.isOk()).toBe(true);
+      if (!scopeResult.isOk()) return;
+      expect(scopeResult.value.files).toContain("brand-new.ts");
+
+      const diffResult = await getScopeDiff(dir, scopeResult.value);
+      expect(diffResult.isOk()).toBe(true);
+      if (diffResult.isOk()) {
+        expect(diffResult.value).toContain("brand-new.ts");
+        expect(diffResult.value).toContain("const untracked = 42;");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+
+  it("includes tracked working-tree modifications in the diff", async () => {
+    const dir = await makeRepo();
+    try {
+      writeFile(dir, "README.md", "totally different content here\n");
+
+      const scopeResult = await detectScope(dir, { working: true });
+      expect(scopeResult.isOk()).toBe(true);
+      if (!scopeResult.isOk()) return;
+
+      const diffResult = await getScopeDiff(dir, scopeResult.value);
+      expect(diffResult.isOk()).toBe(true);
+      if (diffResult.isOk()) {
+        expect(diffResult.value).toContain("README.md");
+        expect(diffResult.value).toContain("totally different content here");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+
+  it("returns the staged diff for a staged scope", async () => {
+    const dir = await makeRepo();
+    try {
+      writeFile(dir, "staged-diff.ts", "const staged = 7;\n");
+      await git(dir, "add", "staged-diff.ts");
+
+      const scopeResult = await detectScope(dir, { staged: true });
+      expect(scopeResult.isOk()).toBe(true);
+      if (!scopeResult.isOk()) return;
+
+      const diffResult = await getScopeDiff(dir, scopeResult.value);
+      expect(diffResult.isOk()).toBe(true);
+      if (diffResult.isOk()) {
+        expect(diffResult.value).toContain("staged-diff.ts");
+        expect(diffResult.value).toContain("const staged = 7;");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+
+  it("returns the against diff (merge-base form) for an against scope", async () => {
+    const dir = await makeRepo();
+    try {
+      await git(dir, "checkout", "-b", "feature-diff");
+      writeFile(dir, "against-diff.ts", "const against = 9;\n");
+      await git(dir, "add", "against-diff.ts");
+      await git(dir, "commit", "-m", "feature work");
+
+      const scopeResult = await detectScope(dir, { against: "main" });
+      expect(scopeResult.isOk()).toBe(true);
+      if (!scopeResult.isOk()) return;
+
+      const diffResult = await getScopeDiff(dir, scopeResult.value);
+      expect(diffResult.isOk()).toBe(true);
+      if (diffResult.isOk()) {
+        expect(diffResult.value).toContain("against-diff.ts");
+        expect(diffResult.value).toContain("const against = 9;");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+
+  it("returns the commits-range diff for a commits scope", async () => {
+    const dir = await makeRepo();
+    try {
+      const firstSha = await git(dir, "rev-parse", "HEAD");
+      writeFile(dir, "range-x.ts", "const rangeX = 1;\n");
+      await git(dir, "add", "range-x.ts");
+      await git(dir, "commit", "-m", "range-x");
+      writeFile(dir, "range-y.ts", "const rangeY = 2;\n");
+      await git(dir, "add", "range-y.ts");
+      await git(dir, "commit", "-m", "range-y");
+
+      const scopeResult = await detectScope(dir, { commits: `${firstSha}..HEAD` });
+      expect(scopeResult.isOk()).toBe(true);
+      if (!scopeResult.isOk()) return;
+      expect(scopeResult.value.range).toBe(`${firstSha}..HEAD`);
+
+      const diffResult = await getScopeDiff(dir, scopeResult.value);
+      expect(diffResult.isOk()).toBe(true);
+      if (diffResult.isOk()) {
+        expect(diffResult.value).toContain("range-x.ts");
+        expect(diffResult.value).toContain("range-y.ts");
+        expect(diffResult.value).toContain("const rangeX = 1;");
+      }
+    } finally {
+      removeDir(dir);
+    }
+  });
+
+  it("returns Err(ScopeError) when the against ref does not exist", async () => {
+    const dir = await makeRepo();
+    try {
+      // Hand-build a scope with a bad ref (detectScope would reject it earlier).
+      const diffResult = await getScopeDiff(dir, {
+        kind: "against",
+        ref: "nonexistent-ref-zzz",
+        files: [],
+      });
+      expect(diffResult.isErr()).toBe(true);
+      if (diffResult.isErr()) {
+        expect(diffResult.error._tag).toBe("ScopeError");
+      }
+    } finally {
+      removeDir(dir);
     }
   });
 });

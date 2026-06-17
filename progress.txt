@@ -1,3 +1,89 @@
+## 2026-06-16 - TASK-029 (T24): Large-diff visibility + semantic pre-filtering
+
+**What was done:** Implemented M8/T24 — semantic diff pre-filter + budget enforcement (PRD §3.6):
+
+- `src/diff-filter.ts`: New module. `filterDiff(files, diff) → FilterResult`. Strips lockfiles
+  (package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lockb, Cargo.lock, go.sum, etc.),
+  minified files (*.min.js, *.min.css), sourcemaps (*.map), vendored directories (vendor/,
+  vendors/, third_party/, external/, extern/, node_modules/), and `@generated`-annotated
+  diff sections — EXCEPT migration files (paths containing "migrat"). Stripped paths returned in
+  `strippedFiles` (sorted), non-stripped diff text in `filteredDiff`. Files without diff sections
+  still get path-based filtering. 27 unit tests.
+
+- `src/phases/coverage.ts`: New module. `applyBudget(diff, budget, phaseId) → BudgetResult`.
+  Splits diff into per-file sections, greedily includes sections in file order until budget is
+  reached, returns truncated diff + excluded paths + `<phase>.partial-coverage` warning Finding
+  (severity:"warning", confidence:"high"). No truncation when diff fits budget. Exports
+  `DIFF_BUDGET = 200_000`. 13 unit tests. Warning is a valid Finding (Value.Check passes).
+
+- `src/scheduler.ts`: Added `diff?: string` to `SchedulerContext`; forwarded to `PhaseContext`
+  in `runPhaseGuarded` after applying `applyBudget` per-phase. If truncation occurred, the
+  partial-coverage warning is prepended to the phase's findings (before report merge).
+
+- `src/cli.ts`: Added `getDiffText(cwd, scope)` helper — runs appropriate git command for scope
+  kind (staged: `git diff --cached`, working: `git diff HEAD`, against: `git diff ref...HEAD`,
+  commit: `git diff sha^1 sha`; commits: empty string, range not recoverable from Scope).
+  Degrades to empty string on git failure. Added `filterDiff` call between scope detection and
+  runPhases; when files are stripped, the scope handed to phases carries `files: filteredFiles`
+  (post-filter list) plus `stripped: strippedFiles`, so `files ∪ stripped` = original and the
+  risk classifier (composite.ts → classify(diff, scope.files, rules)) consumes pre-filtered paths
+  too, not just the pre-filtered diff (PRD #32). Scope echo reports the post-filter file count
+  plus the stripped count; passes filteredDiff to SchedulerContext.diff.
+
+**Learnings:**
+- The `commits` scope kind doesn't store the original range string in the Scope object (only
+  files are stored). `getDiffText` can't recover it → returns "" and filters by path only.
+  If `--commits` is used, @generated stripping requires diff content and is skipped.
+- `filterDiff` produces an empty `filteredDiff` when the diff input is empty (no @generated
+  stripping) — path-based rules still apply since they operate on `files`, not diff content.
+- The per-file diff section parser splits on `/(?=^diff --git )/m` — a positive lookahead that
+  preserves the delimiter at the start of each section. This is the same pattern used in both
+  diff-filter.ts and coverage.ts (kept local to avoid coupling).
+- `vp check --fix` reformatted regex patterns (e.g. `/^vendor\//` → `path.startsWith("vendor/")`)
+  and removed redundant `/.../` → `.endsWith(...)` — the formatter prefers string methods over
+  simple prefix/suffix regexes.
+----
+
+## 2026-06-16 - TASK-028 (T23): Spec-context combining
+
+**What was done:** Implemented M8/T23 — spec-context combining (PRD §3.6):
+
+- `src/spec-context.ts`: New module. `buildSpecContext(input, deps)` accepts `--prd <file|-|literal>`
+  and `--task <string>`, tries to read prd as a file (ENOENT → treat as literal), concatenates
+  prd text + task text with `\n\n`, and returns `SpecContext { text, sources }` where sources is
+  the CLI-form list (e.g. `["--prd docs/spec.md", "--task"]`). Injectable `readFile` and
+  `readStdin` deps keep the module fully testable. Returns `Err(ConfigError)` for real fs errors.
+
+- `src/spec-context.test.ts`: 13 tests covering all paths: no flags, literal prd, file prd,
+  stdin prd (`-`), task only, prd+task concatenation, stdin+task, EACCES error, stdin error,
+  sources derivation contract.
+
+- `src/phases/types.ts`: Added `spec?: string` to `PhaseContext` — phases that consume spec
+  context read this field.
+
+- `src/scheduler.ts`: Added `spec?: string` to `SchedulerContext`; forwarded to `PhaseContext`
+  in `runPhaseGuarded`.
+
+- `src/report.ts`: Added `spec?: { provided, sources }` to `AssembleInput`; `assembleReport`
+  uses `input.spec ?? { provided: false, sources: [] }` instead of the hardcoded M8 placeholder.
+
+- `src/cli.ts`: Added `--prd` and `--task` to `parseArgs` options and `ParsedFlags`; imported
+  and called `buildSpecContext` between flag parsing and scope detection (step 3b); wired spec
+  text into `runPhases` and spec sources into `assembleReport`. Updated help text.
+
+- `src/report.test.ts`: Updated "Slice 5" test + added spec passthrough test.
+
+**Learnings:**
+- TypeScript does not narrow `Record<string, string>[key]` to `string` after a `key in obj`
+  check — it remains `string | undefined`. Use `const v = obj[key]; if (v !== undefined)` instead.
+- `vp check --fix` fixes formatting but does NOT fix type errors — run `vp check` after `--fix`
+  to catch remaining issues.
+- `isFileAbsentError` from `src/fs-util.ts` is the right tool for ENOENT detection — it covers
+  both ENOENT and ENOTDIR, which is the established project pattern.
+- The `SpecContextDeps` injection pattern (separate `deps` param with defaults) is cleaner than
+  adding fields to `CliIo` — the CLI uses real fs by default, tests inject mocks directly.
+----
+
 ## 2026-06-14 - TASK-035 (T29): Deterministic risk classifier + level→fan-out/coordinator wiring
 
 **What was done:** Implemented M7.5 steps 5–6 — the deterministic risk classifier

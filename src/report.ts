@@ -39,6 +39,11 @@ export interface AssembleInput {
    */
   durationMs: number;
   /**
+   * Spec context from --prd/--task/--issue (M8/T23).
+   * Absent when no spec flags were provided — assembleReport defaults to provided:false.
+   */
+  spec?: { provided: boolean; sources: string[] };
+  /**
    * True when the run was interrupted by a POSIX signal (SIGINT/SIGTERM) before all phases
    * completed — detected by the presence of cancelled phases in the phase set.
    *
@@ -111,8 +116,8 @@ export function assembleReport(input: AssembleInput): { report: RunReport; exitC
     // Pass scope straight through — no re-projection (which would silently drop
     // M8's `stripped` field). Single source of truth: src/schema/scope.ts (finding F10).
     scope,
-    // M8 (--prd/--task/--issue) provides spec context; not implemented until M8.
-    spec: { provided: false, sources: [] },
+    // M8 (--prd/--task/--issue) provides spec context (T23).
+    spec: input.spec ?? { provided: false, sources: [] },
     phases,
     result: {
       exitCode,

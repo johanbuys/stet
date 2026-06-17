@@ -41,13 +41,15 @@ import { BUILT_IN_DEFAULTS, type StetConfig } from "./config/schema.js";
 import { HARNESS_PHASE_ID, type Severity } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
 import { parseRunReport, syntheticPhaseReport } from "./schema/report.js";
-import { detectScope, type ScopeFlags } from "./scope.js";
+import { detectScope, getScopeDiff, type ScopeFlags } from "./scope.js";
 import { registerDefaultPhases, registeredPhases, registerPhase } from "./phases/index.js";
 import type { PhaseConfiguration } from "./phases/types.js";
 import { runPhases } from "./scheduler.js";
 import { assembleReport } from "./report.js";
 import { runWithSignals, signalExitCode } from "./signals.js";
 import { teardownServices } from "./teardown.js";
+import { buildSpecContext } from "./spec-context.js";
+import { filterDiff } from "./diff-filter.js";
 
 // ---------------------------------------------------------------------------
 // Package version
@@ -144,6 +146,10 @@ interface ParsedFlags {
   failOn?: Severity;
   version: boolean;
   help: boolean;
+  /** M8/T23: spec-context file path, "-" for stdin, or inline literal. */
+  prd?: string;
+  /** M8/T23: spec-context task string to concatenate with --prd. */
+  task?: string;
 }
 
 /** Narrow a raw string to a member of a literal union, or undefined. */
@@ -176,6 +182,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
         "fail-on": { type: "string" },
         version: { type: "boolean", default: false },
         help: { type: "boolean", default: false },
+        prd: { type: "string" },
+        task: { type: "string" },
       },
     });
 
@@ -216,6 +224,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
       failOn,
       version: values.version ?? false,
       help: values.help ?? false,
+      prd: values.prd,
+      task: values.task,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -301,6 +311,10 @@ export async function main(
         "                        Gate exit code on findings at or above this severity",
         "                        (default: error)",
         "",
+        "Spec context flags:",
+        "  --prd <file|-|literal>  Spec / PRD to provide as context (file path, - for stdin, or inline string)",
+        "  --task <string>       Task description to concatenate with --prd",
+        "",
         "Meta flags:",
         "  --version             Print stet version and exit",
         "  --help                Print this usage block and exit",
@@ -328,6 +342,11 @@ export async function main(
   if (configResult.isErr()) return Result.err(configResult.error);
   const { config, findings: configFindings } = configResult.value;
 
+  // ── 3b. Build spec context from --prd/--task (M8/T23) ───────────────────
+  const specResult = await buildSpecContext({ prd: flags.prd, task: flags.task });
+  if (specResult.isErr()) return Result.err(specResult.error);
+  const specContext = specResult.value;
+
   // ── 4. Detect scope ───────────────────────────────────────────────────────
   const scopeFlags: ScopeFlags = {
     staged: flags.staged || undefined,
@@ -338,11 +357,40 @@ export async function main(
   };
   const scopeResult = await detectScope(io.cwd, scopeFlags);
   if (scopeResult.isErr()) return Result.err(scopeResult.error);
-  const scope = scopeResult.value;
+  const rawScope = scopeResult.value;
 
-  // Echo scope to stderr (progress / human chrome — JSON consumers read scope from the report)
+  // ── 4b. Semantic diff pre-filtering (M8/T24) ─────────────────────────────
+  // Get the raw diff text, strip noise files (lockfiles/minified/sourcemaps/
+  // vendored/@generated-except-migrations), and record stripped paths in
+  // scope.stripped (#33). The filtered diff flows to phases via the scheduler.
+  //
+  // getScopeDiff surfaces real git failures as Err(ScopeError) (bad ref, oversize
+  // output, corrupt object) instead of silently swallowing them — a swallowed
+  // failure would yield a confident "clean" review of an unread diff. On Err we
+  // warn visibly on stderr and proceed with "" (NOT fatal): specialists read files
+  // directly; the diff only feeds the deterministic risk classifier and the
+  // @generated/noise pre-filter, so path-only analysis is a sound degraded mode.
+  const diffResult = await getScopeDiff(io.cwd, rawScope);
+  const rawDiff = diffResult.isOk() ? diffResult.value : "";
+  if (diffResult.isErr()) {
+    io.stderr(
+      `stet: warning — could not read diff (${diffResult.error.message}); proceeding with path-only analysis`,
+    );
+  }
+  const { filteredFiles, strippedFiles, filteredDiff } = filterDiff(rawScope.files, rawDiff);
+  // Hand phases (and through them the risk classifier, PRD #32) the post-filter file
+  // list so lockfile/vendored/minified churn never inflates risk or reaches a specialist;
+  // `stripped` preserves the removed paths for the report (#33), so files ∪ stripped = original.
+  const scope =
+    strippedFiles.length > 0
+      ? { ...rawScope, files: filteredFiles, stripped: strippedFiles }
+      : rawScope;
+
+  // Echo scope to stderr (progress / human chrome — JSON consumers read scope from the report).
+  // scope.files is now the post-filter list; the stripped count is reported alongside (PRD #33).
+  const strippedSuffix = strippedFiles.length > 0 ? `, ${strippedFiles.length} stripped` : "";
   io.stderr(
-    `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)`,
+    `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)${strippedSuffix}`,
   );
 
   // ── 5. Run phases ─────────────────────────────────────────────────────────
@@ -358,6 +406,10 @@ export async function main(
     onTool: (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
     // T16: scheduler cancellation signal (SIGINT/SIGTERM → phases cancelled → partial report).
     signal,
+    // M8/T23: combined spec text from --prd/--task; absent when no spec flags provided.
+    spec: specContext.sources.length > 0 ? specContext.text : undefined,
+    // M8/T24: pre-filtered diff for the risk classifier and per-phase budget enforcement.
+    diff: filteredDiff.length > 0 ? filteredDiff : undefined,
   });
   const durationMs = Date.now() - runStartMs;
 
@@ -389,6 +441,11 @@ export async function main(
     failOn,
     durationMs,
     interrupted,
+    // M8/T23: wire spec sources into the run report.
+    spec:
+      specContext.sources.length > 0
+        ? { provided: true, sources: specContext.sources }
+        : { provided: false, sources: [] },
   });
 
   // ── 8. Self-check: the report we produce must be valid (stet bug if not) ──

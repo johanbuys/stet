@@ -27,6 +27,12 @@ export type { Scope };
 
 const execFile = promisify(execFileCb);
 
+/**
+ * Generous output limit for diff fetches. A unified diff can be far larger than
+ * git's name-only output; the old cli.ts diff path used 50MB, preserved here.
+ */
+const DIFF_MAX_BUFFER = 50 * 1024 * 1024;
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -71,6 +77,76 @@ async function runGit(
       });
     },
   });
+}
+
+/**
+ * Run a git command and return its UNTRIMMED stdout (preserves exact diff bytes,
+ * including leading/trailing newlines that separate hunks and sections).
+ * Maps any execution failure to Err(ScopeError) with the provided `errorMessage`.
+ * Honors DIFF_MAX_BUFFER so large diffs surface a real error instead of silently
+ * truncating. Never throws.
+ */
+async function runGitRaw(
+  cwd: string,
+  args: string[],
+  errorMessage: string,
+): Promise<Result<string, ScopeError>> {
+  return Result.tryPromise({
+    try: async () => {
+      const { stdout } = await execFile("git", args, { cwd, maxBuffer: DIFF_MAX_BUFFER });
+      return stdout;
+    },
+    catch: (cause) => {
+      const gitSays =
+        cause instanceof Error && "stderr" in cause && typeof cause.stderr === "string"
+          ? (cause.stderr.trim().split("\n")[0] ?? "")
+          : "";
+      return new ScopeError({
+        message: gitSays === "" ? errorMessage : `${errorMessage} (git: ${gitSays})`,
+      });
+    },
+  });
+}
+
+/**
+ * Run a git command, tolerating exit code 1, and return stdout.
+ *
+ * `git diff --no-index` exits with code 1 when the two inputs differ, which makes
+ * execFile reject — but the rejection's `.stdout` still carries the full patch.
+ * This helper captures that stdout. Any OTHER failure (exit ≥2, ENOENT, etc.)
+ * still maps to Err(ScopeError). Mutation-free: used to diff an untracked file
+ * against /dev/null without ever staging it.
+ */
+async function runGitTolerateExit1(
+  cwd: string,
+  args: string[],
+  errorMessage: string,
+): Promise<Result<string, ScopeError>> {
+  try {
+    const { stdout } = await execFile("git", args, { cwd, maxBuffer: DIFF_MAX_BUFFER });
+    return Result.ok(stdout);
+  } catch (cause) {
+    // execFile rejects on non-zero exit. `git diff --no-index` uses exit 1 to
+    // mean "files differ" — that is success for us; recover its stdout.
+    if (
+      cause instanceof Error &&
+      "code" in cause &&
+      (cause as { code?: unknown }).code === 1 &&
+      "stdout" in cause &&
+      typeof (cause as { stdout?: unknown }).stdout === "string"
+    ) {
+      return Result.ok((cause as { stdout: string }).stdout);
+    }
+    const gitSays =
+      cause instanceof Error && "stderr" in cause && typeof cause.stderr === "string"
+        ? (cause.stderr.trim().split("\n")[0] ?? "")
+        : "";
+    return Result.err(
+      new ScopeError({
+        message: gitSays === "" ? errorMessage : `${errorMessage} (git: ${gitSays})`,
+      }),
+    );
+  }
 }
 
 /**
@@ -272,6 +348,131 @@ async function getHeadSha(cwd: string): Promise<Result<string, ScopeError>> {
 }
 
 // ---------------------------------------------------------------------------
+// Diff text acquisition
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the full unified diff text for an already-detected scope.
+ *
+ * Mirrors the per-kind logic of the file-listing helpers so the diff and the
+ * file list never disagree (root commits, untracked files, commit ranges).
+ * Every git invocation goes through runGit / runGitRaw / runGitTolerateExit1,
+ * so a real git failure (bad ref, oversize output, corrupt object) surfaces as
+ * an actionable Err(ScopeError) instead of being swallowed into a confident
+ * "clean" review. Never throws across the module boundary.
+ *
+ * Mutation-free: untracked files are diffed via `git diff --no-index` against
+ * /dev/null — no `git add`/`git add -N`.
+ */
+export async function getScopeDiff(cwd: string, scope: Scope): Promise<Result<string, ScopeError>> {
+  switch (scope.kind) {
+    case "staged":
+      return runGitRaw(cwd, ["diff", "--cached"], "failed to read staged diff");
+
+    case "working":
+      return getWorkingDiff(cwd);
+
+    case "against": {
+      if (scope.ref === undefined) {
+        return Result.err(
+          new ScopeError({ message: "against scope is missing its ref — cannot read diff" }),
+        );
+      }
+      // Three-dot form matches getAgainstFiles (merge-base diff).
+      return runGitRaw(
+        cwd,
+        ["diff", `${scope.ref}...HEAD`],
+        `failed to read diff against ref "${scope.ref}"`,
+      );
+    }
+
+    case "commit": {
+      if (scope.ref === undefined) {
+        return Result.err(
+          new ScopeError({ message: "commit scope is missing its sha — cannot read diff" }),
+        );
+      }
+      return getCommitDiff(cwd, scope.ref);
+    }
+
+    case "commits": {
+      if (scope.range === undefined) {
+        return Result.err(
+          new ScopeError({ message: "commits scope is missing its range — cannot read diff" }),
+        );
+      }
+      return runGitRaw(
+        cwd,
+        ["diff", scope.range],
+        `failed to read diff for range "${scope.range}"`,
+      );
+    }
+  }
+}
+
+/**
+ * Working-tree diff: tracked changes vs HEAD plus a synthetic section per
+ * untracked file. `git diff HEAD` omits untracked files, but getWorkingFiles
+ * deliberately includes them, so the diff would otherwise be missing new files.
+ */
+async function getWorkingDiff(cwd: string): Promise<Result<string, ScopeError>> {
+  return Result.gen(async function* () {
+    const trackedDiff = yield* Result.await(
+      runGitRaw(cwd, ["diff", "HEAD"], "failed to read working-tree diff"),
+    );
+
+    const untrackedRaw = yield* Result.await(
+      runGit(cwd, ["ls-files", "--others", "--exclude-standard"], "failed to list untracked files"),
+    );
+    const untracked = parseFileList(untrackedRaw);
+
+    const sections: string[] = trackedDiff.length > 0 ? [trackedDiff] : [];
+    for (const file of untracked) {
+      // `git diff --no-index` exits 1 when the files differ — recover its stdout.
+      const section = yield* Result.await(
+        runGitTolerateExit1(
+          cwd,
+          ["diff", "--no-index", "--", "/dev/null", file],
+          `failed to read diff for untracked file "${file}"`,
+        ),
+      );
+      if (section.length > 0) sections.push(section);
+    }
+
+    // Join with a newline so sections stay separable for downstream parsing.
+    return Result.ok(sections.join("\n"));
+  });
+}
+
+/**
+ * Single-commit diff, root-aware. Mirrors getCommitFiles: if the commit has a
+ * first parent, diff parent→commit; otherwise (root commit, which git rejects
+ * for `<sha>^1 <sha>`) use `git diff-tree --root -p`.
+ */
+async function getCommitDiff(cwd: string, sha: string): Promise<Result<string, ScopeError>> {
+  const parentCheck = await runGit(
+    cwd,
+    ["rev-parse", "--verify", "--quiet", `${sha}^1`],
+    "no first parent",
+  );
+
+  if (parentCheck.isOk()) {
+    return runGitRaw(
+      cwd,
+      ["diff", `${sha}^1`, sha],
+      `failed to read diff for commit "${sha}" against its first parent`,
+    );
+  }
+
+  // Root commit — no parent; `-p` makes diff-tree emit the patch.
+  return runGitRaw(
+    cwd,
+    ["diff-tree", "--no-commit-id", "-p", "--root", sha],
+    `failed to read diff for root commit "${sha}"`,
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Flag counting
 // ---------------------------------------------------------------------------
 
@@ -342,7 +543,8 @@ export async function detectScope(
 
     if (flags.commits !== undefined) {
       const files = yield* Result.await(getCommitsFiles(cwd, flags.commits));
-      return Result.ok<Scope>({ kind: "commits", files });
+      // Store the range so getScopeDiff can recover it (ref is unused for ranges).
+      return Result.ok<Scope>({ kind: "commits", range: flags.commits, files });
     }
 
     // -----------------------------------------------------------------------
