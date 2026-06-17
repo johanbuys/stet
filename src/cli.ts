@@ -340,6 +340,10 @@ export async function main(
         "  --fail-on <error|warning|info>",
         "                        Gate exit code on findings at or above this severity",
         "                        (default: error)",
+        "  --quiet               Suppress passing phases and progress; findings only",
+        "  --show <error|warning|info>",
+        "                        Display findings at or above this severity only",
+        "                        (display filter; does not affect exit code)",
         "",
         "Spec context flags:",
         "  --prd <file|-|literal>  Spec / PRD to provide as context (file path, - for stdin, or inline string)",
@@ -418,10 +422,14 @@ export async function main(
 
   // Echo scope to stderr (progress / human chrome — JSON consumers read scope from the report).
   // scope.files is now the post-filter list; the stripped count is reported alongside (PRD #33).
+  // --quiet suppresses progress (PRD §3.8): the scope echo is part of the stderr progress
+  // stream, so it is skipped when quiet — findings-only output remains on stdout.
   const strippedSuffix = strippedFiles.length > 0 ? `, ${strippedFiles.length} stripped` : "";
-  io.stderr(
-    `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)${strippedSuffix}`,
-  );
+  if (!flags.quiet) {
+    io.stderr(
+      `stet: scope detected — ${scope.kind}${scope.ref ? ` (${scope.ref})` : ""}, ${scope.files.length} file(s)${strippedSuffix}`,
+    );
+  }
 
   // ── 5. Run phases ─────────────────────────────────────────────────────────
   const startedAt = new Date().toISOString();
@@ -433,7 +441,11 @@ export async function main(
     // Human chrome → stderr so stdout stays exactly the JSON in json mode (PRD §4.8).
     // Format: "stet: <phaseId> · <toolName>" — minimal liveness signal for M2+.
     // M9 polishes the human surface; this wires the plumbing end-to-end.
-    onTool: (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
+    // --quiet suppresses progress (PRD §3.8): the per-tool liveness signal is the
+    // progress stream, so the callback is omitted entirely when quiet.
+    onTool: flags.quiet
+      ? undefined
+      : (phaseId, toolName) => io.stderr(`stet: ${phaseId} · ${toolName}`),
     // T16: scheduler cancellation signal (SIGINT/SIGTERM → phases cancelled → partial report).
     signal,
     // M8/T23: combined spec text from --prd/--task; absent when no spec flags provided.

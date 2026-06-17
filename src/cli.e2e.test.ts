@@ -105,6 +105,30 @@ describe("CLI e2e — stub-det", () => {
     expect(parsed.result.gating[0].id).toBe("stub-det.command-failed");
   });
 
+  // ── --quiet suppresses the stderr progress stream (PRD §3.8) ─────────────
+
+  it("--quiet suppresses the scope echo / progress on stderr; exit code unchanged", async () => {
+    await setupStubRepo(tmpDir, "fail");
+
+    // Baseline: without --quiet the scope echo lands on stderr.
+    const loud = makeIo(tmpDir);
+    await main([], loud.io, [stubDet]);
+    expect(loud.stderrLines.some((l) => l.includes("scope detected"))).toBe(true);
+
+    // With --quiet the progress stream is silent — no scope echo, no per-tool chrome.
+    const quiet = makeIo(tmpDir);
+    const result = await main(["--quiet"], quiet.io, [stubDet]);
+
+    expect(quiet.stderrLines.some((l) => l.includes("scope detected"))).toBe(false);
+    expect(quiet.stderrLines.some((l) => l.includes("·"))).toBe(false);
+
+    // --quiet is display-only: the exit code (fail variant → 1) is unaffected.
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) {
+      expect(result.value.exitCode).toBe(1);
+    }
+  });
+
   // ── Slice 3: scope failure (non-git dir) → Err(ScopeError) ───────────────
 
   it("non-git dir → main returns Err(ScopeError)", async () => {
@@ -266,6 +290,8 @@ describe("CLI e2e — stub-det", () => {
     // Output flags
     expect(combined).toMatch(/--format/);
     expect(combined).toMatch(/--fail-on/);
+    expect(combined).toMatch(/--quiet/);
+    expect(combined).toMatch(/--show/);
     // Meta flags
     expect(combined).toMatch(/--version/);
     expect(combined).toMatch(/--help/);
