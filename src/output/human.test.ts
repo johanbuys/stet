@@ -400,3 +400,143 @@ describe("result line", () => {
     expect(out).toContain("error");
   });
 });
+
+// ---------------------------------------------------------------------------
+// --quiet display filter
+// ---------------------------------------------------------------------------
+
+describe("--quiet display filter", () => {
+  it("passing phase (completed, no findings) is suppressed when quiet=true", () => {
+    const report = makeReport([
+      makePhase({ phase: "stub-det", status: "completed", findings: [] }),
+    ]);
+    const out = renderHuman(report, { color: false, quiet: true });
+    expect(out).not.toContain("stub-det");
+  });
+
+  it("phase with findings is shown even when quiet=true", () => {
+    const report = makeReport([
+      makePhase({
+        phase: "stub-det",
+        findings: [
+          { id: "f1", phase: "stub-det", severity: "error", confidence: "high", message: "boom" },
+        ],
+      }),
+    ]);
+    const out = renderHuman(report, { color: false, quiet: true });
+    expect(out).toContain("stub-det");
+    expect(out).toContain("boom");
+  });
+
+  it("skipped phase is shown even when quiet=true (only completed+no-findings is suppressed)", () => {
+    const report = makeReport([makePhase({ status: "skipped", reason: "no spec" })]);
+    const out = renderHuman(report, { color: false, quiet: true });
+    expect(out).toContain("skipped");
+  });
+
+  it("quiet=false (default) shows all phases including passing ones", () => {
+    const report = makeReport([
+      makePhase({ phase: "stub-det", status: "completed", findings: [] }),
+    ]);
+    const out = renderHuman(report, { color: false, quiet: false });
+    expect(out).toContain("stub-det");
+    expect(out).toContain("no findings");
+  });
+
+  it("result line and cost footer still appear when all phases are suppressed", () => {
+    const report = makeReport([makePhase({ status: "completed", findings: [] })]);
+    const out = renderHuman(report, { color: false, quiet: true });
+    expect(out).toContain("result:");
+    expect(out).toContain("cost:");
+  });
+
+  it("mixed phases: only passing ones suppressed", () => {
+    const report = makeReport([
+      makePhase({ phase: "phase-a", status: "completed", findings: [] }),
+      makePhase({
+        phase: "phase-b",
+        findings: [
+          { id: "f1", phase: "phase-b", severity: "error", confidence: "high", message: "err" },
+        ],
+      }),
+    ]);
+    const out = renderHuman(report, { color: false, quiet: true });
+    expect(out).not.toContain("phase-a");
+    expect(out).toContain("phase-b");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// --show severity display filter
+// ---------------------------------------------------------------------------
+
+describe("--show severity display filter", () => {
+  function makePhaseWithFindings(): PhaseReport {
+    return makePhase({
+      phase: "stub-det",
+      findings: [
+        { id: "e1", phase: "stub-det", severity: "error", confidence: "high", message: "err msg" },
+        {
+          id: "w1",
+          phase: "stub-det",
+          severity: "warning",
+          confidence: "high",
+          message: "warn msg",
+        },
+        { id: "i1", phase: "stub-det", severity: "info", confidence: "low", message: "info msg" },
+      ],
+    });
+  }
+
+  it("show=error: only error findings shown", () => {
+    const report = makeReport([makePhaseWithFindings()]);
+    const out = renderHuman(report, { color: false, show: "error" });
+    expect(out).toContain("err msg");
+    expect(out).not.toContain("warn msg");
+    expect(out).not.toContain("info msg");
+  });
+
+  it("show=warning: error and warning findings shown, info hidden", () => {
+    const report = makeReport([makePhaseWithFindings()]);
+    const out = renderHuman(report, { color: false, show: "warning" });
+    expect(out).toContain("err msg");
+    expect(out).toContain("warn msg");
+    expect(out).not.toContain("info msg");
+  });
+
+  it("show=info: all findings shown (same as no filter)", () => {
+    const report = makeReport([makePhaseWithFindings()]);
+    const out = renderHuman(report, { color: false, show: "info" });
+    expect(out).toContain("err msg");
+    expect(out).toContain("warn msg");
+    expect(out).toContain("info msg");
+  });
+
+  it("show=error with no matching findings: phase still shows 'no findings'", () => {
+    const report = makeReport([
+      makePhase({
+        findings: [
+          { id: "w1", phase: "stub-det", severity: "warning", confidence: "high", message: "warn" },
+        ],
+      }),
+    ]);
+    const out = renderHuman(report, { color: false, show: "error" });
+    expect(out).toContain("no findings");
+    expect(out).not.toContain("warn");
+  });
+
+  it("show filter does not affect exit code (result line shows original exit code)", () => {
+    const report = {
+      ...makeReport([makePhaseWithFindings()]),
+      result: {
+        exitCode: 1 as const,
+        failOn: "error" as const,
+        gating: [{ phase: "stub-det", id: "e1", message: "err msg" }],
+      },
+    };
+    const out = renderHuman(report, { color: false, show: "warning" });
+    // Exit code unchanged even though we filtered to show warnings only
+    expect(out).toContain("exit 1");
+    expect(out).toContain("findings gate");
+  });
+});

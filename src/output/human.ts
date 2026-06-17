@@ -12,6 +12,7 @@
  */
 
 import type { RunReport } from "../schema/report.js";
+import type { Severity } from "../schema/finding.js";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -20,7 +21,21 @@ import type { RunReport } from "../schema/report.js";
 export interface HumanRenderOptions {
   /** Enable ANSI color codes. Set false when not a TTY or NO_COLOR is set. */
   color: boolean;
+  /**
+   * Suppress passing phases (completed with no findings) from the output.
+   * PRD §3.8 --quiet.
+   */
+  quiet?: boolean;
+  /**
+   * Only display findings at this severity or above.
+   * Ordering: error > warning > info. --show warning shows error + warning.
+   * PRD §3.8 --show <severity>.
+   */
+  show?: Severity;
 }
+
+// Severity rank: lower number = more severe.
+const SEVERITY_RANK: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
 
 /**
  * Render a RunReport as a human-friendly multi-line string.
@@ -29,20 +44,32 @@ export interface HumanRenderOptions {
  * newline — the caller appends one when writing to the terminal.
  */
 export function renderHuman(report: RunReport, opts: HumanRenderOptions): string {
-  const { color } = opts;
+  const { color, quiet = false, show } = opts;
+  const showRank = show !== undefined ? SEVERITY_RANK[show] : SEVERITY_RANK.info;
   const lines: string[] = [];
 
   for (const phase of report.phases) {
+    // --quiet: skip phases that passed (completed, no findings in the original report).
+    if (quiet && phase.status === "completed" && phase.findings.length === 0) {
+      continue;
+    }
+
     lines.push(`── ${phase.phase}  ${phase.status} ──`);
 
     if (phase.reason !== undefined) {
       lines.push(`  reason: ${phase.reason}`);
     }
 
-    if (phase.findings.length === 0) {
+    // --show: filter findings to those at or above the requested severity.
+    const visibleFindings =
+      show !== undefined
+        ? phase.findings.filter((f) => SEVERITY_RANK[f.severity] <= showRank)
+        : phase.findings;
+
+    if (visibleFindings.length === 0) {
       lines.push("  no findings");
     } else {
-      for (const finding of phase.findings) {
+      for (const finding of visibleFindings) {
         const sev = colorSeverity(finding.severity, color);
         let loc = "";
         if (finding.location !== undefined) {

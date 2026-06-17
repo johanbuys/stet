@@ -1,3 +1,39 @@
+## 2026-06-17 - TASK-031 (T26): Display filters
+
+**What was done:** Implemented M9/T26 — `--quiet` and `--show` display filters (PRD §3.8):
+
+- `src/output/human.ts`: Extended `HumanRenderOptions` with `quiet?: boolean` and `show?: Severity`.
+  Added `SEVERITY_RANK` map (error=0, warning=1, info=2). `--quiet` skips phases with
+  `status === "completed"` and `findings.length === 0`. `--show <severity>` filters per-finding
+  display using the rank: only findings where `SEVERITY_RANK[finding.severity] <= showRank` are
+  shown; if all filtered, the phase shows "no findings". Cost footer and result line always
+  rendered. Exit code is never touched by display filters.
+
+- `src/output/human.test.ts`: 11 new T26 tests — `--quiet` suppresses passing phases but not
+  phases with findings or non-completed phases; result/cost lines survive all-suppressed case;
+  mixed phases (one passing, one with findings) — only passing suppressed. `--show error` hides
+  warning+info; `--show warning` shows error+warning, hides info; `--show info` shows all;
+  `--show error` with no matching findings shows "no findings"; exit code unchanged when show
+  filter hides the gating finding from display.
+
+- `src/cli.ts`: Added `quiet: boolean` and `show?: Severity` to `ParsedFlags`. Added `quiet`
+  and `show` options to `parseArgs`. Added `--show` validation (same `VALID_FAIL_ON` vocab as
+  `--fail-on`). Wired both into the `renderHuman` call at step 9.
+
+**Learnings:**
+- Severity ordering is error > warning > info. Model as a rank map (error=0, warning=1, info=2)
+  and show finding if `SEVERITY_RANK[finding.severity] <= showRank`. This is identical to the
+  gating filter pattern in exit-codes.ts.
+- `--quiet` suppresses at the phase level using the *original* findings count (before `--show`
+  filtering), so a phase with only info findings is still "passing" and suppressed by `--quiet`
+  even if `--show error` would also hide those findings.
+- `--show` and `--quiet` are purely display concerns: exit code derivation uses the original
+  RunReport (unchanged), so `--show error` can hide the gating warning finding from display
+  while the exit code remains 1.
+- The `vp check --fix` reformatter flattened some of the test fixture calls; always run it
+  before committing.
+----
+
 ## 2026-06-17 - TASK-030 (T25): Human render
 
 **What was done:** Implemented M9/T25 — human output renderer (PRD §3.8, §2a):

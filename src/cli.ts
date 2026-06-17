@@ -157,6 +157,10 @@ interface ParsedFlags {
   prd?: string;
   /** M8/T23: spec-context task string to concatenate with --prd. */
   task?: string;
+  /** M9/T26: suppress passing phases from human output. */
+  quiet: boolean;
+  /** M9/T26: display-only severity filter (does not affect exit code). */
+  show?: Severity;
 }
 
 /** Narrow a raw string to a member of a literal union, or undefined. */
@@ -191,6 +195,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
         help: { type: "boolean", default: false },
         prd: { type: "string" },
         task: { type: "string" },
+        quiet: { type: "boolean", default: false },
+        show: { type: "string" },
       },
     });
 
@@ -221,6 +227,21 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
       }
     }
 
+    // Validate --show
+    const showRaw = values["show"];
+    let show: Severity | undefined;
+    if (showRaw !== undefined) {
+      show = parseEnum(VALID_FAIL_ON, showRaw);
+      if (show === undefined) {
+        return Result.err(
+          new ConfigError({
+            path: "<argv>",
+            message: `--show must be one of: ${VALID_FAIL_ON.join(", ")} (got: ${showRaw})`,
+          }),
+        );
+      }
+    }
+
     return Result.ok({
       staged: values.staged ?? false,
       working: values.working ?? false,
@@ -233,6 +254,8 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
       help: values.help ?? false,
       prd: values.prd,
       task: values.task,
+      quiet: values.quiet ?? false,
+      show,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -467,8 +490,10 @@ export async function main(
     io.stdout(JSON.stringify(report, null, 2));
   } else {
     // Human mode — grouped findings, severity-colored, file:line located, cost footer.
-    // M9/T25. Color disabled by default; the process entry enables it on real TTYs.
-    io.stdout(renderHuman(report, { color: io.color ?? false }));
+    // M9/T25/T26. Color disabled by default; the process entry enables it on real TTYs.
+    io.stdout(
+      renderHuman(report, { color: io.color ?? false, quiet: flags.quiet, show: flags.show }),
+    );
   }
 
   return Result.ok({ exitCode });
