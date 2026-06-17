@@ -187,6 +187,54 @@ describe("buildSpecContext (T23)", () => {
     expect(result.error.message).toContain("stdin pipe broken");
   });
 
+  // ── Empty / whitespace-only flag values treated as absent (finding 10) ──────
+
+  it('--prd "" → empty text and empty sources (not an inline literal)', async () => {
+    const result = await buildSpecContext({ prd: "" }, { readFile: mockReadFile({}) });
+    expect(result.isOk()).toBe(true);
+    if (!result.isOk()) return;
+    expect(result.value.text).toBe("");
+    expect(result.value.sources).toEqual([]);
+  });
+
+  it('--prd "   " (whitespace) → empty text and empty sources', async () => {
+    const result = await buildSpecContext({ prd: "   " }, { readFile: mockReadFile({}) });
+    expect(result.isOk()).toBe(true);
+    if (!result.isOk()) return;
+    expect(result.value.text).toBe("");
+    expect(result.value.sources).toEqual([]);
+  });
+
+  it('--task "" → empty sources', async () => {
+    const result = await buildSpecContext({ task: "" });
+    expect(result.isOk()).toBe(true);
+    if (!result.isOk()) return;
+    expect(result.value.text).toBe("");
+    expect(result.value.sources).toEqual([]);
+  });
+
+  it('--prd "" combined with valid --task → only --task in sources', async () => {
+    const result = await buildSpecContext(
+      { prd: "", task: "do X" },
+      { readFile: mockReadFile({}) },
+    );
+    expect(result.isOk()).toBe(true);
+    if (!result.isOk()) return;
+    expect(result.value.text).toBe("do X");
+    expect(result.value.sources).toEqual(["--task"]);
+  });
+
+  it('--prd "-" (stdin) still reads stdin (whitespace guard does not apply)', async () => {
+    const result = await buildSpecContext(
+      { prd: "-" },
+      { readStdin: async () => "stdin spec content" },
+    );
+    expect(result.isOk()).toBe(true);
+    if (!result.isOk()) return;
+    expect(result.value.text).toBe("stdin spec content");
+    expect(result.value.sources).toEqual(["--prd -"]);
+  });
+
   // ── Report field contract: provided + sources ──────────────────────────────
 
   it("sources length > 0 ↔ provided:true (derivation)", async () => {

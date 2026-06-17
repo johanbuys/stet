@@ -65,7 +65,11 @@ export async function buildSpecContext(
   const parts: string[] = [];
   const sources: string[] = [];
 
-  if (prd !== undefined) {
+  // An empty-or-whitespace-only flag value (e.g. `--prd ""`) is treated as if
+  // the flag were absent — it never represents an inline literal. Stdin ("-")
+  // is non-empty and is unaffected. The guard applies to the literal flag
+  // value, not to file/stdin CONTENT (a real empty file is still honored).
+  if (prd !== undefined && prd.trim() !== "") {
     if (prd === "-") {
       try {
         const text = await readStdinFn();
@@ -93,7 +97,7 @@ export async function buildSpecContext(
     }
   }
 
-  if (task !== undefined) {
+  if (task !== undefined && task.trim() !== "") {
     parts.push(task);
     sources.push("--task");
   }
