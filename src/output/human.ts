@@ -12,7 +12,8 @@
  */
 
 import type { RunReport } from "../schema/report.js";
-import type { Severity } from "../schema/finding.js";
+import { severityAtLeast, type Severity } from "../schema/finding.js";
+import { exitLabel } from "../exit-codes.js";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -34,9 +35,6 @@ export interface HumanRenderOptions {
   show?: Severity;
 }
 
-// Severity rank: lower number = more severe.
-const SEVERITY_RANK: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
-
 /**
  * Render a RunReport as a human-friendly multi-line string.
  *
@@ -45,7 +43,6 @@ const SEVERITY_RANK: Record<Severity, number> = { error: 0, warning: 1, info: 2 
  */
 export function renderHuman(report: RunReport, opts: HumanRenderOptions): string {
   const { color, quiet = false, show } = opts;
-  const showRank = show !== undefined ? SEVERITY_RANK[show] : SEVERITY_RANK.info;
   const lines: string[] = [];
 
   for (const phase of report.phases) {
@@ -54,7 +51,10 @@ export function renderHuman(report: RunReport, opts: HumanRenderOptions): string
       continue;
     }
 
-    lines.push(`── ${phase.phase}  ${phase.status} ──`);
+    // Per-phase finding count (original count — honest under --show) in the header.
+    const n = phase.findings.length;
+    const countSuffix = n > 0 ? `  (${n} finding${n === 1 ? "" : "s"})` : "";
+    lines.push(`── ${phase.phase}  ${phase.status}${countSuffix} ──`);
 
     if (phase.reason !== undefined) {
       lines.push(`  reason: ${phase.reason}`);
@@ -63,11 +63,18 @@ export function renderHuman(report: RunReport, opts: HumanRenderOptions): string
     // --show: filter findings to those at or above the requested severity.
     const visibleFindings =
       show !== undefined
-        ? phase.findings.filter((f) => SEVERITY_RANK[f.severity] <= showRank)
+        ? phase.findings.filter((f) => severityAtLeast(f.severity, show))
         : phase.findings;
 
     if (visibleFindings.length === 0) {
-      lines.push("  no findings");
+      if (phase.findings.length > 0 && show !== undefined) {
+        // Findings existed but were all hidden by --show: never report as clean.
+        lines.push(
+          `  ${phase.findings.length} finding${phase.findings.length === 1 ? "" : "s"} hidden by --show ${show}`,
+        );
+      } else {
+        lines.push("  no findings");
+      }
     } else {
       for (const finding of visibleFindings) {
         const sev = colorSeverity(finding.severity, color);
@@ -86,8 +93,7 @@ export function renderHuman(report: RunReport, opts: HumanRenderOptions): string
   }
 
   const { exitCode, failOn } = report.result;
-  const exitLabel = exitCode === 0 ? "ok" : exitCode === 1 ? "findings gate" : "interrupted";
-  lines.push(`result: exit ${exitCode} (${exitLabel}) · fail-on: ${failOn}`);
+  lines.push(`result: exit ${exitCode} (${exitLabel(exitCode)}) · fail-on: ${failOn}`);
   lines.push("");
 
   const { totalInputTokens, totalOutputTokens, durationMs } = report.cost;
@@ -106,12 +112,12 @@ const YELLOW = "\x1b[33m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-function ansi(code: string, text: string, color: boolean): string {
-  return color ? `${code}${text}${RESET}` : text;
-}
+const SEVERITY_COLOR: Record<Severity, string> = {
+  error: RED,
+  warning: YELLOW,
+  info: DIM,
+};
 
-function colorSeverity(severity: string, color: boolean): string {
-  if (severity === "error") return ansi(RED, severity, color);
-  if (severity === "warning") return ansi(YELLOW, severity, color);
-  return ansi(DIM, severity, color);
+function colorSeverity(severity: Severity, color: boolean): string {
+  return color ? `${SEVERITY_COLOR[severity]}${severity}${RESET}` : severity;
 }

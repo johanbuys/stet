@@ -91,6 +91,45 @@ describe("phase grouping", () => {
     expect(out).toContain("stub-det.command-failed");
   });
 
+  it("phase header shows the original finding count for a multi-finding phase", () => {
+    const report = makeReport([
+      makePhase({
+        phase: "stub-det",
+        status: "completed",
+        findings: [
+          { id: "f1", phase: "stub-det", severity: "error", confidence: "high", message: "a" },
+          { id: "f2", phase: "stub-det", severity: "warning", confidence: "high", message: "b" },
+        ],
+      }),
+    ]);
+    const out = renderHuman(report, { color: false });
+    const header = out.split("\n").find((l) => l.startsWith("── stub-det"));
+    expect(header).toContain("(2 findings)");
+  });
+
+  it("phase header omits the count for a zero-finding phase", () => {
+    const report = makeReport([makePhase({ phase: "stub-det", findings: [] })]);
+    const out = renderHuman(report, { color: false });
+    const header = out.split("\n").find((l) => l.startsWith("── stub-det"));
+    expect(header).not.toContain("finding");
+  });
+
+  it("phase header count stays at the original count under --show", () => {
+    const report = makeReport([
+      makePhase({
+        phase: "stub-det",
+        findings: [
+          { id: "e1", phase: "stub-det", severity: "error", confidence: "high", message: "e" },
+          { id: "w1", phase: "stub-det", severity: "warning", confidence: "high", message: "w" },
+        ],
+      }),
+    ]);
+    const out = renderHuman(report, { color: false, show: "error" });
+    const header = out.split("\n").find((l) => l.startsWith("── stub-det"));
+    // Original count (2), not the --show-filtered count (1).
+    expect(header).toContain("(2 findings)");
+  });
+
   it("multiple findings are each rendered", () => {
     const report = makeReport([
       makePhase({
@@ -512,7 +551,7 @@ describe("--show severity display filter", () => {
     expect(out).toContain("info msg");
   });
 
-  it("show=error with no matching findings: phase still shows 'no findings'", () => {
+  it("show=error with no matching findings: phase reports hidden count, NOT 'no findings'", () => {
     const report = makeReport([
       makePhase({
         findings: [
@@ -521,8 +560,16 @@ describe("--show severity display filter", () => {
       }),
     ]);
     const out = renderHuman(report, { color: false, show: "error" });
-    expect(out).toContain("no findings");
+    // A phase that flagged issues must never be reported as clean.
+    expect(out).toContain("1 finding hidden by --show error");
+    expect(out).not.toContain("no findings");
     expect(out).not.toContain("warn");
+  });
+
+  it("genuinely empty phase still shows 'no findings' under --show", () => {
+    const report = makeReport([makePhase({ findings: [] })]);
+    const out = renderHuman(report, { color: false, show: "error" });
+    expect(out).toContain("no findings");
   });
 
   it("show filter does not affect exit code (result line shows original exit code)", () => {
