@@ -217,6 +217,11 @@ export function makeCompositePhase(
       let skipCoordinatorForLevel = false;
 
       if (cfg.riskRules && cfg.riskRules.length > 0) {
+        // The risk classifier reads the UNTRIMMED diff (finding 6): its rule predicates
+        // scan diff text, so it must see every file. This phase therefore does NOT set
+        // consumesDiff (M8/T24) — the scheduler forwards the full ctx.diff here rather than
+        // the budget-trimmed prefix, so a risk-relevant file in the over-budget tail can't
+        // escape content-based risk rules due to git file order.
         resolvedLevel = classify(ctx.diff ?? "", ctx.scope.files, cfg.riskRules);
         const levelCfg = cfg.riskLevels?.[resolvedLevel];
         if (levelCfg) {

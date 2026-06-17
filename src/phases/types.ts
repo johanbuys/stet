@@ -103,4 +103,10 @@ export interface PhaseConfiguration {
    * Config override: `gates.<name>.cancel: true|false` in stet.config.yml (M5/T17).
    */
   cancelClass?: boolean;
+  /**
+   * True when this phase injects the unified diff into an agent prompt and must respect
+   * the per-phase context budget (M8/T24). The deterministic risk classifier reads
+   * `ctx.diff` directly and must NOT set this — it needs the full diff. Default false.
+   */
+  consumesDiff?: boolean;
 }

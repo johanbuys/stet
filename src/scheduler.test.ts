@@ -651,11 +651,13 @@ describe("T15: cancellation classes (PRD §3.4.3, acceptance #5)", () => {
 // ---------------------------------------------------------------------------
 // T24: per-phase diff budget application (PRD §3.6, decision #14, decision #20)
 //
-// runPhaseGuarded applies applyBudget to ctx.diff and prepends a partial-coverage
-// warning when the diff overflows DIFF_BUDGET. The budget MUST only be applied to
-// phases that actually consume the diff (agent phases) — a deterministic phase runs
-// a command and ignores ctx.diff, so attaching a "files excluded from analysis"
-// warning to it would misattribute the finding (decision #20).
+// runPhaseGuarded applies the per-run diff budget to ctx.diff and prepends a
+// partial-coverage warning when the diff overflows DIFF_BUDGET. The budget MUST only
+// be applied to phases that DECLARE they inject the diff into an agent prompt
+// (consumesDiff === true) — a deterministic phase runs a command and ignores ctx.diff,
+// and the risk classifier reads the full ctx.diff directly, so attaching a "files
+// excluded from analysis" warning (or trimming the diff) for either would misattribute
+// the finding / under-classify risk (decisions #14/#20, findings 6/8).
 // ---------------------------------------------------------------------------
 
 /**
@@ -678,10 +680,12 @@ function makeDiffSpyPhase(
   id: string,
   kind: "deterministic" | "agent",
   sink: { diff?: string },
+  consumesDiff?: boolean,
 ): PhaseConfiguration {
   return {
     id,
     kind,
+    consumesDiff,
     activation: () => true,
     async run(ctx: PhaseContext): Promise<PhaseReport> {
       sink.diff = ctx.diff;
@@ -711,11 +715,11 @@ describe("T24: diff budget application (PRD §3.6, decisions #14/#20)", () => {
   const sectionB = makeDiffSection("src/b.ts", 150_000);
   const bigDiff = sectionA + sectionB;
 
-  it("over-budget diff to an agent phase: trimmed + partial-coverage warning prepended", async () => {
+  it("over-budget diff to a diff-consuming phase: trimmed + partial-coverage warning prepended", async () => {
     expect(bigDiff.length).toBeGreaterThan(DIFF_BUDGET);
 
     const sink: { diff?: string } = {};
-    const phase = makeDiffSpyPhase("review", "agent", sink);
+    const phase = makeDiffSpyPhase("review", "agent", sink, true);
     const reports = await runPhases([phase], { ...baseCtx, diff: bigDiff });
 
     // The phase received the trimmed diff (section A only — section B excluded).
@@ -747,9 +751,9 @@ describe("T24: diff budget application (PRD §3.6, decisions #14/#20)", () => {
     expect(report.findings.some((f) => f.id.endsWith(".partial-coverage"))).toBe(false);
   });
 
-  it("under-budget diff to an agent phase: forwarded unchanged, no warning", async () => {
+  it("under-budget diff to a diff-consuming phase: forwarded unchanged, no warning", async () => {
     const sink: { diff?: string } = {};
-    const phase = makeDiffSpyPhase("review", "agent", sink);
+    const phase = makeDiffSpyPhase("review", "agent", sink, true);
     const smallDiff = makeDiffSection("src/a.ts", 1_000);
     const reports = await runPhases([phase], { ...baseCtx, diff: smallDiff });
 
@@ -757,5 +761,27 @@ describe("T24: diff budget application (PRD §3.6, decisions #14/#20)", () => {
     const report = reports[0]!;
     expect(report.findings).toHaveLength(1);
     expect(report.findings[0]?.id).toBe("review.existing");
+  });
+
+  // Finding 6 regression guard: an agent-KIND phase that does NOT declare consumesDiff
+  // (e.g. the composite/risk-classifier phase, which reads ctx.diff directly) must
+  // receive the FULL untrimmed over-budget diff and get NO partial-coverage warning.
+  // Trimming here would let a risk-relevant file in the over-budget tail escape the
+  // content-based risk rules.
+  it("over-budget diff to an agent phase WITHOUT consumesDiff: full diff, NO warning", async () => {
+    expect(bigDiff.length).toBeGreaterThan(DIFF_BUDGET);
+
+    const sink: { diff?: string } = {};
+    // agent kind, but consumesDiff is unset → classifier-style consumer.
+    const phase = makeDiffSpyPhase("review", "agent", sink);
+    const reports = await runPhases([phase], { ...baseCtx, diff: bigDiff });
+
+    // Full diff forwarded — both sections, including the over-budget tail.
+    expect(sink.diff).toBe(bigDiff);
+
+    const report = reports[0]!;
+    expect(report.findings).toHaveLength(1);
+    expect(report.findings[0]?.id).toBe("review.existing");
+    expect(report.findings.some((f) => f.id.endsWith(".partial-coverage"))).toBe(false);
   });
 });
