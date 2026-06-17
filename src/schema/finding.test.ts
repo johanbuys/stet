@@ -1,6 +1,13 @@
 import { Value } from "@sinclair/typebox/value";
 import { describe, expect, it } from "vite-plus/test";
-import { Confidence, Finding, parseFindings, PhaseId, Severity } from "./finding.js";
+import {
+  Confidence,
+  Finding,
+  parseFindings,
+  PhaseId,
+  severityAtLeast,
+  Severity,
+} from "./finding.js";
 
 const validFinding: Finding = {
   id: "gates.x",
@@ -78,6 +85,26 @@ describe("Severity", () => {
     expect(Value.Check(Severity, "critical")).toBe(false);
     expect(Value.Check(Severity, "high")).toBe(false);
     expect(Value.Check(Severity, "")).toBe(false);
+  });
+});
+
+describe("severityAtLeast", () => {
+  it("is true when a is strictly more severe than b", () => {
+    expect(severityAtLeast("error", "warning")).toBe(true);
+    expect(severityAtLeast("warning", "info")).toBe(true);
+    expect(severityAtLeast("error", "info")).toBe(true);
+  });
+
+  it("is false when a is less severe than b", () => {
+    expect(severityAtLeast("info", "warning")).toBe(false);
+    expect(severityAtLeast("warning", "error")).toBe(false);
+    expect(severityAtLeast("info", "error")).toBe(false);
+  });
+
+  it("is true for equal severities", () => {
+    expect(severityAtLeast("error", "error")).toBe(true);
+    expect(severityAtLeast("warning", "warning")).toBe(true);
+    expect(severityAtLeast("info", "info")).toBe(true);
   });
 });
 
