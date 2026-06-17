@@ -50,6 +50,7 @@ import { runWithSignals, signalExitCode } from "./signals.js";
 import { teardownServices } from "./teardown.js";
 import { buildSpecContext } from "./spec-context.js";
 import { filterDiff } from "./diff-filter.js";
+import { renderHuman } from "./output/human.js";
 
 // ---------------------------------------------------------------------------
 // Package version
@@ -125,6 +126,12 @@ export interface CliIo {
   homeDir: string;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
+  /**
+   * Whether to emit ANSI color codes in human output. Defaults to false (no color)
+   * when absent. The process entry sets this based on process.stdout.isTTY and NO_COLOR.
+   * Tests leave it unset → no color → stable, escape-free assertions.
+   */
+  color?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -459,23 +466,9 @@ export async function main(
     // EXACTLY the RunReport JSON on stdout. Nothing else on stdout ever (PRD §4.8).
     io.stdout(JSON.stringify(report, null, 2));
   } else {
-    // Human mode — M9 polishes this; for M1 we emit honest-minimal output.
-    for (const phase of report.phases) {
-      const findingCount = phase.findings.length;
-      const findingSummary =
-        findingCount === 0
-          ? "no findings"
-          : `${findingCount} finding${findingCount === 1 ? "" : "s"}`;
-      const reasonSuffix = phase.reason !== undefined ? ` (${phase.reason})` : "";
-      io.stdout(`  ${phase.phase}: ${phase.status}${reasonSuffix} — ${findingSummary}`);
-      // One line per finding — a count alone hides WHAT is wrong ("nothing passes
-      // silently"); e.g. the T18 unknown-config-key warning must name the key here.
-      for (const finding of phase.findings) {
-        io.stdout(`    ${finding.severity} ${finding.id} — ${finding.message}`);
-      }
-    }
-    const exitLabel = exitCode === 0 ? "ok" : exitCode === 1 ? "findings gate" : "interrupted";
-    io.stdout(`\nresult: exit ${exitCode} (${exitLabel}), failOn: ${report.result.failOn}`);
+    // Human mode — grouped findings, severity-colored, file:line located, cost footer.
+    // M9/T25. Color disabled by default; the process entry enables it on real TTYs.
+    io.stdout(renderHuman(report, { color: io.color ?? false }));
   }
 
   return Result.ok({ exitCode });
@@ -514,6 +507,8 @@ if (isEntryPoint) {
     homeDir: homedir(),
     stdout: (line) => process.stdout.write(line + "\n"),
     stderr: (line) => process.stderr.write(line + "\n"),
+    // Color on when stdout is a real TTY and NO_COLOR is not set (no-color.org spec).
+    color: process.stdout.isTTY === true && process.env.NO_COLOR === undefined,
   };
 
   // Assemble the default phase set here — the only place defaults live.

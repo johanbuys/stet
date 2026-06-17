@@ -1,3 +1,41 @@
+## 2026-06-17 - TASK-030 (T25): Human render
+
+**What was done:** Implemented M9/T25 — human output renderer (PRD §3.8, §2a):
+
+- `src/output/human.ts`: New module. `renderHuman(report, opts) → string`. Pure function —
+  no I/O. Renders a RunReport as a human-friendly multi-line string: per-phase blocks with
+  name + status heading, reason line for skipped/cancelled/error phases, findings listed with
+  severity label (ANSI-colored when `opts.color=true`), finding id, message, and `file:line`
+  location when present. Result line with exit code + label + fail-on. Cost footer with
+  token counts and elapsed time in seconds. ANSI color: error=red (`\x1b[31m`),
+  warning=yellow (`\x1b[33m`), info=dim (`\x1b[2m`); auto-disabled via `opts.color=false`.
+
+- `src/output/human.test.ts`: 25 tests covering all acceptance criteria:
+  phase grouping (name, status, no-findings, multi-phase), file:line location
+  (with line, file-only, no location), per-phase status lines (skipped/cancelled/error
+  reasons, no reason line for completed), severity color (no ANSI when color=false,
+  red/yellow/dim when color=true, text still readable), cost footer (token counts,
+  duration in seconds, labels), and result line (ok/findings gate/interrupted labels).
+
+- `src/cli.ts`: Added `color?: boolean` to `CliIo` (optional, defaults to false in tests).
+  Replaced stub human output (step 9) with single `io.stdout(renderHuman(report, { color:
+  io.color ?? false }))` call. Process entry sets `color: process.stdout.isTTY === true &&
+  process.env.NO_COLOR === undefined` following the no-color.org spec (any set value disables).
+
+**Learnings:**
+- The stub human output in cli.ts called `io.stdout(...)` multiple times (once per line).
+  Replacing with a single `io.stdout(rendered)` call is fine for the e2e tests — Slice 9
+  checks `stdoutLines.length > 0` and `combined.toContain("stub-det")`, both still pass.
+- `NO_COLOR` spec (no-color.org): ANY set value (including empty string) should disable color.
+  Use `process.env.NO_COLOR === undefined` not `!process.env.NO_COLOR` (the latter treats
+  empty string "" as "not set" which is incorrect per the spec).
+- Tests assert on text content not ANSI escapes (per plan M9 guidance: "asserting content
+  not layout"). Color tests check for the ANSI escape byte sequences directly
+  (`\x1b[31m`, `\x1b[33m`, `\x1b[2m`, `\x1b[0m`).
+- The `src/signals.test.ts` has 2 pre-existing failures (spawn error: `jiti` ENOENT) —
+  these are environment issues unrelated to human output.
+----
+
 ## 2026-06-16 - TASK-029 (T24): Large-diff visibility + semantic pre-filtering
 
 **What was done:** Implemented M8/T24 — semantic diff pre-filter + budget enforcement (PRD §3.6):
