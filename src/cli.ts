@@ -168,6 +168,24 @@ function parseEnum<T extends string>(allowed: readonly T[], raw: string): T | un
   return allowed.find((a) => a === raw);
 }
 
+/** Parse a severity-valued flag (--fail-on/--show). Ok(undefined) when absent. */
+function parseSeverityFlag(
+  flagName: string,
+  raw: string | undefined,
+): Result<Severity | undefined, ConfigError> {
+  if (raw === undefined) return Result.ok(undefined);
+  const sev = parseEnum(VALID_FAIL_ON, raw);
+  if (sev === undefined) {
+    return Result.err(
+      new ConfigError({
+        path: "<argv>",
+        message: `${flagName} must be one of: ${VALID_FAIL_ON.join(", ")} (got: ${raw})`,
+      }),
+    );
+  }
+  return Result.ok(sev);
+}
+
 /**
  * Parse argv using node:util parseArgs.
  * Unknown flags or invalid enum values → Err(ConfigError) with path "<argv>".
@@ -212,35 +230,16 @@ function parseFlags(argv: string[]): Result<ParsedFlags, ConfigError> {
       );
     }
 
-    // Validate --fail-on
-    const failOnRaw = values["fail-on"];
-    let failOn: Severity | undefined;
-    if (failOnRaw !== undefined) {
-      failOn = parseEnum(VALID_FAIL_ON, failOnRaw);
-      if (failOn === undefined) {
-        return Result.err(
-          new ConfigError({
-            path: "<argv>",
-            message: `--fail-on must be one of: ${VALID_FAIL_ON.join(", ")} (got: ${failOnRaw})`,
-          }),
-        );
-      }
-    }
+    // Validate --fail-on (default "error" is applied later via BUILT_IN_DEFAULTS,
+    // so keep failOn undefined here when the flag is absent).
+    const failOnResult = parseSeverityFlag("--fail-on", values["fail-on"]);
+    if (failOnResult.isErr()) return Result.err(failOnResult.error);
+    const failOn = failOnResult.value;
 
     // Validate --show
-    const showRaw = values["show"];
-    let show: Severity | undefined;
-    if (showRaw !== undefined) {
-      show = parseEnum(VALID_FAIL_ON, showRaw);
-      if (show === undefined) {
-        return Result.err(
-          new ConfigError({
-            path: "<argv>",
-            message: `--show must be one of: ${VALID_FAIL_ON.join(", ")} (got: ${showRaw})`,
-          }),
-        );
-      }
-    }
+    const showResult = parseSeverityFlag("--show", values["show"]);
+    if (showResult.isErr()) return Result.err(showResult.error);
+    const show = showResult.value;
 
     return Result.ok({
       staged: values.staged ?? false,

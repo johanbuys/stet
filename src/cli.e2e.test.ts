@@ -201,6 +201,26 @@ describe("CLI e2e — stub-det", () => {
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error._tag).toBe("ConfigError");
+      expect(result.error.message).toBe(
+        "--fail-on must be one of: error, warning, info (got: critical)",
+      );
+    }
+  });
+
+  // ── Slice 7b: invalid --show value → Err(ConfigError) ───────────────────
+
+  it("invalid --show value → Err(ConfigError) with exact message", async () => {
+    await setupStubRepo(tmpDir, "pass");
+    const { io } = makeIo(tmpDir);
+
+    const result = await main(["--show", "critical"], io, [stubDet]);
+
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("ConfigError");
+      expect(result.error.message).toBe(
+        "--show must be one of: error, warning, info (got: critical)",
+      );
     }
   });
 
