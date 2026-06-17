@@ -12,6 +12,8 @@
  * can populate `scope.stripped` and the human scope echo.
  */
 
+import { parseDiffSections } from "./diff-sections.js";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -89,41 +91,6 @@ function hasGeneratedAnnotation(diffSection: string): boolean {
 /** True when the file matches any path-based strip rule. */
 function isStrippedByPath(path: string): boolean {
   return isLockfile(path) || isMinified(path) || isSourcemap(path) || isVendored(path);
-}
-
-// ---------------------------------------------------------------------------
-// Diff section parsing
-// ---------------------------------------------------------------------------
-
-interface DiffSection {
-  path: string;
-  content: string;
-}
-
-/**
- * Split a unified diff into per-file sections.
- *
- * Each section starts with `diff --git a/PATH b/PATH`. The `b/` path is used
- * as the canonical current path (handles renames where a/ and b/ differ).
- */
-function parseDiffSections(diff: string): DiffSection[] {
-  if (!diff) return [];
-
-  const sections: DiffSection[] = [];
-  // Split on lines that start a new file section, preserving the delimiter.
-  const parts = diff.split(/(?=^diff --git )/m);
-
-  for (const part of parts) {
-    if (!part.startsWith("diff --git ")) continue;
-    // Extract the b/ path from the first line: `diff --git a/X b/Y`
-    const headerMatch = part.match(/^diff --git a\/.+ b\/(.+)$/m);
-    const path = headerMatch?.[1]?.trimEnd() ?? "";
-    if (path) {
-      sections.push({ path, content: part });
-    }
-  }
-
-  return sections;
 }
 
 // ---------------------------------------------------------------------------
