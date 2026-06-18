@@ -15,7 +15,7 @@ import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
 import type { Cost, PhaseReport } from "../schema/report.js";
-import { type Finding, parseFindings } from "../schema/finding.js";
+import { type Finding, parseFindings, severityAtLeast } from "../schema/finding.js";
 import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
 import type { CoordinatorConfig } from "./coordinator.js";
@@ -369,7 +369,6 @@ export function makeCompositePhase(
           // rest (#30) — and (b) under-count drops when the judge keeps one copy but drops its
           // siblings (#31). We hold a per-id pool of surviving finding indices and consume
           // from it greedily so each raw finding is accounted for individually.
-          const SEVERITY_RANK = { error: 2, warning: 1, info: 0 } as const;
           const CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 } as const;
 
           const survivorPool = new Map<string, number[]>();
@@ -391,7 +390,7 @@ export function makeCompositePhase(
               const okPos = pool.findIndex((i) => {
                 const s = finalFindings[i]!;
                 return (
-                  SEVERITY_RANK[s.severity] >= SEVERITY_RANK[raw.severity] &&
+                  severityAtLeast(s.severity, raw.severity) &&
                   CONFIDENCE_RANK[s.confidence] >= CONFIDENCE_RANK[raw.confidence]
                 );
               });
