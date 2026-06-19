@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stet · code-review rubric draft — overview</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --line:#2a2f3a;
+    --ink:#e6e9ef; --dim:#9aa3b2; --faint:#6b7280;
+    --accent:#7cb342; --blue:#4fc3f7; --violet:#ba68c8; --amber:#d4a017;
+    --red:#e5736b; --yellow:#d9b54a; --gray:#8b94a4;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:18px;margin:38px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .sub{color:var(--dim);margin:0 0 6px}
+  .pill{display:inline-block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+    padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--dim);background:var(--panel)}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em;
+    background:#0b0d11;border:1px solid var(--line);border-radius:4px;padding:1px 5px;color:#cdd5e0}
+  .lede{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:8px;padding:14px 16px;margin:18px 0;color:var(--ink)}
+  .lede b{color:#fff}
+
+  /* pipeline */
+  .pipe{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;margin:10px 0 4px}
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;flex:1;min-width:130px}
+  .node .t{font-weight:600;font-size:13px}
+  .node .d{color:var(--dim);font-size:12px;margin-top:4px}
+  .arrow{display:flex;align-items:center;color:var(--faint);font-size:20px;padding:0 2px}
+  .fan{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;flex:2;min-width:240px}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px}
+  .chip .h{font-weight:600}
+  .chip .m{color:var(--dim);font-size:11px}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}.fan{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card h3{margin:0 0 6px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .card p{margin:6px 0;color:var(--dim);font-size:13.5px}
+  .tag{font-size:10.5px;padding:2px 7px;border-radius:999px;border:1px solid var(--line)}
+  .sev-err{color:var(--red);border-color:#4a2622}
+  .sev-warn{color:var(--yellow);border-color:#4a3d1e}
+  .sev-info{color:var(--gray);border-color:#333a46}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+
+  ul.tight{margin:6px 0 0;padding-left:18px}
+  ul.tight li{margin:3px 0;color:var(--dim);font-size:13px}
+  ul.tight li b{color:var(--ink);font-weight:600}
+
+  .block{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px}
+  .kv{display:grid;grid-template-columns:160px 1fr;gap:6px 14px;font-size:13px}
+  .kv .k{color:var(--blue)}
+  .kv .v{color:var(--dim)}
+
+  .do-not{background:#1a1416;border:1px solid #3a2226;border-radius:10px;padding:12px 16px}
+  .do-not h3{color:var(--red);margin:0 0 6px;font-size:14px}
+  .do-not span{display:inline-block;background:#241619;border:1px solid #3a2226;color:#e7b3ad;
+    font-size:11.5px;border-radius:6px;padding:3px 8px;margin:3px 4px 0 0}
+
+  .q{counter-reset:q;list-style:none;padding:0;margin:0}
+  .q li{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px 10px 44px;
+    position:relative;margin:8px 0;font-size:13.5px;color:var(--dim)}
+  .q li:before{counter-increment:q;content:counter(q);position:absolute;left:12px;top:10px;
+    width:22px;height:22px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);
+    color:var(--blue);font-size:12px;text-align:center;line-height:21px}
+  .q li b{color:var(--ink)}
+  .fork{border-left:3px solid var(--amber)}
+
+  .prov{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
+  .prov div{flex:1;min-width:200px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;font-size:12.5px;color:var(--dim)}
+  .prov b{color:var(--ink)}
+  footer{margin-top:40px;color:var(--faint);font-size:12px;border-top:1px solid var(--line);padding-top:14px}
+  a{color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="pill">draft · 2026-06-19 · pre-PRD base</span>
+  <h1>code-review — specialist rubrics</h1>
+  <p class="sub">A visual overview of <code>code-review-rubric-draft.md</code>. The concrete starting rubrics for stet's Phase 3, to be <b>settled against the eval suite</b> — not hand-perfected.</p>
+
+  <div class="lede">
+    <b>The shape, in one line:</b> specialists report broadly under a hard concrete-scenario bar →
+    a coordinator <b>verifies against real code and may only drop noise</b>, never evidence-backed findings →
+    severity gating stays downstream. This is the field-validated <b>finder → verify → judge</b> pattern, which stet already implements.
+  </div>
+
+  <!-- PIPELINE -->
+  <h2>How a review flows</h2>
+  <div class="pipe">
+    <div class="node">
+      <div class="t">Net diff</div>
+      <div class="d">vs merge base · budget-trimmed</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node">
+      <div class="t">Risk classifier</div>
+      <div class="d">scales the panel &amp; whether the coordinator runs</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="fan">
+      <div class="chip"><span class="h" style="color:var(--red)">bugs</span><div class="m">correctness</div></div>
+      <div class="chip"><span class="h" style="color:var(--red)">security</span><div class="m">reachable exploit</div></div>
+      <div class="chip"><span class="h" style="color:var(--yellow)">quality</span><div class="m">maintainability/perf</div></div>
+      <div class="chip"><span class="h" style="color:var(--yellow)">coverage-gaps</span><div class="m">untested behavior</div></div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node" style="border-color:#3a2f4a">
+      <div class="t" style="color:var(--violet)">Coordinator</div>
+      <div class="d">verify · dedup · drop noise · rank</div>
+    </div>
+    <div class="arrow">→</div>
+    <div class="node" style="border-color:#2d4a22">
+      <div class="t" style="color:var(--accent)">Findings</div>
+      <div class="d">+ audit trail</div>
+    </div>
+  </div>
+  <p class="sub" style="font-size:12.5px">Specialists run <b>in parallel</b>, each in its own context (one subagent per check). Recall is tuned in the finders; precision in the coordinator.</p>
+
+  <!-- SHARED PREAMBLE -->
+  <h2>Shared preamble — the 6 pillars (prepended to every specialist)</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>🔒 Independent &amp; read-only</h3>
+      <p>Doesn't trust the author's claims; judges the change itself. No write tools by design — reports, never fixes.</p>
+    </div>
+    <div class="card">
+      <h3>🎯 Scope to the introduced change</h3>
+      <p>Review only what this diff introduces (net vs base). Pre-existing code is flagged only if re-exposed, and tagged <code>meta.preexisting</code>.</p>
+    </div>
+    <div class="card">
+      <h3>🧪 Concrete-scenario bar <span class="tag sev-err">strongest rule</span></h3>
+      <p>Flag only what you can explain with a specific input/state → wrong outcome. Can't construct it? Don't flag it. <b>Prefer not reporting over guessing.</b></p>
+    </div>
+    <div class="card">
+      <h3>👁 Partial-context honesty</h3>
+      <p>The diff is often budget-trimmed. Don't flag "undefined / missing import / incomplete" for symbols that may live elsewhere — read first. Don't claim breakage without the specific call site.</p>
+    </div>
+    <div class="card">
+      <h3>🤫 Abstention is a good result</h3>
+      <p>An empty list is valid. Cap at <code>{MAX_FINDINGS}</code>. Fewer, higher-confidence findings beat an exhaustive list.</p>
+    </div>
+    <div class="card">
+      <h3>📏 Conventions</h3>
+      <p>Respect repo <code>CLAUDE.md</code>. To flag a violation, quote the exact rule and the exact line — no "spirit of the doc."</p>
+    </div>
+  </div>
+
+  <div class="do-not" style="margin-top:14px">
+    <h3>✕ DO NOT FLAG — the noise blocklist (adapted from PR-Agent + Anthropic)</h3>
+    <span>version bumps</span><span>add/remove imports</span><span>unused variables</span>
+    <span>"use a more specific exception"</span><span>docstrings / type hints / comments</span>
+    <span>style / formatting / naming</span><span>restating the diff</span>
+    <span>generic "add input validation"</span><span>DoS / rate-limiting / resource-exhaustion</span>
+  </div>
+
+  <!-- SPECIALISTS -->
+  <h2>The four specialists</h2>
+  <div class="grid">
+    <div class="card">
+      <h3><span class="dot" style="background:var(--red)"></span> Correctness / bugs <span class="tag sev-err">can emit error</span></h3>
+      <p><code>review.bug.*</code></p>
+      <ul class="tight">
+        <li>Inverted conditions, off-by-one, null deref, missing <code>await</code>, falsy-zero, swallowed errors, races.</li>
+        <li>Edge cases: empty input, root commit, over-budget, odd formats; regex anchors/backtracking.</li>
+        <li><b>Reads the enclosing function</b> — bugs in unchanged lines of a touched function are in scope.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:var(--red)"></span> Security <span class="tag sev-err">can emit error</span></h3>
+      <p><code>review.security.*</code></p>
+      <ul class="tight">
+        <li>Injection, <b>git/CLI option injection</b>, path traversal, prototype pollution, secret leakage, SSRF.</li>
+        <li><b>Key precedents (don't flag):</b> framework escaping on by default; env vars &amp; CLI flags are trusted; test/markdown ≠ prod vuln.</li>
+        <li>Requires an attacker-input → impact path; states reachability and sets confidence to match.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:var(--yellow)"></span> Quality / maintainability <span class="tag sev-warn">warning max</span></h3>
+      <p><code>review.quality.*</code></p>
+      <ul class="tight">
+        <li>Re-implementing an existing helper (must name it), redundant state, copy-paste, dead code.</li>
+        <li>Wrong-altitude abstractions; wasted work on hot path/startup; scope-retaining closures.</li>
+        <li><b>States the concrete cost</b> + the simpler form. No taste/naming opinions.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:var(--yellow)"></span> Coverage-gaps <span class="tag sev-warn">warning max</span></h3>
+      <p><code>review.coverage-gap.*</code></p>
+      <ul class="tight">
+        <li>New/changed branches the diff's tests don't exercise — error paths, edges, boundaries.</li>
+        <li>Judges whether tests would <b>actually fail if the code were wrong</b>, or just mirror it (tautology/mock-only).</li>
+        <li>Only genuine gaps; doesn't demand tests for trivial code.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- COORDINATOR -->
+  <h2>The coordinator — verify &amp; judge</h2>
+  <div class="card" style="border-color:#3a2f4a">
+    <h3 style="color:var(--violet)">Constrained authority</h3>
+    <ul class="tight">
+      <li><b>Verifies each candidate against the real code</b> before keeping it — drops stale / unreproducible findings (the fix for the pressure-test's stale-finding problem).</li>
+      <li>Drops: duplicates, speculative-without-a-path, pure style, convention-contradicted.</li>
+      <li><b>MUST NOT drop or downgrade</b> evidence-backed or deterministic findings — reinstates them unchanged if it tries.</li>
+      <li>Every drop &amp; reinstatement is recorded in <code>audit.coordinator</code> (received / dropped / reinstated).</li>
+      <li>Ranks survivors; prefers confidence from <b>specialist agreement</b> over a single self-reported number.</li>
+    </ul>
+  </div>
+
+  <!-- OUTPUT -->
+  <h2>Output contract <span class="pill" style="vertical-align:middle">already implemented</span></h2>
+  <div class="block">
+    <div class="kv">
+      <div class="k">Finding</div><div class="v"><code>id · phase · specialist? · severity · confidence · message · location · evidence? · suggestion? · meta?</code></div>
+      <div class="k">severity</div><div class="v"><span class="tag sev-err">error</span> &nbsp;<span class="tag sev-warn">warning</span> &nbsp;<span class="tag sev-info">info</span></div>
+      <div class="k">message</div><div class="v">states the problem against what it violates <b>+ the concrete scenario</b></div>
+      <div class="k">evidence</div><div class="v"><code>command?</code> / <code>output?</code> — a reproducing command makes a finding un-droppable</div>
+      <div class="k">meta</div><div class="v"><code>preexisting: true</code> for the not-introduced-here tier</div>
+      <div class="k">gating</div><div class="v">downstream (<code>deriveExit</code>) — specialists are never muzzled (the Opus 4.8 lesson)</div>
+    </div>
+  </div>
+
+  <!-- OPEN QUESTIONS -->
+  <h2>Open calibration questions — settle against eval, not now</h2>
+  <ol class="q">
+    <li class="fork"><b>Confidence model</b> — self-reported (current) vs agreement-based (2-of-3 verify voters). Research says self-reported is miscalibrated. <b>The one fork I'd want your call on.</b></li>
+    <li><b>Finding caps &amp; risk levels</b> — <code>{MAX_FINDINGS}</code> per specialist; how the risk classifier scales the panel and toggles the coordinator.</li>
+    <li><b>Pre-existing handling</b> — a <code>meta.preexisting</code> flag vs a separate tier vs suppression.</li>
+    <li><b>Few-shot examples</b> — add 3–5 good/bad findings per specialist (research's top lever); draft from eval fixtures once the harness exists.</li>
+    <li><b>Specialist set</b> — is performance separable from quality? a dedicated "patterns" specialist worth it?</li>
+    <li><b>Severity ↔ gating</b> — confirm the gate stays downstream and no specialist is muzzled.</li>
+  </ol>
+
+  <!-- PROVENANCE -->
+  <h2>Provenance</h2>
+  <div class="prov">
+    <div><b>Adapted from</b> open artifacts: Anthropic <code>claude-code-security-review</code> (Hard Exclusions / Key Precedents) + Qodo PR-Agent prompts (DO-NOT-suggest, asymmetric confidence, anti-hallucination).</div>
+    <div><b>Validated by</b> the live pressure test (panel + coordinator on a real 852-line diff — found a real option-injection vuln; coordinator cut ~64% stale noise).</div>
+    <div><b>Backed by</b> <code>research/code-review-best-practices.md</code> — the field converged on this exact finder→verify→judge shape.</div>
+  </div>
+
+  <footer>
+    stet · code-review rubric draft overview · companion to <code>code-review-rubric-draft.md</code>.
+    Draft — to be settled against the review eval suite before the rubrics are frozen.
+  </footer>
+
+</div>
+</body>
+</html>
