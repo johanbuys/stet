@@ -1,6 +1,6 @@
 # code-review — PRD
 
-**Status:** draft — 2026-06-19
+**Status:** settled — 2026-06-19 (canvas review round 1 resolved all open decisions)
 **Depends on:** `product/stet-prd.md` §5 (Phase 3) · `features/harness/harness-prd.md` (composite phase, coordinator/judge, risk classifier, agent runner, Finding/RunReport schema, output-as-tool, budgets, exit-code gating)
 **Draws on:** `research/code-review-best-practices.md` (field consensus + copyable artifacts + eval methodology) · `features/code-review/code-review-rubric-draft.md` (the concrete draft rubrics) · the 2026-06-18 live pressure test
 **Companion:** `code-review-prd-overview.html`
@@ -88,7 +88,11 @@ converged on this exact finder→verify→judge shape, and a live pressure test 
 - The **coordinator** then dedups, drops convention-contradicted/speculative findings, applies the pre-existing tier, and re-ranks. Its **authority is constrained** (harness contract): it MUST NOT drop or downgrade evidence-backed (`evidence.command`) or deterministic findings; attempts are reinstated. All drops/reinstatements are recorded in `audit.coordinator`.
 - If the coordinator/verify step fails, the phase falls back to the raw roll-up + a `coordinator-failed` warning (harness behavior, decision #29) — never forfeits findings.
 
-> **Harness dependency:** agreement-based verify (N independent voters per candidate, confidence from agreement) may require a harness amendment if the current coordinator supports only a single judge pass. This PRD treats "N-voter verify with agreement→confidence" as a **required harness capability**; if the harness does not yet provide it, a harness-PRD amendment is the prerequisite (tracked in Decisions).
+> **Harness dependency (resolved):** N-voter agreement-verify is a **harness capability**, specced in
+> `harness-prd` **decision #35** (amended 2026-06-19) — the harness runs N independent refutation voters
+> per candidate and derives confidence from agreement; code-review sets N=3 and supplies the refutation
+> lenses. It is **built as code-review's milestone 1** (code-review is the sole driver). Future dials
+> (decision 8): N-by-stakes first, voter model tier second.
 
 ### R6 — Findings
 - Findings use the harness `Finding` schema. Additions: `meta.preexisting: true` for issues not introduced by this diff (re-exposed pre-existing code); such findings are **non-gating** regardless of severity and render in a separate tier.
@@ -136,7 +140,7 @@ review = makeCompositePhase({
 `{ id, rubric, toolset (read-only + submit_findings), model (tier), activation?, severityCeiling, maxFindings }`
 
 ### C3 — Finding additions (extends harness `Finding`)
-- `meta.preexisting?: boolean` — true ⇒ non-gating, separate render tier.
+- `meta.preexisting?: boolean` — true ⇒ non-gating, separate render tier. **Detection is deterministic** (decision 14): diff-line membership — `location.line` in the diff's added (`+`) hunks ⇒ introduced; otherwise pre-existing. Computed by the harness/coordinator from the diff, never a model judgment; re-exposed code defaults to pre-existing.
 - `confidence` — **agreement-derived** (`high` = 3/3 voters, `medium` = 2/3); `≤1/3` ⇒ finding dropped, not emitted.
 - `specialist` — set to the emitting specialist id (harness already supports).
 
@@ -222,14 +226,16 @@ gates exit 1 iff `severityAtLeast(severity, failOn)` ∧ `confidence === "high"`
 | 3 | **`meta.preexisting` tier** — flag re-exposed pre-existing issues, non-gating | user | visibility without blocking on debt the author didn't introduce | settled |
 | 4 | **Severity gating stays downstream** (`deriveExit`); specialists report broadly | user | Opus 4.8 lesson — conservative prompts suppress recall; filter, don't muzzle | settled |
 | 5 | **Eval-harness-first build order** — eval suite is milestone 1; rubrics tuned against it | user | the field's rubric-settling mechanism; "tweak" needs measurement | settled |
-| 6 | **v1 specialist set** = bugs, security, quality (+perf folded), coverage-gaps | draft | matches field's one-prompt-per-defect-family; minimal viable panel | open (revisit via eval) |
-| 7 | **Performance + patterns folded into `quality`** for v1, not separate specialists | draft | avoid premature fan-out cost; eval will show if a gap exists | open (revisit via eval) |
-| 8 | **Verify = refute-from-distinct-lens, N=3 default**, config-overridable | draft | perspective-diverse verify catches more failure modes than N identical refuters | open |
-| 9 | **Security never cost-dialed away** when sensitive paths are touched | draft | security misses are the costliest; small marginal cost | open |
-| 10 | **Review requires no spec** (activates on diff alone) | draft | review judges the code; intent-checking is Phase 2 | open |
-| 11 | **coverage-gaps (review) vs test-quality (Phase 4) boundary**: review judges *code testedness*, Phase 4 judges *test quality* | draft | prevent double-reporting; GLOSSARY already implies this split | open |
-| 12 | **Agreement-verify may need a harness amendment** (N-voter verify, confidence-from-agreement) | draft | current coordinator is a single judge pass; this is a prerequisite capability | open (harness dependency) |
-| 13 | **Eval grader taxonomy = HIT / VALID / NOISE**, location+embedding match, SNR headline | draft | CR-Bench/SWE-PRBench consensus; VALID bucket avoids punishing real unseeded finds | open |
+| 6 | **v1 specialist set** = bugs, security, quality (+perf+patterns folded), coverage-gaps | user (2026-06-19) | minimal viable panel; one-prompt-per-defect-family; adding a lens later is one file | settled (eval may split later) |
+| 7 | **Performance + patterns folded into `quality`** for v1, not separate specialists | user (2026-06-19) | avoid premature fan-out cost; eval reveals if `quality` misses perf/architecture, split then | settled (eval may split) |
+| 8 | **Verify = refute-from-distinct-lens, N=3 uniform** for v1; future dials in order: (1) **N-by-stakes** (bugs/security 3, quality/coverage 1), (2) voter model tier | user (2026-06-19) | perspective-diverse verify; uniform N keeps "high" meaning constant in v1; dials deferred until needed | settled |
+| 9 | **Security never cost-dialed away** when sensitive paths are touched | user (2026-06-19) | security misses are the costliest; small marginal cost | settled |
+| 10 | **Review requires no spec** (activates on diff alone) | user (2026-06-19) | review judges the code; intent-checking is Phase 2 | settled |
+| 11 | **coverage-gaps vs test-quality — the rule:** coverage-gaps fires only when *no* meaningful test touches the behavior; once any test exists for it (even weak), it is test-quality's call | user (2026-06-19) | clean non-overlapping line — *no test → coverage-gaps; test exists but weak → test-quality* | settled |
+| 12 | **Agreement-verify is a harness capability — harness-prd amended now (decision #35);** built as code-review's milestone 1 (code-review is the sole driver) | user (2026-06-19) | mechanism belongs to the harness so future phases inherit it; the build folds into our effort | settled (→ harness-prd #35) |
+| 13 | **Eval grader taxonomy = HIT / VALID / NOISE**, location+embedding match, SNR headline | user (2026-06-19) | CR-Bench/SWE-PRBench consensus; VALID bucket avoids punishing real unseeded finds | settled |
+| 14 | **Pre-existing detection is deterministic** — diff-line membership (location in added `+` hunks → introduced; else pre-existing), computed by the harness, not the model; re-exposed code (added line calling a pre-existing bug) defaults to pre-existing | user (2026-06-19) | models are unreliable at "did this diff introduce it"; deterministic = reproducible; matches stet's ethos | settled |
+| 15 | **Eval fixtures v1 = hand-authored** (visibility tiers + clean) **+ a handful mined** from public sets (SWE-PRBench, CR-Bench, Sphinx clean, SEC-bench/DebugBench), licenses checked; full mining pipeline deferred to the eval-suite feature | user (2026-06-19) | start fast with real signal without building the pipeline now | settled |
 
 <!-- Open draft-level decisions (6–13) are the "things to poke at" for the review round. -->
 </content>

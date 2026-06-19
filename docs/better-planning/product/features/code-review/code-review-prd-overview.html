@@ -104,7 +104,7 @@
   <div class="brand">code-review — Phase 3</div>
   <div class="tagline">A composite phase: a panel of read-only <b>specialists</b> over the net diff → an <b>agreement-based verify</b> → a constrained <b>coordinator</b>. Quality is settled by an <b>eval suite built first</b>, not hand-tuned prompts.</div>
   <div class="status-row">
-    <span class="chip draft">STATUS: DRAFT — 2026-06-19</span>
+    <span class="chip ok">STATUS: SETTLED — 2026-06-19</span>
     <span class="chip">depends on harness-prd + stet-prd §5</span>
     <span class="chip ok">architecture validated by pressure test</span>
     <span class="chip">detail: code-review-prd.md</span>
@@ -210,22 +210,23 @@
   <h2><span class="num">07</span>Decisions</h2>
   <table>
     <tr><th>decision</th><th>call</th></tr>
-    <tr data-review-id="dec-confidence"><td><b>Agreement-based confidence</b> (3 voters)</td><td><span class="dot-ok">●</span> settled (user) — self-report miscalibrated</td></tr>
-    <tr data-review-id="dec-scope"><td>Net-vs-base scoping</td><td><span class="dot-ok">●</span> settled (user)</td></tr>
-    <tr data-review-id="dec-preexisting"><td><code>meta.preexisting</code> tier, non-gating</td><td><span class="dot-ok">●</span> settled (user)</td></tr>
-    <tr data-review-id="dec-gating"><td>Severity gating stays downstream</td><td><span class="dot-ok">●</span> settled (user)</td></tr>
-    <tr data-review-id="dec-evalfirst"><td>Eval-harness-first build order</td><td><span class="dot-ok">●</span> settled (user)</td></tr>
-    <tr data-review-id="dec-specialists"><td>v1 specialist set (bugs/security/quality/coverage)</td><td><span class="dot-open">●</span> draft — revisit via eval</td></tr>
-    <tr data-review-id="dec-fold"><td>Perf + patterns folded into quality</td><td><span class="dot-open">●</span> draft</td></tr>
-    <tr data-review-id="dec-voters"><td>Verify = refute-from-distinct-lens, N=3</td><td><span class="dot-open">●</span> draft</td></tr>
-    <tr data-review-id="dec-harness"><td>Agreement-verify may need a harness amendment</td><td><span class="dot-open">●</span> open dependency</td></tr>
-    <tr data-review-id="dec-boundary"><td>review coverage-gaps vs Phase-4 test-quality boundary</td><td><span class="dot-open">●</span> draft</td></tr>
+    <tr><td><b>Agreement-based confidence</b> (3 voters)</td><td><span class="dot-ok">●</span> settled — self-report miscalibrated</td></tr>
+    <tr><td>Net-vs-base scoping</td><td><span class="dot-ok">●</span> settled</td></tr>
+    <tr><td><code>meta.preexisting</code> tier, non-gating</td><td><span class="dot-ok">●</span> settled</td></tr>
+    <tr><td>Severity gating stays downstream</td><td><span class="dot-ok">●</span> settled</td></tr>
+    <tr><td>Eval-harness-first build order</td><td><span class="dot-ok">●</span> settled</td></tr>
+    <tr><td>v1 specialist set (4, perf+patterns folded)</td><td><span class="dot-ok">●</span> settled — eval may split later</td></tr>
+    <tr><td>Verify = refute-from-distinct-lens, N=3 uniform</td><td><span class="dot-ok">●</span> settled — dials deferred (N-by-stakes, then model tier)</td></tr>
+    <tr><td>coverage-gaps vs test-quality boundary</td><td><span class="dot-ok">●</span> settled — no test → coverage; weak test → test-quality</td></tr>
+    <tr><td>Agreement-verify harness capability</td><td><span class="dot-ok">●</span> settled — harness-prd amended (#35); built as milestone 1</td></tr>
+    <tr><td>Pre-existing detection</td><td><span class="dot-ok">●</span> settled — deterministic diff-line membership</td></tr>
+    <tr><td>Eval fixtures source</td><td><span class="dot-ok">●</span> settled — hand-authored + a few mined</td></tr>
   </table>
 </section>
 
 <section>
-  <h2><span class="num">08</span>Things to poke at</h2>
-  <p class="lede">The reviewer's agenda — the open draft-level calls. Type a comment in any box (autosaves); when served through canvas, submissions post straight back.</p>
+  <h2><span class="num">08</span>Resolved in review round 1</h2>
+  <p class="lede">All six open items were resolved in the 2026-06-19 canvas round (recommendations accepted). Kept below as the record; the resolutions are in §07 and the markdown decisions table.</p>
 
   <div class="ask" data-review-id="poke-harness-amendment">
     <div class="q">Is N-voter agreement-verify a harness amendment, and do we do it now or stub it?</div>

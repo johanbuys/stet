@@ -13,6 +13,10 @@ along the way. The second 2026-06-09 amendment closes gaps found in a four-doc s
 constrained authority over evidence-backed findings (#30) + drops recorded in the audit (#31),
 per-phase risk rules over the pre-filtered diff (#32), and stripped paths carried in the report
 (#33).
+
+**Amended 2026-06-19** (code-review PRD review): added **agreement-based verification** for composite
+phases — AI-judgment confidence is derived from an N-voter refutation pass, not model self-report
+(§3.3a, §4.6, decision #35).
 **Brief:** `harness-brief.md` (settled 2026-06-06) — the alignment record this PRD drafts from.
 **Depends on:** `docs/better-planning/product/stet-prd.md` (high-level PRD §4, §6, §8).
 **Draws on:** `docs/better-planning/research/behavioral-validation-findings.md` + proven contracts mined from the
@@ -265,8 +269,11 @@ it as designed-in harness machinery rather than a v1.x "if it proves noisy" fix.
 - **Cost dial:** because the coordinator is the expensive (`robust`) pass, the risk classifier
   (§3.4.1a) may gate whether it runs at all for a given change.
 
-No cross-specialist *adversarial-verify* pass beyond this judge stage in v1 — the coordinator's
-reasonableness filter is the v1 mechanism; a per-finding refutation panel remains a later option.
+**Amended 2026-06-19 (decision #35):** composite phases now run a **per-finding refutation panel** — the
+N-voter agreement-verify pass that sets AI-finding confidence (§4.6). It runs *before* the coordinator's
+reasonableness filter: voters set confidence from agreement, then the coordinator dedups/re-ranks the
+survivors. The harness owns the N-voter mechanism; the per-phase voter count and refutation lenses are the
+consuming feature PRD's (code-review uses N=3). The earlier v1 deferral of this panel is superseded.
 
 ### 3.4 Scheduler
 
@@ -641,9 +648,15 @@ artifact. Reports travel; artifacts self-describe. The deferred v1.x cache key e
 - **Evidence-backed findings** — any finding carrying `evidence.command` (Phase 5 faileds) — are
   `"high"` by construction. A reproducing command is proof; the confidence filter exists for
   opinions, not evidence.
-- **AI-judgment findings** (phases 2–4, and Phase 5 inconclusives) carry model-assigned
-  confidence and gate only at `"high"` (high-level PRD §6: sub-high-confidence AI findings never
-  cause exit 1).
+- **AI-judgment findings** (phases 2–4, and Phase 5 inconclusives) gate only at `"high"`
+  (high-level PRD §6: sub-high-confidence AI findings never cause exit 1).
+- **Agreement-derived confidence (composite phases — amended 2026-06-19, decision #35):** on a
+  composite phase, AI-judgment confidence is **not** model-self-reported but set by an **N-voter
+  refutation pass** (N=3 default): each candidate is independently re-judged by N voters prompted to
+  refute it — `"high"` at 3/3 agreement, `"medium"` at 2/3, and `≤1/3 ⇒ dropped` before the
+  coordinator. Verbalized self-confidence is miscalibrated; agreement corroborates. Deterministic and
+  evidence-backed findings stay `"high"` by construction (above) and skip the vote. The harness owns
+  the mechanism; voter count and lenses are the consuming feature PRD's.
 
 ### 4.7 CLI flag surface
 
@@ -1025,3 +1038,4 @@ run reports what it knows. Exit `1`.
 | 32 | **Risk rules are declared per phase** (`riskRules` in `PhaseConfiguration`); classify is evaluated once per declaring phase, over the **pre-filtered** diff | soundness review (2026-06-09) | one run-global level can't serve two phases with different sensitivities, and "rules belong to the consuming PRD" requires a per-phase home — same shape as activation predicates; pre-filtered input keeps lockfile churn from inflating risk | settled (amends #26) |
 | 33 | **Stripped paths are in the report:** `scope.stripped` in `RunReport`, not just the human scope echo | soundness review (2026-06-09) | machine consumers (loops, CI) are the primary audience — visibility that exists only in human chrome is invisible to them | settled (extends #27) |
 | 34 | **Mutation-freedom is enforced for `edit`/`write` (registration boundary, test-verified), but `bash` is a known residual write surface** held read-only by rubric only; sandboxed enforcement (read-only mount / spawn-hook denylist / repo copy) is a tracked follow-up tied to the Phase 5 execution milestone | M2 build review (2026-06-10) | PR-review #1 showed the §3.2 "no code path can mutate" claim was falsified by the unrestricted `bash` tool (the SDK has no read-only bash); `bash` is needed (esp. Phase 5), so the honest near-term posture is "file tools barred at registration, bash instructed-not-enforced" with enforcement scheduled where a controlled exec surface is built anyway. Reality-disagrees protocol (plan §6) | **open — follow-up** (amends user story 27, §3.2; M2 keeps bash) |
+| 35 | **Agreement-based verification for composite phases:** AI-judgment confidence is derived from an N-voter refutation pass (N=3 default; 3/3→high, 2/3→medium, ≤1/3→dropped), not model self-report; the harness owns the N-voter mechanism, per-phase voter count/lenses are the consuming PRD's | code-review PRD review (Johan, 2026-06-19) | verbalized LLM confidence is miscalibrated (code-review research §4); agreement corroborates. Supersedes the §3.3a v1 deferral of a per-finding refutation panel | settled (amends §3.3a, §4.6) |
