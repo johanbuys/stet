@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>code-review plan — overview</title>
+<style>
+  :root { --ink:#1a1f2e; --muted:#5a6276; --line:#e3e6ee; --bg:#f7f8fb; --card:#fff;
+          --accent:#0ca678; --ok:#2f9e44; --warn:#e8930c; --err:#c92a2a; }
+  * { box-sizing:border-box; }
+  body { font:15px/1.55 -apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink);
+         background:var(--bg); margin:0; padding:32px 16px 64px; }
+  .wrap { max-width:1060px; margin:0 auto; }
+  h1 { font-size:25px; margin:0 0 4px; }
+  h2 { font-size:18px; margin:32px 0 12px; border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .sub { color:var(--muted); margin:0 0 6px; font-size:13.5px; }
+  .chip { display:inline-block; font-size:11.5px; font-weight:600; padding:2px 10px; border-radius:99px;
+          background:#e6f7f1; color:var(--accent); margin:0 6px 4px 0; }
+  .chip.gray { background:#eef0f5; color:var(--muted); } .chip.ok { background:#e6f7ec; color:var(--ok); }
+  code { font-family:ui-monospace,monospace; font-size:12.5px; background:#eef0f5; padding:1px 5px; border-radius:4px; }
+  /* gantt */
+  .gantt { display:grid; grid-template-columns:140px repeat(6,1fr); gap:4px 6px; align-items:center; font-size:12.5px; margin:10px 0; }
+  .gantt .lbl { font-weight:600; }
+  .bar { height:24px; border-radius:5px; display:flex; align-items:center; justify-content:center; color:#fff;
+         font-size:11px; font-weight:600; grid-column:var(--c); background:var(--accent); }
+  .bar.b2 { background:#4c6ef5; } .bar.b3 { background:var(--warn); } .bar.b4 { background:#7048e8; }
+  .bar.b5 { background:#0ca678; } .bar.b6 { background:#1098ad; }
+  .col-h { font-size:10.5px; color:var(--muted); text-align:center; }
+  table { border-collapse:collapse; width:100%; font-size:12.8px; margin:6px 0; }
+  th,td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .m { border:1px solid var(--line); border-radius:10px; padding:12px 15px; margin:10px 0; background:var(--card); }
+  .m h4 { margin:0 0 4px; font-size:14px; } .m .v { color:var(--ok); font-size:12.5px; } .m p { margin:5px 0; font-size:12.8px; }
+  .pill { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:99px; background:#eef0f5; color:var(--muted); }
+  .pill.no { background:#e6f7ec; color:var(--ok); } .pill.yes { background:#fdf1dc; color:var(--warn); }
+  .two { display:flex; gap:14px; flex-wrap:wrap; } .two>div { flex:1; min-width:260px; }
+  .note { background:#f6fcf8; border-left:4px solid var(--ok); border-radius:6px; padding:10px 14px; font-size:12.8px; margin:10px 0; }
+  .foot { margin-top:30px; font-size:12px; color:var(--muted); border-top:1px solid var(--line); padding-top:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>code-review — Implementation Plan</h1>
+  <p class="sub">
+    <span class="chip ok">settled 2026-06-22</span>
+    <span class="chip gray">phase ④ plan</span>
+    <span class="chip gray">cites TDD areas A–G</span>
+    <span class="chip">2× cold-reader verified</span>
+  </p>
+  <p class="sub">Build order: <b>capability-first</b> (reconciles PRD #5↔#12). Companion to
+     <code>code-review-plan.md</code> (canonical).</p>
+
+  <h2>Milestone timeline</h2>
+  <div class="gantt">
+    <div></div>
+    <div class="col-h">stage 1</div><div class="col-h">2</div><div class="col-h">3</div>
+    <div class="col-h">4</div><div class="col-h">5</div><div class="col-h">6</div>
+    <div class="lbl">M1 verify</div>            <div class="bar"    style="--c:2/3">M1</div>
+    <div class="lbl">M2 contract</div>          <div class="bar b2" style="--c:2/3">M2</div>
+    <div class="lbl">M3 eval scaffold</div>     <div class="bar b3" style="--c:2/4">M3a·b</div>
+    <div class="lbl">M4 thin slice</div>        <div class="bar b4" style="--c:4/5">M4</div>
+    <div class="lbl">M5 full panel+tune</div>   <div class="bar b5" style="--c:5/6">M5</div>
+    <div class="lbl">M6 risk·config·gate</div>  <div class="bar b6" style="--c:6/8">M6</div>
+  </div>
+  <p class="sub">Critical path: <b>M1 ∥ M2 → M4 → M5 → M6</b>; M3 runs alongside M1/M2.
+     Edges: M4←M1+M2 · M5←M4+M3 · <b>M6←M4+M2</b> (gating reads M2's <code>meta.preexisting</code>).</p>
+
+  <h2>Milestones &amp; verifiable outcomes</h2>
+  <div class="m"><h4>M1 · Agreement-verify stage <span class="pill no">no model — fake runners</span></h4>
+    <p>Net-new <code>verify.ts</code> (TDD-A). <b>Prereqs:</b> extend <code>FakeAgentRunner</code> to a per-call
+       script queue (B1); add typed <code>VerifyAudit</code> to the closed <code>Audit</code> schema before emit (B4).</p>
+    <p class="v">✓ <code>vp test</code>: 3-uphold→high, 2→medium, 1→dropped+audited; voter erroring twice→abstain; report passes <code>parseRunReport</code>.</p></div>
+  <div class="m"><h4>M2 · Finding contract <span class="pill no">unit</span></h4>
+    <p><code>SpecialistSubmission</code> split; <code>meta.preexisting</code>/<code>selfConfidence</code> as conventional keys in the
+       <b>open</b> <code>meta</code> (F1, no narrowing); <b>new</b> <code>@@</code>-hunk added-line parsing (B5 — <code>diff-sections.ts</code> has none).</p>
+    <p class="v">✓ added line = introduced; context line = pre-existing; no-location not marked; 3-hunk offsets correct.</p></div>
+  <div class="m"><h4>M3 · Eval scaffold (a: cassette seam · b: grader) <span class="pill yes">cassettes + live</span></h4>
+    <p>Tiered (C·1). <b>Synthetic</b> cassettes first (real specialist cassettes can't exist before M4/M5 run live — S1); cassette key = hash of <code>(model,rubric,userPrompt)</code>; embedding lib + threshold pinned; <code>eval:live</code> script added (F6).</p>
+    <p class="v">✓ <code>vp test</code> eval green from cassettes (no creds); <code>vp run eval:live</code> emits SNR/precision + updates baseline.</p></div>
+  <div class="m"><h4>M4 · Thin slice (bugs only, end-to-end) <span class="pill yes">model</span></h4>
+    <p>Wire verify into <code>composite.run</code> (<code>:308→:312</code>) — stamp confidence by id, extend protected class to <code>high</code> (A·4, own test matrix F4), thread the diff to verify (S4); <code>markPreexisting</code> wraps <b>all five</b> completed return paths (F2); build the live <code>runners</code> map + register the phase, gated on creds (F5).</p>
+    <p class="v">✓ <code>stet --against ref</code> on a seeded bug → <code>review.bug</code> (error, agreement conf, location); later-fixed defect not reported (AC#3); clean → 0; <b>no creds → error, never false clean (AC#8)</b>.</p></div>
+  <div class="m"><h4>M5 · Full panel + tune <span class="pill yes">model</span></h4>
+    <p>Add security/quality/coverage-gaps + shared preamble; convention findings quote the exact rule (AC#11); tune rubrics against the M3 eval.</p>
+    <p class="v">✓ <code>eval:live</code> SNR + per-tier P/R ≥ baseline; clean-FPR low.</p></div>
+  <div class="m"><h4>M6 · Risk dial · config · gating <span class="pill yes">model</span></h4>
+    <p>Risk levels (reuse <code>PhaseReport.level</code>, F7; security-always on sensitive paths); review-local config slice (N1); <code>deriveExit += confidence==="high" ∧ runtime meta?.preexisting !== true</code> (harness-global, B3/F1).</p>
+    <p class="v">✓ trivial→bugs-only/no-coordinator; sensitive→full+security; high non-preexisting error gates, pre-existing error doesn't; partial-coverage warning names files (AC#9/#28).</p></div>
+
+  <h2>v0 cut (deferred, with reasons)</h2>
+  <table>
+    <tr><th>deferred</th><th>why</th></tr>
+    <tr><td>N-by-stakes / voter-tier dials</td><td>PRD decision 8 — v1 uniform N=3 robust</td></tr>
+    <tr><td>Deterministic pre-dedup</td><td>until the eval measures duplicate rate (TDD A·1 / #5)</td></tr>
+    <tr><td><code>meta.selfConfidence</code> operational use</td><td>recorded only; eval studies it (TDD B·1)</td></tr>
+    <tr><td>Live smoke-set per commit · full fixture mining · call-graph · few-shot</td><td>cassettes default; mining → eval-suite feature; PRD-deferred</td></tr>
+  </table>
+
+  <h2>How this plan was hardened</h2>
+  <div class="two">
+    <div><div class="note"><b>Two adversarial cold-reader passes</b> (independent agents, no session context, reading the real <code>src/</code>).
+      <b>Pass 1</b> verdict: "not buildable as written" — 5 blockers incl. the fake-runner can't script N verdicts (B1) and a false "diff-sections parses hunks" claim (B5, corrected in the TDD).
+      <b>Pass 2</b> verdict: <b>M1 executable</b>; caught 2 new blockers — a "typed meta" contradiction the revision introduced (F1) and <code>markPreexisting</code> missing 4 of 5 return paths (F2). All folded in (PL·4/PL·5).</div></div>
+    <div><div class="note"><b>Reality-disagrees in action.</b> Two upstream corrections were pushed back per protocol: <b>TDD B·2</b> (diff-sections doesn't parse hunks) and <b>PRD #5/#12</b> (the "two milestone 1s" reconciled to capability-first). Both recorded in their decisions tables — nothing softened silently.</div></div>
+  </div>
+
+  <p class="foot">Visual companion to <code>code-review-plan.md</code> (canonical). Settled 2026-06-22 via
+     better-planning-plan. Next: task breakdown (better-planning-tasks) — or build M1 directly.</p>
+
+</div>
+</body>
+</html>
