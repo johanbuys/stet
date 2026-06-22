@@ -74,6 +74,7 @@ One row per artifact. The **Phase** column routes to the family skill that owns 
 | `research/behavioral-validation-findings.md` | research | **done** — POC discoveries for behavioral verification |
 | `research/cloudflare-ai-review-reference.md` | research | **done** 2026-06-09 — Cloudflare's production AI-review system as a reference impl; validated the coordinator + risk-classifier; fed harness #25–27 / M7.5 |
 | `research/code-review-best-practices.md` | research | **done** 2026-06-18 — web-sourced 2024–26 field sweep; the field converged on stet's finder→verify→judge shape; copyable rubric artifacts + the eval methodology (HIT/VALID/NOISE grader, SNR, clean fixtures); feeds the `code-review` PRD |
+| `research/test-quality-mutation-findings.md` | research | **done** 2026-06-22 — deep-research (26 sources, 25 claims 3-vote-verified) on mutation testing for test-quality; mutation score > coverage but confounded by suite size → LLM concern-targeted mutants + oracle-gap signal + LLM(+SMT) equivalence filter; static kill-prediction weak → **hybrid reason(Phase 4) → sandbox-execute(Phase 5)**; Stryker rides Vitest (reuse). Feeds the **Phase 4 `test-quality`** brainstorm |
 | `archive/stet-prd-v1.md` | (legacy PRD) | historical — superseded by the fresh high-level PRD |
 | `product/stet-brief.md` | brainstorm | **to reconstruct** — product brainstorm (2026-06-05) predates the brief format; rebuild from `stet-prd.md` §12 + decision record |
 | `product/stet-prd.md` | prd | **draft** — fresh direction; resolves findings §10 (see its §12) |
