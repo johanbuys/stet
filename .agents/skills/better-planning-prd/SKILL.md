@@ -1,6 +1,6 @@
 ---
 name: better-planning-prd
-description: Phase ② of the better-planning family — write and settle PRDs (high-level product PRDs and per-feature PRDs) from a settled brainstorm brief, each with a self-contained HTML visual companion, review rounds with built-in review capture, and full decision traceability under docs/better-planning/. Use this whenever the user wants to write, draft, review, or revise a PRD, spec, or design doc — "write the PRD", "draft the spec", "let's review the draft", "formalize what we discussed" — and whenever docs/better-planning/ contains a settled brief awaiting its PRD or a PRD in draft/in-review.
+description: "Phase ② of the better-planning family — write and settle PRDs (high-level product PRDs and per-feature PRDs) from a settled brainstorm brief, each with a self-contained HTML visual companion, review rounds with built-in review capture, and full decision traceability under docs/better-planning/. Use this whenever the user wants to write, draft, review, or revise a PRD, spec, or design doc — \"write the PRD\", \"draft the spec\", \"let's review the draft\", \"formalize what we discussed\" — and whenever docs/better-planning/ contains a settled brief awaiting its PRD or a PRD in draft/in-review."
 ---
 
 # Better Planning · ② PRD
@@ -12,17 +12,20 @@ decision traceable to where it was made.
 
 ## The family
 
-Four complementary skills, one artifact space (`docs/better-planning/`), one objective: take a
+Five complementary skills, one artifact space (`docs/better-planning/`), one objective: take a
 fuzzy idea to buildable work with no ambiguity between human and agent.
 
 | Phase | Skill | Output (= the resume point) |
 |---|---|---|
 | ① brainstorm | better-planning-brainstorm | `<x>-brief.md` — the alignment record |
 | ② prd | **better-planning-prd** (this one) | settled `<x>-prd.md` + HTML companion |
-| ③ plan | better-planning-plan | `<feature>-plan.md` — milestones with verifiable outcomes |
-| ④ tasks | better-planning-tasks | `<feature>-tasks.md` — agent-executable units |
+| ③ design | better-planning-design | `<feature>-tdd.md` — technical design + HTML companion |
+| ④ plan | better-planning-plan | `<feature>-plan.md` — milestones with verifiable outcomes |
+| ⑤ tasks | better-planning-tasks | `<feature>-tasks.md` — agent-executable units |
 
-Every family skill opens by reading `docs/better-planning/README.md`'s status index; if the work
+Two companions cut across the phases: **canvas** (the interactive surface) and
+**better-planning-comprehend** (the during-build loop that keeps the technical design true to the
+landed code). Every family skill opens by reading `docs/better-planning/README.md`'s status index; if the work
 belongs to a different phase, say so and offer the right sibling. Every skill closes with a
 handoff: flip the artifact's status, update the index, offer the next phase.
 
@@ -80,7 +83,7 @@ user's ideas to their strongest form, nothing resolves silently.
 For asynchronous review, the companion doubles as the feedback instrument: its poke-at items
 carry comment boxes and an "Export review" button that downloads `<stem>-feedback.json`, which
 you then walk through item by item (see `references/html-artifacts.md` → Review capture). If
-**better-planning-canvas** is installed, serve the companion through it instead — comments post
+**canvas** is installed, serve the companion through it instead — comments post
 straight back, you wake on submit, and the page reloads after each resolved round; no
 export-download dance, and it works over SSH.
 
@@ -115,13 +118,16 @@ Branch per planning milestone; follow the repo's PR habits. Commit messages carr
 ## Handoff
 
 When a PRD settles: flip its status header, update the README index row, commit, and offer the
-next phase — "this PRD is settled. Want the implementation plan next (better-planning-plan), or
-descend to the next feature PRD first?" For a settled high-level PRD, the natural next step is
-usually the first feature PRD, not a plan.
+next phase — "this feature PRD is settled. Want the technical design next (better-planning-design)?
+It decides the architecture, data model, and stack before the plan sequences the build." For a
+settled high-level PRD, the natural next step is usually the first feature PRD, not a design or
+plan — descend a layer first.
 
 ## What this skill is not
 
 - Not the brainstorm: fork-level uncertainty goes back to better-planning-brainstorm.
+- Not the technical design: architecture, data model, interfaces, and stack belong to
+  better-planning-design; the PRD states *what and why*, never *how*.
 - Not the plan: build steps, milestones, and sequencing belong to better-planning-plan.
 - Not append-only paperwork: superseded docs move to `archive/`, the README index always
   reflects reality, and a doc that no longer matches a decision is a bug to fix immediately.

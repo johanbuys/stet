@@ -1,0 +1,37 @@
+{
+  "skill_name": "better-planning-comprehend",
+  "evals": [
+    {
+      "id": 0,
+      "name": "milestone-sync-teach-and-reconcile",
+      "prompt": "M2 of recurring-tasks just merged. Catch me up — am I still across this architecture, and did the build drift from the design?",
+      "expected_output": "Reads the recurring-tasks TDD (anchor), the plan's milestone definitions, and the git diff for the M2 window (from the last checkpoint recorded in the drift ledger). Filters to consequential deltas — changes touching a boundary, contract, data model, or a TDD decision — and explicitly does NOT walk routine within-spec implementation churn. Teaches each consequential delta layered-zoom (system shape → boundary → the decision the agent actually made, inferred from code). Reconciles each against the TDD one at a time: intentional evolution updates the living TDD in place (rationale appended to its decisions table); real drift is logged to recurring-tasks-drift.md and flagged for fix; an undecided fork becomes a new TDD decision made now. Never auto-fixes code and never auto-accepts drift — the human decides each item. Records the sync checkpoint in the drift ledger and updates the README `comprehend` status-index row.",
+      "files": [
+        "fixtures/taskpilot — with a settled recurring-tasks-tdd.md, a recurring-tasks-plan.md, and code landed for M1–M2 that diverges from one TDD decision"
+      ],
+      "assertions": [
+        "reads-tdd-and-diff: reconciliation is anchored on the TDD and the M2 code diff window, not a from-scratch read",
+        "filters-to-consequential: routine within-spec churn is summarized/ignored; only architecture-moving deltas are walked",
+        "teaches-layered-zoom: each surfaced delta is explained system-shape → boundary → decision, not just listed",
+        "reconciles-three-ways: deltas are dispositioned as intentional (TDD updated in place), drift (logged + flagged), or undecided (new TDD decision)",
+        "drift-ledger-written: recurring-tasks-drift.md exists/updates with the delta entries, dispositions, and a sync checkpoint",
+        "never-auto-fixes-or-accepts: no code fix is written and no drift is silently accepted; the human decides each item",
+        "index-comprehend-row: docs/better-planning/README.md status index reflects the comprehend sync checkpoint"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "no-tdd-offers-to-anchor-first",
+      "prompt": "I've been letting an agent build the billing feature for a while and I've lost the thread. Help me get back across it.",
+      "expected_output": "Finds no TDD for billing — so there is no design of record to reconcile against. Explains that drift is invisible without an anchor, and offers to either create one via better-planning-design or reconstruct a baseline TDD from the existing code, then sync forward from that baseline. Does not fabricate a reconciliation against a design that doesn't exist.",
+      "files": [
+        "fixtures/taskpilot — billing feature with landed code but no docs/better-planning/.../billing-tdd.md"
+      ],
+      "assertions": [
+        "detects-missing-anchor: recognizes there is no TDD to reconcile against",
+        "offers-to-anchor: offers better-planning-design or a code-reconstructed baseline TDD before syncing",
+        "no-fabricated-reconciliation: does not invent drift findings against a nonexistent design of record"
+      ]
+    }
+  ]
+}

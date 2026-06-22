@@ -62,7 +62,7 @@ in the JSON and in your replies, and they let a second export after edits diff c
 the first. Live conversational review stays first-class; review capture is for "let me look at
 this properly and get back to you."
 
-When the **better-planning-canvas** skill is installed, prefer its served live loop over the
+When the **canvas** skill is installed, prefer its served live loop over the
 export-download flow: same comment boxes, but submissions POST back to a local server, the
 agent wakes automatically, and the page reloads after each round — essential when the user is
 remote and `file://` is unreachable.

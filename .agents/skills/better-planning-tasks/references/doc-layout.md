@@ -1,6 +1,6 @@
 # Doc Layout & Conventions
 
-Shared by the better-planning family (brainstorm → prd → plan → tasks). The planning space is
+Shared by the better-planning family (brainstorm → prd → design → plan → tasks). The planning space is
 namespaced under `docs/better-planning/` so it never clashes with an existing repo's
 documentation. Everything the process produces lives here (one exception: the glossary may be
 promoted to repo root — see below).
@@ -22,9 +22,12 @@ docs/better-planning/
         <feature>-brief.md        ← only when the feature had its own brainstorm
         <feature>-prd.md
         <feature>-prd-overview.html
+        <feature>-tdd.md          ← phase ③ output: the technical design
+        <feature>-tdd-overview.html
         <feature>-plan.md
         <feature>-plan-overview.html
-        <feature>-tasks.md        ← phase ④ output; canonical even when exported to issues
+        <feature>-tasks.md        ← phase ⑤ output; canonical even when exported to issues
+        <feature>-drift.md        ← comprehend's living drift ledger (build-time)
   archive/
     <superseded-doc>.md           ← retired docs move here; never delete planning history
 ```
@@ -70,8 +73,14 @@ re-litigating. One row per artifact, grouped by feature:
 |---|---|---|
 | product/shelfwise-brief.md | brainstorm | settled 2026-06-06 |
 | product/shelfwise-prd.md | prd | in-review |
+| features/inventory-sync/inventory-sync-tdd.md | design | settled 2026-06-08 |
 | features/inventory-sync/inventory-sync-plan.md | plan | draft |
+| features/inventory-sync/inventory-sync-drift.md | comprehend | M2 synced 2026-06-12 |
 ```
+
+The `comprehend` row is a *build-time* checkpoint, not a settle-able phase: it records how far the
+drift ledger has been reconciled against landed code (e.g. "M2 synced"), so a fresh session knows
+where the human's last sync left off.
 
 Update the index in the same commit as any status change. The index *is* the router: every
 family skill reads it on open to know whether to proceed or hand off to a sibling.
@@ -118,8 +127,28 @@ sections — check before calling a draft done:
 - [ ] decisions table for calls made at this level (user-made calls distinguished from
       draft-level calls awaiting review)
 
+**Technical design / TDD** (`features/<feature>/<feature>-tdd.md`): the *how* at architecture
+altitude — derived from a settled feature PRD and consumed by the plan. The better-planning-design
+skill walks it out layered-zoom (system shape → boundaries → the decision), one consequential
+decision at a time, ranked by consequence × irreversibility rather than covered flat. A TDD is
+complete only when it has ALL of these — check before settling:
+
+- [ ] **system map** — components and how they fit the whole, at one diagram's depth
+- [ ] **data model** — entities, relationships, ownership
+- [ ] **key interfaces / contracts** between components (flagged at the top if others depend on them)
+- [ ] **major decisions** — each with the recommendation, the alternatives weighed, and *why*
+      (the rationale travels downstream, not just the what)
+- [ ] **technical risks & unknowns** register — what could break the design, and the open spikes
+- [ ] **NFRs** — perf / security / scale targets that shape the architecture
+- [ ] **stack / library choices**, with rationale
+- [ ] **decisions table** — calls made at this level (human-made calls distinguished from
+      draft-level proposals awaiting review)
+
+The plan cites TDD sections instead of re-deciding architecture: structural decisions live in the
+TDD, build sequencing in the plan. Companion `<feature>-tdd-overview.html` in the same commit.
+
 **Implementation plan** (`features/<feature>/<feature>-plan.md`): the how, derived from a
-settled PRD. A plan is complete only when it has ALL of these — check before calling it done:
+settled PRD and its TDD. A plan is complete only when it has ALL of these — check before calling it done:
 
 - [ ] build order with reasoning (risk and proof first, not document order)
 - [ ] milestones — each with: goal, ordered steps, files/modules touched, test plan
@@ -139,6 +168,14 @@ agent-executable units. One task ≈ one focused agent session. Each task carrie
 title; links to the exact PRD/plan sections it implements; files likely touched; its own
 acceptance check (how the builder proves it done). The markdown file is canonical even when
 exported to an issue tracker — see the tasks skill for the export protocol.
+
+**Drift ledger** (`features/<feature>/<feature>-drift.md`): the build-time record maintained by
+better-planning-comprehend as code lands — *not* a planning artifact but the reconciliation between
+the TDD and reality. One entry per consequential delta: what changed, where, the TDD section it
+touches, the disposition (intentional → the living TDD is updated; drift → flagged for fix;
+undecided → a new TDD decision is made now), and the sync checkpoint (milestone / commit). The TDD
+stays canonical and is edited in place as evolution is accepted; the ledger is the running record
+of every architectural divergence and its fate. See the comprehend skill for the sync protocol.
 
 ## Conventions that keep the space healthy
 

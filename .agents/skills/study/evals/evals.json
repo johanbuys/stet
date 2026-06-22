@@ -1,0 +1,88 @@
+{
+  "skill_name": "study",
+  "evals": [
+    {
+      "id": 0,
+      "name": "capture-only-no-teaching",
+      "fixture": "fixtures/study/empty-home",
+      "fixture_kind": "home",
+      "prompt": "Add 'how RRULE expansion works' to my study list — don't explain it now, I'm in the middle of something.",
+      "expected_output": "Appends exactly one line to ~/.study/topics.md (creating the file if absent) with the topic in the user's words, no status tag / date / machine field. Does NOT create any ~/.study/<slug>/ directory and does NOT start teaching. Confirms in a sentence and stops.",
+      "files": [
+        "fixtures/home — empty or with an existing ~/.study/topics.md"
+      ],
+      "assertions": [
+        "appends-one-line: ~/.study/topics.md gains exactly one line for the topic",
+        "no-state-in-queue: the line carries no status/date/priority/machine field",
+        "no-workspace-created: no ~/.study/<slug>/ directory is created",
+        "does-not-teach: the response captures and stops; it does not begin a lesson"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "graduate-line-and-scaffold-on-learn",
+      "fixture": "fixtures/study/queued-home",
+      "fixture_kind": "home",
+      "prompt": "Let's actually dig into the RRULE expansion topic from my queue now.",
+      "expected_output": "Derives a stable kebab slug (e.g. rrule-expansion), scaffolds ~/.study/rrule-expansion/ (TOPIC.md from the template, learning-record.md, lessons/, resources.md), and MOVES the topic line out of ~/.study/topics.md into TOPIC.md so it no longer appears in the queue. Then runs the dive. State lives in the filesystem; nothing is written back to topics.md.",
+      "files": [
+        "fixtures/home — ~/.study/topics.md containing the RRULE line"
+      ],
+      "assertions": [
+        "workspace-scaffolded: ~/.study/rrule-expansion/ exists with TOPIC.md and learning-record.md",
+        "line-graduated-out: the RRULE line is removed from ~/.study/topics.md",
+        "seed-populated: TOPIC.md carries the topic and any context from the queue line",
+        "no-status-written-to-queue: topics.md still contains no status markers"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "non-code-topic-no-fabricated-code",
+      "fixture": "fixtures/study/empty-home",
+      "fixture_kind": "home",
+      "prompt": "Teach me about investing — I know basically nothing.",
+      "expected_output": "Treats this as a conceptual topic: teaches with explanations, worked scenarios, diagrams, and quizzes, backed by cited sources in resources.md. Does NOT scaffold a code sandbox and does NOT fabricate code to look technical. Includes active retrieval practice (predict-first / quizzes), not just exposition. Uses the canvas for lessons if installed; otherwise degrades gracefully.",
+      "files": [
+        "fixtures/home — empty ~/.study/"
+      ],
+      "assertions": [
+        "conceptual-medium: lessons are conceptual (scenarios/diagrams), not code",
+        "no-fabricated-code: no sandbox repo and no code is invented for this non-code topic",
+        "retrieval-practice-present: the dive includes predict-first and/or quizzes, not passive reading",
+        "cites-sources: resources.md (or equivalent) records real cited sources"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "code-topic-sandbox-when-no-source",
+      "fixture": "fixtures/study/empty-home",
+      "fixture_kind": "home",
+      "prompt": "I want to really understand how a Bloom filter works, hands-on.",
+      "expected_output": "Recognizes a code-shaped topic with no existing source and that hands-on helps, so it scaffolds a minimal toy in ~/.study/<slug>/sandbox/ (smallest runnable thing that exhibits the idea) or references a known canonical implementation, and teaches through it with retrieval practice and citations. The sandbox is a teaching aid, kept minimal; it does not modify any of the user's real repositories.",
+      "files": [
+        "fixtures/home — empty ~/.study/"
+      ],
+      "assertions": [
+        "sandbox-scaffolded-or-referenced: a minimal sandbox under the topic workspace, or a cited canonical repo",
+        "teaches-through-it: the lesson uses the sandbox/example, with predict-first or quizzes",
+        "no-user-repo-mutation: no edits are made to the user's real project repos"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "degrades-without-canvas",
+      "fixture": "fixtures/study/auth-repo",
+      "fixture_kind": "cwd",
+      "prompt": "Let's do a deep dive on the auth token refresh in this repo.",
+      "expected_output": "With the canvas skill NOT installed, still runs the dive: grounds in the repo's real auth code, teaches with verbal predict-first recall checks, and produces a file:// HTML lesson or a terminal-driven lesson rather than blocking on the served canvas. Never refuses for lack of the canvas.",
+      "files": [
+        "fixtures/repo — an app with auth token-refresh code; canvas skill not installed"
+      ],
+      "assertions": [
+        "does-not-block-on-canvas: the dive proceeds without the canvas skill",
+        "grounds-in-existing-code: the lesson teaches through the repo's real auth files",
+        "still-recall-checked: retrieval practice happens even in the degraded surface"
+      ]
+    }
+  ]
+}
