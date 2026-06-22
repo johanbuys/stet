@@ -351,7 +351,17 @@ export function makeCompositePhase(
           // by id) rather than trusted from the judge — a misbehaving model cannot fabricate a
           // specialist name nor silently drop the field. Findings the judge raises cross-cutting
           // (no id match in the roll-up) correctly carry no specialist.
-          const specialistById = new Map(allFindings.map((f) => [f.id, f.specialist]));
+          //
+          // An id may legitimately repeat within ONE specialist (one finding per match) — those
+          // copies share a specialist and attribute cleanly. But two DISTINCT specialists can
+          // collide on an id (#48). The coordinator sees roll-up findings only by id, so such an
+          // id is genuinely ambiguous: rather than guess (last-in-roll-up wins would mis-attribute),
+          // the harness records it as ambiguous and the survivor carries no specialist.
+          const specialistById = new Map<string, string | undefined>();
+          for (const f of allFindings) {
+            if (!specialistById.has(f.id)) specialistById.set(f.id, f.specialist);
+            else if (specialistById.get(f.id) !== f.specialist) specialistById.set(f.id, undefined);
+          }
           const finalFindings = outcome.findings.map((f) => {
             const { specialist: _modelSupplied, ...rest } = f;
             const origin = specialistById.get(f.id);
