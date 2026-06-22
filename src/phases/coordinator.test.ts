@@ -168,6 +168,51 @@ describe("coordinator — happy path (roll-up replaced)", () => {
     expect(report.findings[0]!.specialist).toBe("alpha");
   });
 
+  it("ambiguous shared id across distinct specialists is not mis-attributed (#48)", async () => {
+    // alpha and beta both emit a finding under the SAME id and the coordinator keeps both.
+    // The harness sees roll-up findings only by id, so this id is genuinely ambiguous —
+    // provenance must be undefined for both, never last-in-roll-up wins (would mis-attribute
+    // both to "beta").
+    const shared = "ct.shared.id";
+    const coordOutput = [
+      fakeFinding({ id: shared, message: "alpha's view", specialist: "alpha" }),
+      fakeFinding({ id: shared, message: "beta's view", specialist: "beta" }),
+    ];
+    const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"), {
+      alphaFindings: [fakeFinding({ id: shared, message: "alpha's view", specialist: "alpha" })],
+      betaFindings: [fakeFinding({ id: shared, message: "beta's view", specialist: "beta" })],
+    });
+    const report = await phase.run(ctx());
+
+    expect(report.findings).toHaveLength(2);
+    for (const f of report.findings) {
+      expect(f.specialist).toBeUndefined();
+    }
+  });
+
+  it("unambiguous duplicate id from a single specialist keeps its provenance", async () => {
+    // One specialist legitimately emits one finding per match, all sharing an id. That id is
+    // NOT ambiguous — every copy belongs to alpha, so survivors must keep specialist "alpha".
+    const dup = "ct.alpha.dup";
+    const coordOutput = [
+      fakeFinding({ id: dup, message: "match A", specialist: "alpha" }),
+      fakeFinding({ id: dup, message: "match B", specialist: "alpha" }),
+    ];
+    const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"), {
+      alphaFindings: [
+        fakeFinding({ id: dup, message: "match A", specialist: "alpha" }),
+        fakeFinding({ id: dup, message: "match B", specialist: "alpha" }),
+      ],
+      betaFindings: [],
+    });
+    const report = await phase.run(ctx());
+
+    expect(report.findings).toHaveLength(2);
+    for (const f of report.findings) {
+      expect(f.specialist).toBe("alpha");
+    }
+  });
+
   it("harness controls phase field on coordinator findings", async () => {
     const coordOutput = [
       // Coordinator submits with wrong phase — harness overrides it.
