@@ -192,8 +192,9 @@ harness-stamped); the harness assembles the final `Finding`. Non-verify phases (
 ### B·2 — Deterministic pre-existing detection *(settled — review)*
 
 Per PRD decision #14, `meta.preexisting` is **deterministic**, computed by the harness from the
-diff — never a model judgment. Mechanism (reuses `src/diff-sections.ts`, which already parses
-hunks):
+diff — never a model judgment. Mechanism (**correction, cold-reader 2026-06-22:** `src/diff-sections.ts`
+splits a diff into per-file sections via `+++`/`---` only — it does **not** parse `@@` hunks or line
+numbers, so added-line parsing is **new** code, not a reuse):
 
 1. From the net diff, build an **added-line index**: per file, the set of line numbers in added
    (`+`) hunks. Computed **once** per run.
@@ -211,9 +212,12 @@ location-based, so order vs the coordinator doesn't matter.
 
 ### B·3 — Schema mechanics *(settled — review)*
 
-`Finding` stays the shared, versioned wire contract (additions are `meta`-namespaced, so no
-breaking change): `meta.preexisting?: boolean`, `meta.selfConfidence?: Confidence`. The new
-`SpecialistSubmission` schema is review-local (the model-facing form). `confidence` stays a
+`Finding` stays the shared, versioned wire contract. `meta` stays **open**
+(`additionalProperties:true`) — `preexisting` and `selfConfidence` are **conventional keys within
+it**, documented but *not* a narrowed schema (narrowing would break the Phase-5 open-`meta` tests,
+cold-reader F1). Consumers (incl. `deriveExit`) read them with a **runtime check**
+(`meta?.preexisting === true`). The new `SpecialistSubmission` schema is review-local (the
+model-facing form). `confidence` stays a
 **required** field on `Finding` (every emitted finding has an operative confidence by the time it's
 a `Finding`), satisfied by verify for review and by per-phase rules elsewhere.
 
@@ -394,7 +398,7 @@ Human-made calls (canvas walk) vs draft-level proposals awaiting review.
 | B·1 | **Operative `confidence` is harness-owned** (from verify); the specialist's self-rating is kept as labeled **`meta.selfConfidence`** — never shown to voters (preserves independence), used for nothing in v1, recorded so the eval (area C) can measure whether it predicts agreement | user (2026-06-22) | self-reported confidence is the miscalibrated thing voting replaces (decision 1) + anchoring voters breaks independence; but discard-vs-use is empirical → measure it (#5) | settled |
 | A·4 | **`confidence: high` joins the protected class** (coordinator can't silently drop a 3/3 finding; reinstated + audited). Confidence harness-stamped by id (downgrade impossible); merge keeps highest-confidence id; new separate `audit.verify` block | user (2026-06-22) | agreement is the corroboration currency; dropping a corroborated finding = missed gate, the costliest failure; reuses existing reinstatement + #48 provenance pattern | settled |
 | C·1 | **Eval execution = tiered split** — default `vp test` runs cassettes (fast/deterministic/CI-safe); opt-in `eval:live` (keyed) re-measures quality + updates a committed baseline | user (2026-06-22) | the eval has two jobs (machinery vs quality); each in its own mode = green CI *and* a real gate; tiny-live-smoke-set per commit deferred to review | settled |
-| B·2 | Pre-existing detection = deterministic diff added-line membership; cross-cutting (no line) ⇒ not pre-existing | draft → user review | PRD #14 — deterministic, reproducible; conservative on un-localizable findings | settled (review 2026-06-22) |
+| B·2 | Pre-existing detection = deterministic diff added-line membership; cross-cutting (no line) ⇒ not pre-existing. **Corrected 2026-06-22 (cold reader):** added-line/`@@`-hunk parsing is **new** code — `diff-sections.ts` only splits by file, it does not parse hunks | draft → user review | PRD #14 — deterministic, reproducible; conservative on un-localizable findings | settled (review 2026-06-22) |
 | B·3 | Split `SpecialistSubmission` (no `confidence`) from shared `Finding`; additions `meta`-namespaced | draft → user review | non-breaking wire contract; harness owns operative confidence | settled (review 2026-06-22) |
 | C·2–4 | LLM-judge grader (location+embedding, 1-to-1, HIT/VALID/NOISE; κ≥0.75 golden gate); SNR + per-tier P/R + clean-FPR; committed baseline; fixtures under `src/eval/` | draft → user review | mirrors POC + PRD R9/C5/#13/#15 | settled (review 2026-06-22) |
 | D–G | Specialist panel (4 configs, rubric=data), risk rules (levels + sensitive-path overrides), `phases.review` config slice, `deriveExit += high ∧ !preexisting` | draft → user review | assembling built machinery + eval-tuned data; minimal new architecture | settled (review 2026-06-22) |
