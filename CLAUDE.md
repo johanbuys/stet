@@ -22,8 +22,12 @@ a thrown exception. Rationale and scope: `docs/better-planning/product/features/
 
 ## Project Direction & Documentation (read before starting)
 
-**Status:** greenfield — `src/cli.ts` is a stub. The project is being (re)specified before
-implementation. Start from the docs.
+**Status:** the **harness is built** — all milestones in `harness-plan.md` (M1–M9 + M7.5) are
+merged and `src/cli.ts` is a working CLI (det. tracer → steel thread → budgets → scheduler →
+config precedence → model routing → composite specialists → coordinator + risk classifier →
+spec context → human output). The next build is the **Phase 3 `code-review` feature** (its PRD is
+settled; next artifact is the implementation plan). Still start from the docs — `harness-prd.md`
+and `harness-plan.md` describe what the code implements.
 
 **Documentation:** see `docs/better-planning/README.md` for the doc map, status index, and
 workflow — planning runs on the **better-planning skill family** (brainstorm → prd → plan →
@@ -32,7 +36,8 @@ tasks, canvas for review) operating on that space. Docs flow broad → specific:
 drafted) → per-feature PRDs → per-feature implementation plans → task breakdowns. Write them in
 that order. A feature's artifacts all live together in
 `docs/better-planning/product/features/<feature>/` (`<feature>-brief.md`, `<feature>-prd.md`,
-`<feature>-plan.md`, `<feature>-tasks.md`; harness PRD drafted). The original PRD (`docs/better-planning/archive/stet-prd-v1.md`) is historical, superseded by the
+`<feature>-plan.md`, `<feature>-tasks.md`; harness feature fully built, code-review PRD settled).
+The original PRD (`docs/better-planning/archive/stet-prd-v1.md`) is historical, superseded by the
 fresh high-level PRD. Every PRD has a companion `<name>-overview.html` for visual review.
 
 **Terminology:** `GLOSSARY.md` is the shared vocabulary (harness, phase, specialist,
