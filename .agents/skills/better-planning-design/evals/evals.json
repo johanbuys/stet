@@ -1,0 +1,37 @@
+{
+  "skill_name": "better-planning-design",
+  "evals": [
+    {
+      "id": 0,
+      "name": "tdd-from-settled-prd-walked-not-dumped",
+      "prompt": "The recurring-tasks feature PRD is settled — let's design the technical approach before we plan the build.",
+      "expected_output": "Reads docs/better-planning/ index, confirms the recurring-tasks PRD is settled, and reads it (plus the brief) before designing. Does NOT dump a finished design for approval: lays out the technical-area map first, ranks areas by consequence × irreversibility, and walks the high-consequence ones layered-zoom (system shape → boundaries → decision) one at a time, bringing a recommendation with alternatives and asking the human to make each call. Writes <feature>-tdd.md at features/recurring-tasks/recurring-tasks-tdd.md with a status header, system map, data model, interfaces/contracts, major decisions (each with alternatives + rationale), technical-risks register, NFRs, stack choices, and a decisions table (human-made vs draft). Creates a self-contained companion recurring-tasks-tdd-overview.html. Adds a `design`-phase row to the README status index. Does NOT write implementation code and does NOT re-decide product scope the PRD owns.",
+      "files": [
+        "fixtures/taskpilot — with a settled docs/better-planning/product/features/recurring-tasks/recurring-tasks-prd.md"
+      ],
+      "assertions": [
+        "tdd-artifact-exists: a TDD exists at docs/better-planning/product/features/recurring-tasks/recurring-tasks-tdd.md (namespaced, stem-named) with a status header",
+        "tdd-structure-complete: the TDD contains system map, data model, interfaces/contracts, major decisions with alternatives+rationale, technical-risks, NFRs, stack choices, and a decisions table",
+        "walked-not-dumped: the conversation walks decisions one at a time (area map, then consequence-ranked layered-zoom) rather than presenting a whole finished design for a single yes/no",
+        "companion-html-self-contained: a recurring-tasks-tdd-overview.html exists next to the TDD and references no external http(s) resources",
+        "index-has-design-row: docs/better-planning/README.md status index gains a row for the TDD at phase `design`",
+        "no-scope-invention: product requirements/scope are not silently changed; any PRD gap is surfaced upward, not answered in the TDD",
+        "no-implementation-code: no application/source code is written by the skill"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "routes-back-when-prd-not-settled",
+      "prompt": "Design the architecture for the notifications feature.",
+      "expected_output": "Checks the index, finds the notifications PRD is still in-review (or absent), says so, and offers better-planning-prd to settle it first rather than designing against a moving target. If the user insists on proceeding, lists which open PRD items the TDD will have to assume and marks those assumptions explicitly in the design.",
+      "files": [
+        "fixtures/taskpilot — with docs/better-planning/.../notifications-prd.md in status in-review"
+      ],
+      "assertions": [
+        "detects-unsettled-prd: recognizes the notifications PRD is not settled and states it",
+        "offers-prd-sibling: routes to better-planning-prd to settle the PRD before designing",
+        "assumptions-marked-if-forced: if the user proceeds anyway, the assumed-open PRD items are marked explicitly in the TDD"
+      ]
+    }
+  ]
+}

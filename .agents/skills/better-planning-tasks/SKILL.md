@@ -1,9 +1,9 @@
 ---
 name: better-planning-tasks
-description: Phase ④ of the better-planning family — break a settled implementation plan into agent-executable tasks, each self-contained with links back to the exact PRD/plan sections it implements, files likely touched, and its own acceptance check, as <feature>-tasks.md (canonical), optionally exported to GitHub issues (one batch label) + native GitHub Milestones (one per plan milestone, one PR per milestone). Use this whenever the user wants work broken down into executable units — "break this into tasks", "create the tickets", "make GitHub issues for this", "split this up so agents can build it" — and whenever docs/better-planning/ shows a settled plan without a task breakdown.
+description: "Phase ⑤ of the better-planning family — break a settled implementation plan into agent-executable tasks, each self-contained with links back to the exact PRD/plan sections it implements, files likely touched, and its own acceptance check, as <feature>-tasks.md (canonical), optionally exported to GitHub issues (one batch label) + native GitHub Milestones (one per plan milestone, one PR per milestone). Use this whenever the user wants work broken down into executable units — \"break this into tasks\", \"create the tickets\", \"make GitHub issues for this\", \"split this up so agents can build it\" — and whenever docs/better-planning/ shows a settled plan without a task breakdown."
 ---
 
-# Better Planning · ④ Task breakdown
+# Better Planning · ⑤ Task breakdown
 
 The family's definition of done: **"go do task 3" works cold** — an agent (or human) with no
 conversation history opens the task, follows its links, builds it, and proves it done with the
@@ -11,18 +11,22 @@ task's own acceptance check. This phase converts plan milestones into units of t
 
 ## The family
 
-Four complementary skills, one artifact space (`docs/better-planning/`), one objective: take a
+Five complementary skills, one artifact space (`docs/better-planning/`), one objective: take a
 fuzzy idea to buildable work with no ambiguity between human and agent.
 
 | Phase | Skill | Output (= the resume point) |
 |---|---|---|
 | ① brainstorm | better-planning-brainstorm | `<x>-brief.md` — the alignment record |
 | ② prd | better-planning-prd | settled `<x>-prd.md` + HTML companion |
-| ③ plan | better-planning-plan | `<feature>-plan.md` — milestones with verifiable outcomes |
-| ④ tasks | **better-planning-tasks** (this one) | `<feature>-tasks.md` — agent-executable units |
+| ③ design | better-planning-design | `<feature>-tdd.md` — technical design + HTML companion |
+| ④ plan | better-planning-plan | `<feature>-plan.md` — milestones with verifiable outcomes |
+| ⑤ tasks | **better-planning-tasks** (this one) | `<feature>-tasks.md` — agent-executable units |
 
-Every family skill opens by reading `docs/better-planning/README.md`'s status index; if the work
-belongs to a different phase, say so and offer the right sibling.
+Two companions cut across the phases: **canvas** (the interactive surface) and
+**better-planning-comprehend** (the during-build loop that keeps the technical design true to the
+landed code as these tasks are executed). Every family skill opens by reading
+`docs/better-planning/README.md`'s status index; if the work belongs to a different phase, say so
+and offer the right sibling.
 
 ## Pick up from the plan
 
@@ -131,9 +135,13 @@ Milestones are the unit you hand to an agent. The shape that holds up:
 ## Handoff
 
 When the breakdown is ready: flip the status header, update the README index row, commit. This
-is the end of the family's ladder — the handoff is to *building*, which is outside its scope:
-"tasks are ready; `<feature>-tasks.md` T1 is the starting point, and each task proves itself
-via its accept line."
+is the end of the family's *planning* ladder — the handoff is to *building*: "tasks are ready;
+`<feature>-tasks.md` T1 is the starting point, and each task proves itself via its accept line."
+
+Building is no longer where the family lets go, though. As milestones land, **better-planning-comprehend**
+reconciles the code against the TDD and keeps the human across the architecture instead of drifting
+out of it — offer it at the first milestone boundary: "as the build lands, want to run the comprehend
+loop at each milestone so the design stays true and you stay the architect?"
 
 ## What this skill is not
 

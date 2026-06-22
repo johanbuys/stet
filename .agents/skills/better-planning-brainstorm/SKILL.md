@@ -1,6 +1,6 @@
 ---
 name: better-planning-brainstorm
-description: Phase ① of the better-planning family — collaborative brainstorming that turns a fuzzy product or feature idea into a settled alignment brief (<x>-brief.md under docs/better-planning/), one decision at a time, with ephemeral HTML visuals for decisions that are easier seen than read. Use this whenever the user wants to start planning, scoping, or rethinking a product or feature — "let's plan X", "think through this feature", "what should we build", "I have an idea for…", "spec this out" — even if they never say "brainstorm". Also use it when a repo's docs/better-planning/ index shows work still at brainstorm phase, or when no planning space exists yet.
+description: "Phase ① of the better-planning family — collaborative brainstorming that turns a fuzzy product or feature idea into a settled alignment brief (<x>-brief.md under docs/better-planning/), one decision at a time, with ephemeral HTML visuals for decisions that are easier seen than read. Use this whenever the user wants to start planning, scoping, or rethinking a product or feature — \"let's plan X\", \"think through this feature\", \"what should we build\", \"I have an idea for…\", \"spec this out\" — even if they never say \"brainstorm\". Also use it when a repo's docs/better-planning/ index shows work still at brainstorm phase, or when no planning space exists yet."
 ---
 
 # Better Planning · ① Brainstorm
@@ -14,17 +14,20 @@ the next session, human or agent, can find it.
 
 ## The family
 
-Four complementary skills, one artifact space (`docs/better-planning/`), one objective: take a
+Five complementary skills, one artifact space (`docs/better-planning/`), one objective: take a
 fuzzy idea to buildable work with no ambiguity between human and agent.
 
 | Phase | Skill | Output (= the resume point) |
 |---|---|---|
 | ① brainstorm | **better-planning-brainstorm** (this one) | `<x>-brief.md` — the alignment record |
 | ② prd | better-planning-prd | settled `<x>-prd.md` + HTML companion |
-| ③ plan | better-planning-plan | `<feature>-plan.md` — milestones with verifiable outcomes |
-| ④ tasks | better-planning-tasks | `<feature>-tasks.md` — agent-executable units |
+| ③ design | better-planning-design | `<feature>-tdd.md` — technical design + HTML companion |
+| ④ plan | better-planning-plan | `<feature>-plan.md` — milestones with verifiable outcomes |
+| ⑤ tasks | better-planning-tasks | `<feature>-tasks.md` — agent-executable units |
 
-Every family skill opens the same way: read `docs/better-planning/README.md`'s status index to
+Two companions cut across the phases: **canvas** (the interactive surface) and
+**better-planning-comprehend** (the during-build loop that keeps the technical design true to the
+landed code). Every family skill opens the same way: read `docs/better-planning/README.md`'s status index to
 see where things stand. If the work belongs to a different phase, say so and offer the right
 sibling — wrong entry door, right room. Every skill closes with a handoff: flip the artifact's
 status, update the index, offer the next phase. The artifact, not the conversation, carries the
@@ -132,7 +135,7 @@ Build from `assets/overview-template.html`; rules in `references/html-artifacts.
 visuals. Offer one proactively when an exchange goes back and forth twice without landing —
 that's the signal that prose isn't carrying the picture. Never commit these.
 
-If **better-planning-canvas** is installed, prefer it as the surface: it serves the page (so
+If **canvas** is installed, prefer it as the surface: it serves the page (so
 remote/SSH users can open it), puts the comment box for the decision *on* the page, and wakes
 you when the user answers — the whole brainstorm can run as its live loop, with the brief
 staying canonical.
