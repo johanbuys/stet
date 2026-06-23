@@ -1,3 +1,30 @@
+## 2026-06-23 - TASK-066 (T2): Add typed VerifyAudit to the closed Audit schema
+
+**What was done:** Added `VoterVerdict` and `VerifyAudit` TypeBox schemas to `src/schema/report.ts`
+and wired `verify?: VerifyAudit` into the `Audit` schema as an optional field alongside the
+existing `coordinator` (TDD A·4, plan §M1 step 0b). `Audit` remains closed (`additionalProperties:false`),
+so any unknown key in `audit.verify` causes `parseRunReport` to return `Err(SchemaError)`.
+
+- `src/schema/report.ts`: Added `VoterVerdict` (verdict union + reason) and `VerifyAudit`
+  (received: number, dropped array with id/specialist?/upholds/verdicts). Both schemas have
+  `additionalProperties:false`. Added `verify?: Type.Optional(VerifyAudit)` to `Audit`.
+  Exported `VoterVerdict` and `VerifyAudit` static types.
+
+- `src/schema/report.test.ts`: 7 new T2 tests — audit.verify accepted; empty dropped accepted;
+  verify alongside coordinator; dropped entry without specialist; unknown top-level field on
+  VerifyAudit rejected; unknown field on dropped entry rejected; invalid VoterVerdict.verdict rejected.
+
+**Learnings:**
+- TypeBox named schema constants (`export const VerifyAudit = Type.Object(...)`) used inline as
+  `Type.Optional(VerifyAudit)` work correctly — no need to duplicate inline. TypeBox resolves the
+  reference at validation time.
+- The `additionalProperties: false` on `Audit` is load-bearing for the CLI self-check (exit 2 on
+  unknown keys). Adding `verify` to the schema before anything emits it (step 0b) is the correct
+  ordering — T4's `runAgreementVerify` will write `audit.verify` and rely on this schema being there.
+- Existing tests using `audit: { checks: [...] }` and `audit: { examined: [...] }` continued to pass
+  with no changes — adding a new optional field is non-breaking.
+----
+
 ## 2026-06-23 - TASK-065 (T1): Extend FakeAgentRunner to a per-call script queue
 
 **What was done:** Extended `FakeAgentRunner` (M1 code-review, issue #65) to accept

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { parseRunReport, type RunReport } from "./report.js";
+import { parseRunReport, type RunReport, type VerifyAudit } from "./report.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixture: a valid RunReport adapted from PRD §4.10 Example A.
@@ -302,6 +302,189 @@ describe("PhaseId pattern — accepted and rejected values (via RunReport phases
 
   it("rejects 'gates_x' (underscore)", () => {
     const result = reportWithPhaseId("gates_x");
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("SchemaError");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// VerifyAudit in Audit schema (T2)
+// ---------------------------------------------------------------------------
+
+describe("VerifyAudit — audit.verify in PhaseReport (T2)", () => {
+  const verifyAudit: VerifyAudit = {
+    received: 3,
+    dropped: [
+      {
+        id: "review.bug-1",
+        specialist: "bugs",
+        upholds: 1,
+        verdicts: [
+          { verdict: "uphold", reason: "real issue" },
+          { verdict: "refute", reason: "out of scope" },
+          { verdict: "refute", reason: "pre-existing" },
+        ],
+      },
+    ],
+  };
+
+  it("accepts a PhaseReport with audit.verify populated", () => {
+    const report: RunReport = {
+      ...validReport,
+      phases: [
+        {
+          phase: "review",
+          status: "completed",
+          findings: [],
+          audit: { verify: verifyAudit },
+          cost: { durationMs: 1000 },
+        },
+      ],
+    };
+    expect(parseRunReport(report).isOk()).toBe(true);
+  });
+
+  it("accepts audit.verify with no dropped entries (all upheld)", () => {
+    const report: RunReport = {
+      ...validReport,
+      phases: [
+        {
+          phase: "review",
+          status: "completed",
+          findings: [],
+          audit: { verify: { received: 2, dropped: [] } },
+          cost: { durationMs: 500 },
+        },
+      ],
+    };
+    expect(parseRunReport(report).isOk()).toBe(true);
+  });
+
+  it("accepts audit.verify alongside audit.coordinator", () => {
+    const report: RunReport = {
+      ...validReport,
+      phases: [
+        {
+          phase: "review",
+          status: "completed",
+          findings: [],
+          audit: {
+            verify: { received: 5, dropped: [] },
+            coordinator: {
+              received: 5,
+              dropped: [],
+              reinstated: [],
+            },
+          },
+          cost: { durationMs: 2000 },
+        },
+      ],
+    };
+    expect(parseRunReport(report).isOk()).toBe(true);
+  });
+
+  it("accepts dropped entry without optional specialist field", () => {
+    const report: RunReport = {
+      ...validReport,
+      phases: [
+        {
+          phase: "review",
+          status: "completed",
+          findings: [],
+          audit: {
+            verify: {
+              received: 1,
+              dropped: [
+                {
+                  id: "review.x",
+                  upholds: 0,
+                  verdicts: [
+                    { verdict: "refute", reason: "no evidence" },
+                    { verdict: "refute", reason: "too vague" },
+                    { verdict: "abstain", reason: "uncertain" },
+                  ],
+                },
+              ],
+            },
+          },
+          cost: { durationMs: 100 },
+        },
+      ],
+    };
+    expect(parseRunReport(report).isOk()).toBe(true);
+  });
+
+  it("rejects audit.verify with an unknown extra field (additionalProperties: false)", () => {
+    const result = parseRunReport({
+      ...validReport,
+      phases: [
+        {
+          phase: "review",
+          status: "completed",
+          findings: [],
+          audit: {
+            verify: { received: 1, dropped: [], unexpected: true },
+          },
+          cost: { durationMs: 100 },
+        },
+      ],
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("SchemaError");
+    }
+  });
+
+  it("rejects a dropped entry with an unknown extra field (additionalProperties: false)", () => {
+    const result = parseRunReport({
+      ...validReport,
+      phases: [
+        {
+          phase: "review",
+          status: "completed",
+          findings: [],
+          audit: {
+            verify: {
+              received: 1,
+              dropped: [{ id: "x", upholds: 0, verdicts: [], extra: "bad" }],
+            },
+          },
+          cost: { durationMs: 100 },
+        },
+      ],
+    });
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) {
+      expect(result.error._tag).toBe("SchemaError");
+    }
+  });
+
+  it("rejects a VoterVerdict with an invalid verdict value", () => {
+    const result = parseRunReport({
+      ...validReport,
+      phases: [
+        {
+          phase: "review",
+          status: "completed",
+          findings: [],
+          audit: {
+            verify: {
+              received: 1,
+              dropped: [
+                {
+                  id: "x",
+                  upholds: 0,
+                  verdicts: [{ verdict: "pass", reason: "bad verdict" }],
+                },
+              ],
+            },
+          },
+          cost: { durationMs: 100 },
+        },
+      ],
+    });
     expect(result.isErr()).toBe(true);
     if (result.isErr()) {
       expect(result.error._tag).toBe("SchemaError");
