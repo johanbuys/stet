@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vite-plus/test";
 import { buildAddedLineIndex, markPreexisting } from "./preexisting.js";
+import { PREEXISTING_META_KEY } from "./schema/finding.js";
 import type { Finding } from "./schema/finding.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -401,5 +402,213 @@ describe("markPreexisting", () => {
     expect((onContext3.meta as Record<string, unknown>)?.["preexisting"]).toBe(true);
     expect((onAdded11.meta as Record<string, unknown>)?.["preexisting"]).toBeUndefined();
     expect((onContext12.meta as Record<string, unknown>)?.["preexisting"]).toBe(true);
+  });
+});
+
+// ── Finding #4: index keyed by section.path ───────────────────────────────────
+// Tests that verify buildAddedLineIndex uses section.path as the map key
+// (identical behaviour for standard diffs; the important guard is pure-deletion
+// detection still works without re-deriving the key from `+++ `).
+
+describe("buildAddedLineIndex — section.path keying (finding #4)", () => {
+  it("pure deletion section still produces no index entry", () => {
+    // parseDiffSections gives path = "old.ts" (falls back to --- side).
+    // The +++ /dev/null check must still prevent any entry being created.
+    const diff = [
+      "diff --git a/old.ts b/old.ts",
+      "--- a/old.ts",
+      "+++ /dev/null",
+      "@@ -1,3 +0,0 @@",
+      "-line 1",
+      "-line 2",
+      "-line 3",
+    ].join("\n");
+    const idx = buildAddedLineIndex(diff);
+    expect(idx.has("old.ts")).toBe(false);
+    expect(idx.has("/dev/null")).toBe(false);
+    expect(idx.size).toBe(0);
+  });
+
+  it("real file is keyed by section.path (b/ prefix stripped identically)", () => {
+    const diff = [
+      "diff --git a/src/foo.ts b/src/foo.ts",
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -1,1 +1,2 @@",
+      " line 1",
+      "+added 2",
+    ].join("\n");
+    const idx = buildAddedLineIndex(diff);
+    // section.path and +++ path both resolve to "src/foo.ts"
+    expect(idx.has("src/foo.ts")).toBe(true);
+    expect(idx.get("src/foo.ts")).toEqual(new Set([2]));
+  });
+});
+
+// ── Finding #1: normalize location.file before lookup ────────────────────────
+
+describe("markPreexisting — path normalization (finding #1)", () => {
+  const base = {
+    phase: "review" as const,
+    confidence: "high" as const,
+    severity: "error" as const,
+  } as const;
+
+  it("finding with b/ prefix resolves as introduced (not stamped preexisting)", () => {
+    // Index keyed as "src/a.ts"; model supplies "b/src/a.ts"
+    const idx = new Map([["src/a.ts", new Set([5])]]);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "b/src/a.ts", line: 5 },
+    });
+    markPreexisting([f], idx);
+    expect((f.meta as Record<string, unknown>)?.[PREEXISTING_META_KEY]).toBeUndefined();
+  });
+
+  it("finding with ./ prefix resolves as introduced (not stamped preexisting)", () => {
+    // Index keyed as "src/a.ts"; model supplies "./src/a.ts"
+    const idx = new Map([["src/a.ts", new Set([5])]]);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "./src/a.ts", line: 5 },
+    });
+    markPreexisting([f], idx);
+    expect((f.meta as Record<string, unknown>)?.[PREEXISTING_META_KEY]).toBeUndefined();
+  });
+
+  it("finding with b/ prefix on non-added line is stamped preexisting", () => {
+    // Index keyed as "src/a.ts"; model supplies "b/src/a.ts", but line not added
+    const idx = new Map([["src/a.ts", new Set([5])]]);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "b/src/a.ts", line: 3 },
+    });
+    markPreexisting([f], idx);
+    expect((f.meta as Record<string, unknown>)?.[PREEXISTING_META_KEY]).toBe(true);
+  });
+
+  it("finding with ./ prefix on non-added line is stamped preexisting", () => {
+    const idx = new Map([["src/a.ts", new Set([5])]]);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "./src/a.ts", line: 3 },
+    });
+    markPreexisting([f], idx);
+    expect((f.meta as Record<string, unknown>)?.[PREEXISTING_META_KEY]).toBe(true);
+  });
+});
+
+// ── Finding #2: strip forged meta.preexisting on introduced lines ─────────────
+
+describe("markPreexisting — strip forged preexisting (finding #2)", () => {
+  const base = {
+    phase: "review" as const,
+    confidence: "high" as const,
+    severity: "error" as const,
+  } as const;
+
+  it("finding on an added line carrying forged meta.preexisting → key stripped", () => {
+    const idx = new Map([["src/a.ts", new Set([5])]]);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "src/a.ts", line: 5 },
+      meta: { [PREEXISTING_META_KEY]: true } as Record<string, unknown>,
+    });
+    markPreexisting([f], idx);
+    expect((f.meta as Record<string, unknown>)?.[PREEXISTING_META_KEY]).toBeUndefined();
+  });
+
+  it("stripping forged key leaves other meta keys intact", () => {
+    const idx = new Map([["src/a.ts", new Set([5])]]);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "src/a.ts", line: 5 },
+      meta: { [PREEXISTING_META_KEY]: true, selfConfidence: "medium" } as Record<string, unknown>,
+    });
+    markPreexisting([f], idx);
+    const meta = f.meta as Record<string, unknown>;
+    expect(meta[PREEXISTING_META_KEY]).toBeUndefined();
+    expect(meta["selfConfidence"]).toBe("medium");
+  });
+
+  it("introduced finding with no meta: meta stays undefined (no object created)", () => {
+    const idx = new Map([["src/a.ts", new Set([5])]]);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "src/a.ts", line: 5 },
+    });
+    markPreexisting([f], idx);
+    expect(f.meta).toBeUndefined();
+  });
+});
+
+// ── Finding #3: combined-diff sections are skipped ───────────────────────────
+
+describe("buildAddedLineIndex — combined diff detection (finding #3)", () => {
+  it("diff --cc section produces no index entry and does not crash", () => {
+    const diff = [
+      "diff --cc src/merge.ts",
+      "index abc..def 100644",
+      "--- a/src/merge.ts",
+      "+++ b/src/merge.ts",
+      "@@@ -1,4 -1,4 +1,5 @@@",
+      "  context",
+      "++added in merge",
+      "  more context",
+    ].join("\n");
+    const idx = buildAddedLineIndex(diff);
+    expect(idx.has("src/merge.ts")).toBe(false);
+    expect(idx.size).toBe(0);
+  });
+
+  it("diff --combined section produces no index entry and does not crash", () => {
+    const diff = [
+      "diff --combined src/merge.ts",
+      "index abc..def 100644",
+      "--- a/src/merge.ts",
+      "+++ b/src/merge.ts",
+      "@@@ -1,3 -1,3 +1,4 @@@",
+      "  context",
+      "++added",
+    ].join("\n");
+    const idx = buildAddedLineIndex(diff);
+    expect(idx.has("src/merge.ts")).toBe(false);
+    expect(idx.size).toBe(0);
+  });
+
+  it("combined diff mixed with a regular diff: regular file is indexed, combined is skipped", () => {
+    const diff = [
+      "diff --cc src/merge.ts",
+      "index abc..def 100644",
+      "--- a/src/merge.ts",
+      "+++ b/src/merge.ts",
+      "@@@ -1,3 -1,3 +1,4 @@@",
+      "  context",
+      "++added",
+      "diff --git a/src/normal.ts b/src/normal.ts",
+      "--- a/src/normal.ts",
+      "+++ b/src/normal.ts",
+      "@@ -1,1 +1,2 @@",
+      " line 1",
+      "+added 2",
+    ].join("\n");
+    const idx = buildAddedLineIndex(diff);
+    expect(idx.has("src/merge.ts")).toBe(false);
+    expect(idx.has("src/normal.ts")).toBe(true);
+    expect(idx.get("src/normal.ts")).toEqual(new Set([2]));
   });
 });

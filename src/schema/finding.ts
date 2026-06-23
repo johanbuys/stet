@@ -112,50 +112,39 @@ export type Confidence = Static<typeof Confidence>;
 export type Finding = Static<typeof Finding>;
 
 /**
+ * The harness-owned meta key marking a finding as pre-existing (not introduced
+ * by the diff). Written by `markPreexisting`, read by the gate.
+ * Never model-supplied.
+ */
+export const PREEXISTING_META_KEY = "preexisting";
+
+/**
  * Model-facing submit schema for the review phase (TDD B·1/B·3).
  *
- * `SpecialistSubmission` is `Finding` minus the three harness-stamped fields:
+ * Derived from `Finding` by omitting the three harness-stamped fields:
  *   - `confidence` — harness-owned; stamped by agreement-verify (Area A).
  *   - `specialist`  — harness-stamped from the runner config.
  *   - `phase`       — harness-stamped ("review").
+ *
+ * `additionalProperties: false` is inherited from `Finding` via `Type.Omit`,
+ * so `confidence`, `phase`, `specialist`, and any unknown keys are still rejected
+ * at the top level. All sub-schemas (`location`, `evidence`, `meta`) are identical
+ * to those in `Finding`.
  *
  * `meta` stays **open** (`additionalProperties:true`; identical to `Finding.meta`).
  * Two conventional keys live inside it — read by the harness at runtime, never
  * narrowed into the schema (TDD B·3; narrowing would break Phase-5 open-meta tests):
  *   - `meta.selfConfidence` (`"high"|"medium"|"low"`) — specialist's own rating,
  *     recorded for eval correlation, never shown to voters, unused operationally (B·1).
- *   - `meta.preexisting`   (`true`) — set by `markPreexisting` after submission,
+ *   - `meta[PREEXISTING_META_KEY]` (`true`) — set by `markPreexisting` after submission,
  *     never supplied by the model; read via `meta?.preexisting === true` (B·2/B·3).
+ *
+ * **Not yet wired (M4).** When adopted as the specialist submitSchema, the harness
+ * must (a) stamp `confidence`/`phase`/`specialist` after parse and (b) switch the
+ * ingestion validation from `Finding` to `SpecialistSubmission` — `parseFindings`
+ * currently requires the harness-stamped fields, so the two must change together.
  */
-export const SpecialistSubmission = Type.Object(
-  {
-    id: Type.String(),
-    severity: Severity,
-    message: Type.String(),
-    location: Type.Optional(
-      Type.Object(
-        {
-          file: Type.String(),
-          line: Type.Optional(Type.Number()),
-          endLine: Type.Optional(Type.Number()),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    evidence: Type.Optional(
-      Type.Object(
-        {
-          command: Type.Optional(Type.String()),
-          output: Type.Optional(Type.String()),
-        },
-        { additionalProperties: false },
-      ),
-    ),
-    suggestion: Type.Optional(Type.String()),
-    meta: Type.Optional(Type.Object({}, { additionalProperties: true })),
-  },
-  { additionalProperties: false },
-);
+export const SpecialistSubmission = Type.Omit(Finding, ["confidence", "specialist", "phase"]);
 
 export type SpecialistSubmission = Static<typeof SpecialistSubmission>;
 
