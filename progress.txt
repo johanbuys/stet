@@ -1,3 +1,17 @@
+## 2026-06-23 - TASK-070 (T6): Deterministic pre-existing detection (@@-hunk parsing + mark)
+
+**What was done:** Implemented `buildAddedLineIndex(diff)` and `markPreexisting(findings, index)` in `src/preexisting.ts` (M2 steps 2,3 · TDD B·2). New code — `diff-sections.ts` parses file sections only; it has no `@@` hunk or line-number parser.
+
+- `src/preexisting.ts`: `AddedLineIndex` type alias, `buildAddedLineIndex` (walks `+++ ` lines to detect file, `@@` headers to reset the new-file line counter, then classifies `+`/` `/`-` body lines), `markPreexisting` (stamps `meta.preexisting: true` on findings whose `location.line` is not in the added set; no `location.line` → unchanged).
+- `src/preexisting.test.ts`: 22 tests — empty diff, no-hunk file, single added line, context-only, deleted-line counter, mixed +/context/-, multi-hunk (counter resets per `@@`), mid-file hunk offset, off-by-one (first line, last line), multi-file independence, pure deletion (`/dev/null`), b/ prefix stripping, and full `markPreexisting` suite (introduced, preexisting, file-not-in-index, no-location, meta-preserve, multi-finding, returns-same-array, integration with `buildAddedLineIndex`).
+
+**Learnings:**
+- `finding.meta` has static TypeBox type `{} | undefined`; need `{ ...(finding.meta as Record<string, unknown>), preexisting: true }` to spread and set — direct key access on `{}` has no index signature. The cast is narrow and local.
+- `null` sentinel for `currentLine` (vs `0`) is safer: `+0` start line could theoretically appear (pure-addition hunks) and would trigger the `currentLine === 0` guard incorrectly. Using `null` means "not in a hunk" unambiguously.
+- Pure deletion hunks (`+++ /dev/null`) set `currentFile = null`, so subsequent hunk body lines are ignored — no spurious entries for `/dev/null`.
+- `vp check --fix` reformats inline comments (e.g. `// new line 1`) — style is correct after the formatter runs. Run `vp check` after `--fix` to confirm no remaining type errors.
+----
+
 ## 2026-06-23 - TASK-069 (T5): SpecialistSubmission schema + open-meta keys
 
 **What was done:** Added `SpecialistSubmission` TypeBox schema to `src/schema/finding.ts` (M2 step 1,4 · TDD B·1/B·3). Schema = `Finding` minus `confidence`/`specialist`/`phase` (all three are harness-stamped, not model-supplied). `meta` stays `additionalProperties:true` (open) — no narrowing. `meta.selfConfidence` and `meta.preexisting` documented in comments as conventional keys, not added to the schema type.
