@@ -1,3 +1,42 @@
+## 2026-06-23 - TASK-068 (T4): runAgreementVerify — aggregation, drop, audit, failure
+
+**What was done:** Implemented `runAgreementVerify` (M1 steps 2–4 · TDD A·2/A·3/A·4) — the
+agreement-verify stage for composite phases. Pure function; no model required; fake-testable.
+
+- `src/phases/verify.ts`: `VerifyConfig` interface (voters, lenses, agreementForHigh,
+  agreementForMedium, model?, budgets?). `runAgreementVerify(runner, candidates, cfg, ctx)` →
+  `Promise<{ verified: Finding[]; audit: VerifyAudit }>`. Per candidate, N sequential voter calls
+  each with a distinct lens (from cfg.lenses[i]) in rubric+userPrompt and a **fresh AbortController
+  per call** (plan requirement). Aggregates upholds → stamps confidence: ≥agreementForHigh→"high",
+  ≥agreementForMedium→"medium", else drop to audit.verify.dropped.
+
+- Failure (TDD A·3): `callVoter` helper runs one call + one retry on AgentError (Err result);
+  null return → caller synthesizes `{ verdict: "abstain", reason: "voter errored on both attempts"
+  }`. Absolute threshold preserved — erroring voters don't lower the bar for "high".
+
+- `src/phases/verify.test.ts`: 21 tests covering all accept criteria:
+  - empty candidates → received=0; 3-uphold→high; 2-uphold→medium; 1-uphold→dropped; 0→dropped
+  - abstain-script and abstain-via-error both count as not-uphold
+  - voter erroring twice → abstain (absolute threshold); retry-succeeds path → uphold
+  - dropped entry: id, specialist, upholds, verdicts (synthesized abstain appears in verdicts)
+  - confidence harness-stamped (original confidence overwritten); other fields preserved
+  - multiple candidates processed independently
+
+**Learnings:**
+- TypeScript doesn't narrow `array[i]` to non-undefined even after `expect(...).toHaveLength(N)`.
+  Use `array[i]!` (non-null assertion) in test files — the existing codebase pattern
+  (see `src/config/load.test.ts`). The linter (`vp check --fix`) formats but doesn't auto-fix
+  type errors; run `vp check` after `--fix` to catch remaining issues.
+- `runWithWallClock` takes ownership of an `AbortController` — the caller must create a fresh one
+  per call (never reuse). This is the "one per call" requirement from the plan/budgets.ts doc.
+- VerifyAudit dropped entries include ALL voter verdicts (upholds + refutes + abstains) for audit
+  traceability. The synthesized abstain (from error→retry→error) is a valid `VoterVerdict` and
+  satisfies the `additionalProperties:false` schema from T2.
+- The `agreementForHigh` and `agreementForMedium` thresholds are absolute numbers in `VerifyConfig`,
+  NOT fractions of N. TDD A·2 is explicit: "not derived from N — so changing N doesn't silently
+  move what 'high' means."
+----
+
 ## 2026-06-23 - TASK-067 (T3): submit_verdict output-tool
 
 **What was done:** Implemented `SubmitVerdictTool` (M1 step 1 · TDD A·2) — a typed, SDK-independent
