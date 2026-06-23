@@ -112,6 +112,54 @@ export type Confidence = Static<typeof Confidence>;
 export type Finding = Static<typeof Finding>;
 
 /**
+ * Model-facing submit schema for the review phase (TDD B·1/B·3).
+ *
+ * `SpecialistSubmission` is `Finding` minus the three harness-stamped fields:
+ *   - `confidence` — harness-owned; stamped by agreement-verify (Area A).
+ *   - `specialist`  — harness-stamped from the runner config.
+ *   - `phase`       — harness-stamped ("review").
+ *
+ * `meta` stays **open** (`additionalProperties:true`; identical to `Finding.meta`).
+ * Two conventional keys live inside it — read by the harness at runtime, never
+ * narrowed into the schema (TDD B·3; narrowing would break Phase-5 open-meta tests):
+ *   - `meta.selfConfidence` (`"high"|"medium"|"low"`) — specialist's own rating,
+ *     recorded for eval correlation, never shown to voters, unused operationally (B·1).
+ *   - `meta.preexisting`   (`true`) — set by `markPreexisting` after submission,
+ *     never supplied by the model; read via `meta?.preexisting === true` (B·2/B·3).
+ */
+export const SpecialistSubmission = Type.Object(
+  {
+    id: Type.String(),
+    severity: Severity,
+    message: Type.String(),
+    location: Type.Optional(
+      Type.Object(
+        {
+          file: Type.String(),
+          line: Type.Optional(Type.Number()),
+          endLine: Type.Optional(Type.Number()),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    evidence: Type.Optional(
+      Type.Object(
+        {
+          command: Type.Optional(Type.String()),
+          output: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    suggestion: Type.Optional(Type.String()),
+    meta: Type.Optional(Type.Object({}, { additionalProperties: true })),
+  },
+  { additionalProperties: false },
+);
+
+export type SpecialistSubmission = Static<typeof SpecialistSubmission>;
+
+/**
  * Parse and validate the `findings` array out of an agent submission payload.
  *
  * Returns the typed `Finding[]` when the submission is an object whose `findings`
