@@ -7,6 +7,7 @@ import {
   PhaseId,
   severityAtLeast,
   Severity,
+  SpecialistSubmission,
 } from "./finding.js";
 
 const validFinding: Finding = {
@@ -181,5 +182,78 @@ describe("Finding", () => {
   it("rejects a finding with an unknown extra top-level property (additionalProperties: false)", () => {
     const extra = { ...minimalFinding, unknownField: "oops" };
     expect(Value.Check(Finding, extra)).toBe(false);
+  });
+});
+
+describe("SpecialistSubmission", () => {
+  const minimalSubmission: SpecialistSubmission = {
+    id: "review.bug",
+    severity: "error",
+    message: "null pointer dereference",
+  };
+
+  it("accepts a minimal valid submission (id, severity, message)", () => {
+    expect(Value.Check(SpecialistSubmission, minimalSubmission)).toBe(true);
+  });
+
+  it("accepts a full submission with all optional fields", () => {
+    const full: SpecialistSubmission = {
+      ...minimalSubmission,
+      location: { file: "src/api.ts", line: 42, endLine: 55 },
+      evidence: { command: "vp test", output: "exit 1 · 3 failed" },
+      suggestion: "Add a null guard.",
+      meta: { selfConfidence: "high", extraField: true },
+    };
+    expect(Value.Check(SpecialistSubmission, full)).toBe(true);
+  });
+
+  it("rejects a submission missing required fields", () => {
+    const noId = { severity: "error", message: "msg" };
+    expect(Value.Check(SpecialistSubmission, noId)).toBe(false);
+
+    const noSeverity = { id: "review.bug", message: "msg" };
+    expect(Value.Check(SpecialistSubmission, noSeverity)).toBe(false);
+
+    const noMessage = { id: "review.bug", severity: "error" };
+    expect(Value.Check(SpecialistSubmission, noMessage)).toBe(false);
+  });
+
+  it("rejects confidence at top-level (additionalProperties: false — harness-owned)", () => {
+    const withConfidence = { ...minimalSubmission, confidence: "high" };
+    expect(Value.Check(SpecialistSubmission, withConfidence)).toBe(false);
+  });
+
+  it("rejects phase at top-level (additionalProperties: false — harness-stamped)", () => {
+    const withPhase = { ...minimalSubmission, phase: "review" };
+    expect(Value.Check(SpecialistSubmission, withPhase)).toBe(false);
+  });
+
+  it("rejects specialist at top-level (additionalProperties: false — harness-stamped)", () => {
+    const withSpecialist = { ...minimalSubmission, specialist: "bugs" };
+    expect(Value.Check(SpecialistSubmission, withSpecialist)).toBe(false);
+  });
+
+  it("accepts meta with arbitrary extra properties (open object — no narrowing)", () => {
+    const withMeta: SpecialistSubmission = {
+      ...minimalSubmission,
+      meta: { anything: "goes", nested: { deep: true }, count: 42 },
+    };
+    expect(Value.Check(SpecialistSubmission, withMeta)).toBe(true);
+  });
+
+  it("accepts meta.selfConfidence as a conventional key (open meta — no narrowing)", () => {
+    const withSelfConf: SpecialistSubmission = {
+      ...minimalSubmission,
+      meta: { selfConfidence: "medium" },
+    };
+    expect(Value.Check(SpecialistSubmission, withSelfConf)).toBe(true);
+  });
+
+  it("accepts meta.preexisting as a conventional key (open meta — no narrowing)", () => {
+    const withPreexisting: SpecialistSubmission = {
+      ...minimalSubmission,
+      meta: { preexisting: true },
+    };
+    expect(Value.Check(SpecialistSubmission, withPreexisting)).toBe(true);
   });
 });

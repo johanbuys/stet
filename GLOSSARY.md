@@ -87,6 +87,18 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   → harness PRD §4.6
 - **priority** — Phase 5's finer `critical|high|medium|low` granularity, preserved in
   `meta.priority`. Informational; never gates. ⚠ not severity. → harness PRD §4.2
+- **SpecialistSubmission** — the model-facing submit schema for a review specialist: `Finding`
+  minus the three **harness-stamped** fields (`confidence`, `specialist`, `phase`), derived via
+  `Type.Omit`. The model proposes; the harness stamps the rest. ⚠ not `Finding` — a model that
+  supplies a harness-owned field is rejected (`additionalProperties:false`). → code-review TDD B·1/B·3
+- **pre-existing (finding)** — a finding whose `location.line` is **not** introduced by the diff
+  under review; marked by `markPreexisting` via the harness-owned `meta.preexisting` key
+  (`PREEXISTING_META_KEY`) and excluded from gating. ⚠ harness-owned, never model-supplied — a
+  forged `meta.preexisting` on an introduced line is stripped. → code-review TDD B·2
+- **added-line index** — `Map<file, Set<lineNo>>` of the new-file line numbers a diff introduces,
+  built by `buildAddedLineIndex` from the two-way unified diff; the deterministic input that
+  classifies a finding as introduced vs **pre-existing**. ⚠ two-way diffs only (combined `--cc`
+  skipped). → code-review TDD B·2
 - **gating (a finding)** — causing exit 1: `severity ≥ failOn` **and** `confidence == high`.
   The responsible findings are listed in `result.gating`. → harness PRD §4.8
 - **audit** — the per-phase record of what was actually examined (files, checks, claims). The
