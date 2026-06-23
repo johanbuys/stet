@@ -28,6 +28,7 @@ import type { EvalBaseline } from "./metrics.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const BASELINE_PATH = resolve(__dirname, "baseline.json");
+const REGRESSED_PATH = resolve(__dirname, "baseline.regressed.json");
 const CASSETTE_PATH = resolve(__dirname, "cassettes", "live.json");
 
 // ---------------------------------------------------------------------------
@@ -113,9 +114,14 @@ if (result.gateCheck) {
         `  ${v.metric}: current=${v.current.toFixed(4)}, baseline=${v.baseline.toFixed(4)}, degradation=${v.degradation.toFixed(4)} > epsilon=${v.epsilon}`,
       );
     }
-    // Update baseline before exiting so the failure is recorded
-    writeFileSync(BASELINE_PATH, JSON.stringify(result.metrics, null, 2) + "\n");
-    console.error(`\nBaseline updated: ${BASELINE_PATH}`);
+    // Leave the committed baseline untouched — overwriting it with the regressed
+    // metrics would launder the regression away on the next run. Write the failing
+    // metrics to a side file for inspection instead.
+    writeFileSync(REGRESSED_PATH, JSON.stringify(result.metrics, null, 2) + "\n");
+    console.error(
+      `\nCommitted baseline left unchanged: ${BASELINE_PATH}` +
+        `\nRegressed metrics written for inspection: ${REGRESSED_PATH}`,
+    );
     process.exit(1);
   }
 }

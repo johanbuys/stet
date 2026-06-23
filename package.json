@@ -35,7 +35,7 @@
     "build": "vp pack",
     "test": "vp test",
     "prepare": "vp config",
-    "eval:live": "node --experimental-strip-types src/eval/eval-live.ts"
+    "eval:live": "jiti src/eval/eval-live.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.79.1",
@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "jiti": "^2.7.0",
     "typescript": "^6.0.3",
     "vite-plus": "catalog:"
   },
