@@ -200,6 +200,23 @@ describe("buildAddedLineIndex", () => {
     expect(idx.has("/dev/null")).toBe(false);
   });
 
+  it("added line whose content begins with `++ ` is not mistaken for a file marker", () => {
+    // The added source line is emitted as `+++ foo` (one `+` prefix + `++ foo`
+    // content). It must be recorded as an added line, not parsed as a new file.
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,1 +1,2 @@",
+      " line 1", // new line 1 (context)
+      "+++ foo", // new line 2 (added content: `++ foo`)
+    ].join("\n");
+    const idx = buildAddedLineIndex(diff);
+    expect(idx.get("src/a.ts")).toEqual(new Set([2]));
+    // No phantom "foo" file entry.
+    expect(idx.has("foo")).toBe(false);
+  });
+
   it("b/ prefix stripped from path", () => {
     const diff = [
       "diff --git a/src/x.ts b/src/x.ts",

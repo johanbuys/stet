@@ -37,7 +37,7 @@ const SECTION_SPLIT = /(?=^diff (?:--git|--cc|--combined) )/m;
  * (noprefix), `core.quotePath` double-quoting, and a trailing `\t<timestamp>`.
  * Returns an empty string if the marker resolves to `/dev/null`.
  */
-function cleanPathFromMarkerLine(line: string, marker: string): string {
+export function cleanPathFromMarkerLine(line: string, marker: string): string {
   // Drop the `--- ` / `+++ ` marker.
   let path = line.slice(marker.length);
   // Trim a trailing `\t<timestamp>` (cut at the first tab).

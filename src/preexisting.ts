@@ -4,12 +4,18 @@
  * Two pure functions:
  *   - `buildAddedLineIndex` — parses a unified diff into a per-file set of
  *     new-file line numbers that are introduced by the diff (lines starting
- *     with `+` in a hunk body). This is NEW code; `diff-sections.ts` parses
- *     file sections only and does NOT parse `@@` hunk headers or line numbers.
+ *     with `+` in a hunk body). It builds on `diff-sections.ts`, which splits
+ *     the diff into robust per-file sections (the NEW work here is parsing the
+ *     `@@` hunk headers and new-file line numbers within each section).
  *   - `markPreexisting` — stamps `meta.preexisting: true` on findings whose
  *     `location.line` is NOT in the added set for their file.
+ *
+ * Scope: two-way unified diffs. Combined/merge diffs (`diff --cc`) use
+ * `@@@ … @@@` hunk headers and two-column `++`/`+ ` prefixes that `HUNK_HEADER`
+ * does not match; net review diffs are two-way, so they are out of scope here.
  */
 
+import { cleanPathFromMarkerLine, parseDiffSections } from "./diff-sections.js";
 import type { Finding } from "./schema/finding.js";
 
 /** Per-(b-side) file: the set of new-file line numbers that are added in the diff. */
@@ -22,6 +28,11 @@ const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
  * Build a map from b-side file path to the set of new-file line numbers that
  * are introduced (i.e. `+` lines) in the unified diff.
  *
+ * The diff is first split into per-file sections by `parseDiffSections`, so the
+ * `+++ ` file marker is scoped to the first marker of each section. A later body
+ * line that merely *begins* with `+++ ` (an added source line whose content is
+ * `++ …`) is then correctly classified as added content, not a phantom file.
+ *
  * Line numbering follows the new-file side of each `@@` hunk:
  *   - `+line` → added; recorded and counter advanced
  *   - ` line` → context; counter advanced (not recorded)
@@ -32,46 +43,41 @@ const HUNK_HEADER = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 export function buildAddedLineIndex(diff: string): AddedLineIndex {
   const index: AddedLineIndex = new Map();
 
-  let currentFile: string | null = null;
-  let currentLine: number | null = null;
+  for (const section of parseDiffSections(diff)) {
+    let file: string | null = null;
+    let markerSeen = false;
+    let currentLine: number | null = null;
 
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+++ ")) {
-      let path = line.slice(4);
-      const tab = path.indexOf("\t");
-      if (tab !== -1) path = path.slice(0, tab);
-      path = path.trimEnd();
-      if (path.startsWith('"') && path.endsWith('"') && path.length >= 2) {
-        path = path.slice(1, -1);
-      }
-      if (path === "/dev/null") {
-        currentFile = null;
-      } else {
-        path = path.replace(/^[abciow]\//, "");
-        currentFile = path;
-        if (!index.has(currentFile)) {
-          index.set(currentFile, new Set());
+    for (const line of section.content.split("\n")) {
+      // Only the FIRST `+++ ` line in a section is the new-file marker; later
+      // `+++ …` lines are added content (source text beginning with `++ `).
+      if (!markerSeen && line.startsWith("+++ ")) {
+        markerSeen = true;
+        const path = cleanPathFromMarkerLine(line, "+++ "); // "" for /dev/null
+        if (path) {
+          file = path;
+          if (!index.has(file)) index.set(file, new Set());
         }
+        currentLine = null;
+        continue;
       }
-      currentLine = null;
-      continue;
-    }
 
-    const hunkMatch = HUNK_HEADER.exec(line);
-    if (hunkMatch) {
-      currentLine = parseInt(hunkMatch[1]!, 10);
-      continue;
-    }
+      const hunkMatch = HUNK_HEADER.exec(line);
+      if (hunkMatch) {
+        currentLine = parseInt(hunkMatch[1]!, 10);
+        continue;
+      }
 
-    if (currentFile === null || currentLine === null) continue;
+      if (file === null || currentLine === null) continue;
 
-    if (line.startsWith("+")) {
-      index.get(currentFile)!.add(currentLine);
-      currentLine++;
-    } else if (line.startsWith(" ")) {
-      currentLine++;
+      if (line.startsWith("+")) {
+        index.get(file)!.add(currentLine);
+        currentLine++;
+      } else if (line.startsWith(" ")) {
+        currentLine++;
+      }
+      // `-` lines: old-file only — don't advance new-file counter
     }
-    // `-` lines: old-file only — don't advance new-file counter
   }
 
   return index;
