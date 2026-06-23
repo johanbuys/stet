@@ -36,6 +36,7 @@ import type { Finding } from "../schema/finding.js";
 import { PhaseReport } from "../schema/report.js";
 import { makeCompositePhase } from "./composite.js";
 import type { CoordinatorConfig } from "./coordinator.js";
+import type { VerifyConfig } from "./verify.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1170,5 +1171,218 @@ describe("coordinator — duplicate finding ids (reconcile by multiplicity)", ()
     const phase = makePhase([a, b], okRunner([], "fake/coordinator"));
     const report = await phase.run(ctx());
     expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extended protected class: verify-stamped confidence "high" (T11, TDD A·4).
+//
+// Agreement-verified high confidence joins the protected class alongside
+// evidence.command — the coordinator cannot silently drop or downgrade a 3/3
+// corroborated finding. Only verify-stamped high is protected: model-supplied
+// high (without verify) is NOT, so existing AI-judgment downgrade tests stay green.
+// ---------------------------------------------------------------------------
+
+/** 1-voter verify config: 1 uphold → high, 0 upholds → dropped. */
+const VERIFY_1V: VerifyConfig = {
+  voters: 1,
+  lenses: ["Is this finding real?"],
+  agreementForHigh: 1,
+  agreementForMedium: 1,
+};
+
+/** Always-uphold voter FakeAgentRunner. */
+function upholdVoter() {
+  return new FakeAgentRunner({
+    kind: "ok",
+    submission: { verdict: "uphold", reason: "confirmed" },
+    cost: { model: "fake/voter", durationMs: 1 },
+  });
+}
+
+/**
+ * Build a single-specialist composite with verify + coordinator.
+ * The specialist emits `alphaFindings`; the verify voter always upholds;
+ * the coordinator runner is scripted by the caller.
+ */
+function makeVerifiedPhase(alphaFindings: Finding[], coordRunner: FakeAgentRunner) {
+  return makeCompositePhase(
+    {
+      alpha: okRunner(alphaFindings, "fake/alpha"),
+      verify: upholdVoter(),
+      coordinator: coordRunner,
+    },
+    {
+      id: "coordinator-test-phase",
+      specialists: [
+        {
+          name: "alpha",
+          rubric: "Find bugs.",
+          toolset: ["read"],
+          submitSchema: PhaseReport,
+          budgets: {
+            wallClockMs: 60_000,
+            turns: 10,
+            bashTimeoutMs: 10_000,
+            bashOutputCap: 8_192,
+          },
+          buildUserPrompt: () => "diff",
+        },
+      ],
+      verify: VERIFY_1V,
+      coordinator: { rubric: "Judge.", model: "fake/coordinator" },
+    },
+  );
+}
+
+describe("coordinator — verify-stamped confidence 'high' (T11, TDD A·4)", () => {
+  it("high+no-evidence dropped by coordinator → reinstated (matrix row 1)", async () => {
+    // Verify stamps "high". Coordinator drops the finding (returns empty).
+    const finding: Finding = {
+      id: "ct.alpha.high-no-evidence",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "medium", // specialist-supplied; verify will re-stamp to "high"
+      message: "off-by-one",
+      specialist: "alpha",
+    };
+
+    const phase = makeVerifiedPhase([finding], okRunner([], "fake/coordinator"));
+    const report = await phase.run(ctx());
+
+    // Harness reinstated the finding with verify-stamped confidence.
+    const f = report.findings.find((f) => f.id === "ct.alpha.high-no-evidence");
+    expect(f).toBeDefined();
+    expect(f!.confidence).toBe("high");
+    expect(
+      report.audit.coordinator!.reinstated.some((r) => r.id === "ct.alpha.high-no-evidence"),
+    ).toBe(true);
+    expect(report.audit.coordinator!.dropped.map((d) => d.id)).not.toContain(
+      "ct.alpha.high-no-evidence",
+    );
+  });
+
+  it("high downgraded by coordinator → reinstated-in-place (matrix row 2)", async () => {
+    // Verify stamps "high". Coordinator keeps the id but downgrades severity error→warning.
+    const finding: Finding = {
+      id: "ct.alpha.high-downgraded",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "medium",
+      message: "real bug",
+      specialist: "alpha",
+    };
+    const downgraded: Finding = {
+      id: "ct.alpha.high-downgraded",
+      phase: "coordinator-test-phase",
+      severity: "warning", // downgraded
+      confidence: "high",
+      message: "real bug",
+    };
+
+    const phase = makeVerifiedPhase([finding], okRunner([downgraded], "fake/coordinator"));
+    const report = await phase.run(ctx());
+
+    // Harness reinstated the original error severity in place.
+    const f = report.findings.find((f) => f.id === "ct.alpha.high-downgraded");
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe("error");
+    expect(f!.confidence).toBe("high");
+    expect(
+      report.audit.coordinator!.reinstated.some((r) => r.id === "ct.alpha.high-downgraded"),
+    ).toBe(true);
+  });
+
+  it("high+evidence dropped → ONE reinstatement not two (matrix row 3)", async () => {
+    // Both predicates true (evidence.command AND verify-stamped high).
+    // Must not produce a double reinstatement.
+    const finding: Finding = {
+      id: "ct.alpha.high-evidence",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "medium",
+      message: "test failed",
+      specialist: "alpha",
+      evidence: { command: "npm test", output: "FAIL" },
+    };
+
+    const phase = makeVerifiedPhase([finding], okRunner([], "fake/coordinator"));
+    const report = await phase.run(ctx());
+
+    const reinstated = report.findings.filter((f) => f.id === "ct.alpha.high-evidence");
+    expect(reinstated).toHaveLength(1);
+    expect(
+      report.audit.coordinator!.reinstated.filter((r) => r.id === "ct.alpha.high-evidence"),
+    ).toHaveLength(1);
+  });
+
+  it("report validates against PhaseReport schema after verify-stamped reinstatement", async () => {
+    const finding: Finding = {
+      id: "ct.alpha.reinstated",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "medium",
+      message: "real bug",
+      specialist: "alpha",
+    };
+
+    const phase = makeVerifiedPhase([finding], okRunner([], "fake/coordinator"));
+    const report = await phase.run(ctx());
+
+    expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+
+  it("model-supplied high (no verify) is NOT protected — existing AI-judgment downgrade still accepted", async () => {
+    // This is the regression guard: without verify configured, a high-confidence
+    // AI-judgment finding can still be downgraded by the coordinator.
+    const aiJudgment: Finding = {
+      id: "ct.alpha.ai-judgment",
+      phase: "coordinator-test-phase",
+      severity: "error",
+      confidence: "high", // model-supplied, NOT via verify
+      message: "potential bug",
+      specialist: "alpha",
+    };
+    const downgraded: Finding = {
+      id: "ct.alpha.ai-judgment",
+      phase: "coordinator-test-phase",
+      severity: "warning",
+      confidence: "high",
+      message: "potential bug",
+    };
+
+    // No verify in config — model-supplied high is not protected.
+    const phase = makeCompositePhase(
+      {
+        alpha: okRunner([aiJudgment], "fake/alpha"),
+        coordinator: okRunner([downgraded], "fake/coordinator"),
+      },
+      {
+        id: "coordinator-test-phase",
+        specialists: [
+          {
+            name: "alpha",
+            rubric: "Find bugs.",
+            toolset: ["read"],
+            submitSchema: PhaseReport,
+            budgets: {
+              wallClockMs: 60_000,
+              turns: 10,
+              bashTimeoutMs: 10_000,
+              bashOutputCap: 8_192,
+            },
+            buildUserPrompt: () => "diff",
+          },
+        ],
+        coordinator: { rubric: "Judge.", model: "fake/coordinator" },
+        // No verify: confidenceById is empty → high is not protected
+      },
+    );
+
+    const report = await phase.run(ctx());
+
+    const f = report.findings.find((f) => f.id === "ct.alpha.ai-judgment");
+    expect(f).toBeDefined();
+    expect(f!.severity).toBe("warning"); // downgrade accepted (no verify)
   });
 });

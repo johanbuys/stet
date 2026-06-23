@@ -1,0 +1,18 @@
+## 2026-06-23 - TASK-075 (T11): Wire verify into composite.run + extend protected class
+
+**What was done:** Implemented plan §M4 step 1 in `src/phases/composite.ts` — agreement-verify wired between specialist roll-up and coordinator. Added `verify?: VerifyConfig` to `CompositePhaseConfig`. Created `src/phases/composite.test.ts` (14 tests for verify wiring) and added 5 matrix tests to `src/phases/coordinator.test.ts`. All 993 tests pass; `vp check` clean.
+
+Key changes in `composite.ts`:
+- **Verify block** (inserted between roll-up and coordinator): calls `runAgreementVerify` when `cfg.verify` is set. On success: `candidateFindings` ← verified findings + `verifyAudit` captured. On total failure (no runner / ConfigError): all findings stamped `confidence: low` + `${phaseId}.verify-degraded` warning emitted. `candidateFindings` replaces `allFindings` throughout.
+- **`confidenceById` index**: built from `candidateFindings` when `verifyAudit` is defined. Used for (a) re-stamping confidence in coordinator re-attribution (coordinator cannot overwrite), and (b) gating the extended protected-class predicate.
+- **Protected-class predicate**: extended from `raw.evidence?.command !== undefined` to `raw.evidence?.command !== undefined || confidenceById.get(raw.id) === "high"`. ONLY verify-stamped high is protected — model-supplied high (no verify configured) is NOT, so existing AI-judgment downgrade tests stay green.
+- **`CONFIDENCE_RANK` hoisted** to module level (was local to the ok-coordinator block).
+- **`audit.verify`** included in all `completed` return paths via conditional spread.
+
+**Learnings:**
+- The critical guard: `confidenceById` is only populated when `verifyAudit !== undefined` (verify ran successfully). This means `confidenceById.get(id) === "high"` is always `false` when verify is not configured — preserving existing coordinator behavior for non-verify phases. Using `raw.confidence === "high"` directly would have broken the existing AI-judgment downgrade tests.
+- Confidence stamping in coordinator re-attribution (replacing model-supplied confidence with `confidenceById` value) ensures the coordinator output carries verify-stamped confidence even before the reconciliation loop sees it. The reconciliation loop's `okPos` check then correctly finds a survivor matching the stamped confidence.
+- Test matrix validation for "one reinstatement not two": both `evidence.command` AND `confidenceById === "high"` being true is handled by a SINGLE `if` branch (no fall-through to a second check), so double reinstatement is impossible by construction. The test verifies the count.
+- The `FakeAgentRunner` queue mode is essential for multi-finding tests where different voters should handle different findings. Queue is consumed strictly per `run()` call.
+- `vp check --fix` may reformat code. Always run after edits; the formatter adjusted one file (composite.ts).
+----
