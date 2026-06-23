@@ -84,36 +84,56 @@ export type RunScript = OkScript | ErrScript | DelayScript;
 /**
  * FakeAgentRunner — scripted, synchronous-ish (Promise-returning) agent runner.
  *
- * Constructed with a RunScript; calling run() resolves immediately according to the script.
+ * Constructed with a RunScript (repeated on every call) or RunScript[] (queue —
+ * each successive run() call dequeues the next script; throws when exhausted).
  * Calls onTool("submit_findings") on the Ok path so callers can track progress.
  *
  * Never throws, never rejects — mirrors the real AgentRunner contract.
  */
 export class FakeAgentRunner implements AgentRunner {
-  private readonly script: RunScript;
+  private readonly singleScript: RunScript | undefined;
+  private readonly queue: RunScript[] | undefined;
+  private queueIndex = 0;
 
-  constructor(script: RunScript) {
-    this.script = script;
+  constructor(script: RunScript | ReadonlyArray<RunScript>) {
+    if (Array.isArray(script)) {
+      this.queue = [...(script as RunScript[])];
+      this.singleScript = undefined;
+    } else {
+      this.singleScript = script as RunScript;
+      this.queue = undefined;
+    }
+  }
+
+  private nextScript(): RunScript {
+    if (this.queue !== undefined) {
+      if (this.queueIndex >= this.queue.length) {
+        throw new Error(`FakeAgentRunner: script queue exhausted after ${this.queueIndex} call(s)`);
+      }
+      return this.queue[this.queueIndex++] as RunScript;
+    }
+    return this.singleScript as RunScript;
   }
 
   async run(inputs: AgentRunInputs): Promise<Result<AgentRunSuccess, AgentError>> {
+    const script = this.nextScript();
     const { onTool, signal } = inputs;
 
-    if (this.script.kind === "ok") {
+    if (script.kind === "ok") {
       // Simulate tool invocation progress for the happy path
       onTool?.(SUBMIT_TOOL_NAME);
       return Result.ok({
-        submission: this.script.submission,
-        cost: this.script.cost,
+        submission: script.submission,
+        cost: script.cost,
       });
     }
 
-    if (this.script.kind === "err") {
-      return Result.err(this.script.error);
+    if (script.kind === "err") {
+      return Result.err(script.error);
     }
 
     // kind === "delay": hang for delayMs, or abort early if signal fires.
-    const { delayMs } = this.script;
+    const { delayMs } = script;
     return new Promise<Result<AgentRunSuccess, AgentError>>((resolve) => {
       let timerId: ReturnType<typeof setTimeout>;
 

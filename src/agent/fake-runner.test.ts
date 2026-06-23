@@ -136,3 +136,59 @@ describe("FakeAgentRunner — infallible contract", () => {
     await expect(runner.run(makeInputs())).resolves.toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Per-call script queue (T1)
+// ---------------------------------------------------------------------------
+
+describe("FakeAgentRunner — per-call script queue", () => {
+  const cost = { durationMs: 0 };
+  const uphold = { kind: "ok" as const, submission: { verdict: "uphold" }, cost };
+  const refute = { kind: "ok" as const, submission: { verdict: "refute" }, cost };
+
+  test("queue [uphold, uphold, refute] — three successive run() calls return scripts in order", async () => {
+    const runner = new FakeAgentRunner([uphold, uphold, refute]);
+    const r1 = await runner.run(makeInputs());
+    const r2 = await runner.run(makeInputs());
+    const r3 = await runner.run(makeInputs());
+    expect(r1.isOk() && r1.value.submission).toEqual({ verdict: "uphold" });
+    expect(r2.isOk() && r2.value.submission).toEqual({ verdict: "uphold" });
+    expect(r3.isOk() && r3.value.submission).toEqual({ verdict: "refute" });
+  });
+
+  test("queue — first call returns first script", async () => {
+    const runner = new FakeAgentRunner([refute, uphold]);
+    const r1 = await runner.run(makeInputs());
+    expect(r1.isOk() && r1.value.submission).toEqual({ verdict: "refute" });
+  });
+
+  test("queue — second call returns second script", async () => {
+    const runner = new FakeAgentRunner([refute, uphold]);
+    await runner.run(makeInputs());
+    const r2 = await runner.run(makeInputs());
+    expect(r2.isOk() && r2.value.submission).toEqual({ verdict: "uphold" });
+  });
+
+  test("queue — exhausted after all scripts consumed throws", async () => {
+    const runner = new FakeAgentRunner([uphold]);
+    await runner.run(makeInputs());
+    await expect(runner.run(makeInputs())).rejects.toThrow("exhausted");
+  });
+
+  test("queue — mixed ok/err scripts delivered in order", async () => {
+    const err = { kind: "err" as const, error: new NoSubmitError({ message: "x", cost }) };
+    const runner = new FakeAgentRunner([uphold, err]);
+    const r1 = await runner.run(makeInputs());
+    const r2 = await runner.run(makeInputs());
+    expect(r1.isOk()).toBe(true);
+    expect(r2.isErr() && r2.error._tag).toBe("NoSubmitError");
+  });
+
+  test("single-script constructor still repeats on every call (backward compat)", async () => {
+    const runner = new FakeAgentRunner(uphold);
+    const r1 = await runner.run(makeInputs());
+    const r2 = await runner.run(makeInputs());
+    expect(r1.isOk() && r1.value.submission).toEqual({ verdict: "uphold" });
+    expect(r2.isOk() && r2.value.submission).toEqual({ verdict: "uphold" });
+  });
+});

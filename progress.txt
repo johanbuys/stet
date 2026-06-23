@@ -1,3 +1,29 @@
+## 2026-06-23 - TASK-065 (T1): Extend FakeAgentRunner to a per-call script queue
+
+**What was done:** Extended `FakeAgentRunner` (M1 code-review, issue #65) to accept
+`RunScript | ReadonlyArray<RunScript>`. When passed an array, each successive `run()` call
+dequeues the next script; when the queue is exhausted, `nextScript()` throws with "exhausted".
+Single-script construction is unchanged (returns the same script on every call — backward compat).
+
+- `src/agent/fake-runner.ts`: Replaced `private readonly script: RunScript` with
+  `singleScript: RunScript | undefined` + `queue: RunScript[] | undefined` + `queueIndex`.
+  Added `nextScript()` private method. Updated `run()` body to use the local `script` variable
+  from `nextScript()` instead of `this.script`.
+
+- `src/agent/fake-runner.test.ts`: 6 new T1 tests — `[uphold, uphold, refute]` queue delivers
+  scripts in order across three calls; first/second call isolation; exhausted queue throws;
+  mixed ok/err queue; single-script backward compat.
+
+**Learnings:**
+- TypeScript doesn't narrow `array[index]` to the element type even after a bounds check
+  (`index < array.length`). Use `array[index] as T` or a typed intermediate variable to avoid
+  `T | undefined` type errors.
+- `vp check --fix` reformats multi-line template strings (trimming long lines) but does NOT fix
+  type errors — run `vp check` after `--fix` to catch remaining issues.
+- The `nextScript()` throw is intentional (queue exhausted = a programming error in test setup,
+  not a runtime AgentError). Unlike `run()`, it doesn't return a Result — it fails loudly.
+----
+
 ## 2026-06-17 - TASK-031 (T26): Display filters
 
 **What was done:** Implemented M9/T26 — `--quiet` and `--show` display filters (PRD §3.8):
