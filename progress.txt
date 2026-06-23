@@ -1,3 +1,33 @@
+## 2026-06-23 - TASK-067 (T3): submit_verdict output-tool
+
+**What was done:** Implemented `SubmitVerdictTool` (M1 step 1 · TDD A·2) — a typed, SDK-independent
+handler for the `submit_verdict` tool boundary. Mirrors `SubmitTool` from `submit-tool.ts` but with
+a fixed schema (`VoterVerdict = { verdict: uphold|refute|abstain, reason }`) and a typed `.submission`
+getter (`VoterVerdict | undefined` instead of `unknown`).
+
+- `src/agent/submit-verdict.ts`: `VERDICT_TOOL_NAME = "submit_verdict"`. `SubmitVerdictTool` class
+  with two guards: guard 1 validates input against the `VoterVerdict` TypeBox schema imported from
+  `../schema/report.js` — rejects with a corrective message naming the path/error; guard 2 is
+  idempotency — first valid submission wins, duplicates rejected with "already recorded — stop now".
+
+- `src/agent/submit-verdict.test.ts`: 23 tests — guard 1 (unknown verdict rejected, missing fields,
+  extra fields rejected, null/non-object, retry after invalid); guard 1 acceptance (uphold/refute/abstain
+  all accepted, typed submission returned); guard 2 (first wins, duplicate rejected, messages);
+  instance isolation.
+
+**Learnings:**
+- `SubmitVerdictTool` differs from `SubmitTool` in two key ways: (1) schema is fixed (always
+  `VoterVerdict` — no constructor param needed), (2) `.submission` is typed as `VoterVerdict | undefined`
+  rather than `unknown`. This is possible because the verdict contract is sealed at the tool level.
+- Importing the TypeBox schema constant and its static type from the same module works cleanly:
+  `import { VoterVerdict as VoterVerdictSchema } from "../schema/report.js"` (schema object for
+  `Value.Check`) and `import type { VoterVerdict } from "../schema/report.js"` (TypeScript type).
+  Aliasing avoids the name clash with the class's usage pattern.
+- `additionalProperties: false` on the VoterVerdict TypeBox schema means extra fields (e.g.
+  `{ verdict: "uphold", reason: "ok", extra: true }`) correctly fail guard 1 validation — the
+  test verifies this behavior explicitly.
+----
+
 ## 2026-06-23 - TASK-066 (T2): Add typed VerifyAudit to the closed Audit schema
 
 **What was done:** Added `VoterVerdict` and `VerifyAudit` TypeBox schemas to `src/schema/report.ts`
