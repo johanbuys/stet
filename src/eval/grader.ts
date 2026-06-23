@@ -106,6 +106,13 @@ export function cosineSimilarity(a: number[], b: number[]): number {
  * - different files → never in gate
  * - both have lines → gate passes if |diff| ≤ gate
  * - one or both have no line → file-level match: gate passes (line info unavailable)
+ *
+ * **File-level match semantics:** when `finding.location.line` or `expected.location.line`
+ * is `undefined` (but the file is present and equal), `inLocationGate` returns `true`
+ * regardless of where the finding falls in the file. This is intentional: a line-less
+ * expected is a file-level expectation and cannot gate on a line it doesn't have.
+ * Consequence: a finding at line 500 can become a HIT candidate for a line-less expected
+ * in the same file — the embedding cosine threshold is the only remaining filter.
  */
 export function inLocationGate(finding: Finding, expected: ExpectedFinding, gate: number): boolean {
   if (!finding.location || !expected.location) return false;
@@ -215,6 +222,23 @@ export async function gradeFindings(
 // ---------------------------------------------------------------------------
 
 /**
+ * Extract the embedding vector from an OpenAI embeddings response.
+ *
+ * Exported as a pure helper so it can be unit-tested independently of the
+ * dynamic `import("openai")` in `makeOpenAIEmbedder`.
+ *
+ * @throws Error with a descriptive message if the response has no data.
+ */
+export function extractEmbedding(res: { data?: { embedding: number[] }[] }): number[] {
+  const embedding = res.data?.[0]?.embedding;
+  if (!embedding) {
+    const len = res.data?.length ?? 0;
+    throw new Error(`openai embeddings returned no data for input (data.length=${len})`);
+  }
+  return embedding;
+}
+
+/**
  * Create the pinned production EmbedFn.
  *
  * Embedding: `openai` package · model `text-embedding-3-small` · endpoint EMBEDDING_ENDPOINT.
@@ -234,6 +258,6 @@ export function makeOpenAIEmbedder(apiKey: string, baseURL?: string): EmbedFn {
     const { default: OpenAI } = (await import("openai")) as typeof import("openai");
     const client = new OpenAI({ apiKey, baseURL: baseURL ?? EMBEDDING_ENDPOINT });
     const res = await client.embeddings.create({ model: EMBEDDING_MODEL, input: text });
-    return res.data[0]!.embedding;
+    return extractEmbedding(res);
   };
 }

@@ -6,13 +6,13 @@
  * Coverage:
  *   - computeCassetteKey: determinism, field isolation, model-undefined normalisation
  *   - CassetteRunner.fromStore: replay hit, replay miss, miss message
- *   - CassetteRunner.fromFile: hit from file, miss from missing file
+ *   - CassetteRunner.fromFile: hit from file, miss from missing file, malformed JSON
  *   - CassetteRunner.record: ok run recorded, err run not recorded, accumulation
  *   - Integration: record then fromFile replay reproduces the same result
  */
 
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vite-plus/test";
 import { CassetteRunner, computeCassetteKey } from "./cassette-runner.js";
 import type { CassetteStore } from "./cassette-runner.js";
@@ -63,8 +63,13 @@ describe("computeCassetteKey", () => {
 
   it("model=undefined and model=null produce the same key", () => {
     const a = makeInputs({ rubric: "r", userPrompt: "u", model: undefined });
-    const b = makeInputs({ rubric: "r", userPrompt: "u", model: undefined });
-    // Both normalise to null → identical SHA-256
+    // model: null is not assignable to the string | undefined type; cast to exercise the
+    // ?? null normalisation path in computeCassetteKey directly.
+    const b = {
+      ...makeInputs({ rubric: "r", userPrompt: "u" }),
+      model: null as unknown as undefined,
+    };
+    // undefined ?? null → null; null ?? null → null — both produce the same SHA-256
     expect(computeCassetteKey(a)).toBe(computeCassetteKey(b));
   });
 
@@ -170,35 +175,51 @@ describe("CassetteRunner.fromStore — replay", () => {
 describe("CassetteRunner.fromFile — replay", () => {
   const tmpDir = useTempDir("stet-cassette-");
 
-  it("file with matching entry → Ok on hit", async () => {
+  it("valid file with matching entry → Ok runner hits on run()", async () => {
     const inputs = makeInputs({ rubric: "r", userPrompt: "u" });
     const key = computeCassetteKey(inputs);
     const store: CassetteStore = { [key]: { submission: SUBMISSION, cost: COST } };
     const cassettePath = join(tmpDir(), "cassette.json");
-    require("node:fs").writeFileSync(cassettePath, JSON.stringify(store, null, 2));
+    writeFileSync(cassettePath, JSON.stringify(store, null, 2));
 
-    const runner = CassetteRunner.fromFile(cassettePath);
-    const result = await runner.run(inputs);
+    const runnerRes = CassetteRunner.fromFile(cassettePath);
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
+    const result = await runnerRes.value.run(inputs);
 
     expect(result.isOk() && result.value.submission).toEqual(SUBMISSION);
   });
 
-  it("file missing → Err(NoSubmitError) on miss", async () => {
+  it("file missing → Ok runner (empty store) misses on run()", async () => {
     const cassettePath = join(tmpDir(), "missing.json");
-    const runner = CassetteRunner.fromFile(cassettePath);
-    const result = await runner.run(makeInputs());
+    const runnerRes = CassetteRunner.fromFile(cassettePath);
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
+    const result = await runnerRes.value.run(makeInputs());
 
     expect(result.isErr() && result.error._tag).toBe("NoSubmitError");
   });
 
-  it("file present but key absent → Err(NoSubmitError)", async () => {
+  it("file present but key absent → Ok runner misses on run()", async () => {
     const cassettePath = join(tmpDir(), "cassette.json");
-    require("node:fs").writeFileSync(cassettePath, JSON.stringify({}));
+    writeFileSync(cassettePath, JSON.stringify({}));
 
-    const runner = CassetteRunner.fromFile(cassettePath);
-    const result = await runner.run(makeInputs());
+    const runnerRes = CassetteRunner.fromFile(cassettePath);
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
+    const result = await runnerRes.value.run(makeInputs());
 
     expect(result.isErr()).toBe(true);
+  });
+
+  it("malformed JSON file → Err(ConfigError)", () => {
+    const cassettePath = join(tmpDir(), "corrupt.json");
+    writeFileSync(cassettePath, "{ not valid json !!!");
+
+    const runnerRes = CassetteRunner.fromFile(cassettePath);
+
+    expect(runnerRes.isErr()).toBe(true);
+    expect(runnerRes.isErr() && runnerRes.error._tag).toBe("ConfigError");
   });
 });
 
@@ -213,8 +234,10 @@ describe("CassetteRunner.record — record mode", () => {
     const cassettePath = join(tmpDir(), "cassette.json");
     const wrapped = new FakeAgentRunner({ kind: "ok", submission: SUBMISSION, cost: COST });
 
-    const runner = CassetteRunner.record(cassettePath, wrapped);
-    await runner.run(inputs);
+    const runnerRes = CassetteRunner.record(cassettePath, wrapped);
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
+    await runnerRes.value.run(inputs);
 
     const written = JSON.parse(readFileSync(cassettePath, "utf8")) as CassetteStore;
     expect(written[key]).toBeDefined();
@@ -226,8 +249,10 @@ describe("CassetteRunner.record — record mode", () => {
     const cassettePath = join(tmpDir(), "cassette.json");
     const wrapped = new FakeAgentRunner({ kind: "ok", submission: SUBMISSION, cost: COST });
 
-    const runner = CassetteRunner.record(cassettePath, wrapped);
-    const result = await runner.run(inputs);
+    const runnerRes = CassetteRunner.record(cassettePath, wrapped);
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
+    const result = await runnerRes.value.run(inputs);
 
     expect(result.isOk()).toBe(true);
     expect(result.isOk() && result.value.submission).toEqual(SUBMISSION);
@@ -238,10 +263,12 @@ describe("CassetteRunner.record — record mode", () => {
     const error = new ModelError({ message: "model failed", cost: ZERO_COST });
     const wrapped = new FakeAgentRunner({ kind: "err", error });
 
-    const runner = CassetteRunner.record(cassettePath, wrapped);
-    await runner.run(makeInputs());
+    const runnerRes = CassetteRunner.record(cassettePath, wrapped);
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
+    await runnerRes.value.run(makeInputs());
 
-    expect(require("node:fs").existsSync(cassettePath)).toBe(false);
+    expect(existsSync(cassettePath)).toBe(false);
   });
 
   it("Err run → returns the Err result from the wrapped runner", async () => {
@@ -249,8 +276,10 @@ describe("CassetteRunner.record — record mode", () => {
     const error = new ModelError({ message: "model failed", cost: ZERO_COST });
     const wrapped = new FakeAgentRunner({ kind: "err", error });
 
-    const runner = CassetteRunner.record(cassettePath, wrapped);
-    const result = await runner.run(makeInputs());
+    const runnerRes = CassetteRunner.record(cassettePath, wrapped);
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
+    const result = await runnerRes.value.run(makeInputs());
 
     expect(result.isErr() && result.error._tag).toBe("ModelError");
   });
@@ -264,16 +293,18 @@ describe("CassetteRunner.record — record mode", () => {
     const subA = { findings: [{ id: "a" }] };
     const subB = { findings: [{ id: "b" }] };
 
-    const runner = CassetteRunner.record(
+    const runnerRes = CassetteRunner.record(
       cassettePath,
       new FakeAgentRunner([
         { kind: "ok", submission: subA, cost: ZERO_COST },
         { kind: "ok", submission: subB, cost: ZERO_COST },
       ]),
     );
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
 
-    await runner.run(inputsA);
-    await runner.run(inputsB);
+    await runnerRes.value.run(inputsA);
+    await runnerRes.value.run(inputsB);
 
     const written = JSON.parse(readFileSync(cassettePath, "utf8")) as CassetteStore;
     expect(written[keyA]!.submission).toEqual(subA);
@@ -287,16 +318,18 @@ describe("CassetteRunner.record — record mode", () => {
     const subFirst = { findings: [{ id: "first" }] };
     const subSecond = { findings: [{ id: "second" }] };
 
-    const runner = CassetteRunner.record(
+    const runnerRes = CassetteRunner.record(
       cassettePath,
       new FakeAgentRunner([
         { kind: "ok", submission: subFirst, cost: ZERO_COST },
         { kind: "ok", submission: subSecond, cost: ZERO_COST },
       ]),
     );
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
 
-    await runner.run(inputs);
-    await runner.run(inputs);
+    await runnerRes.value.run(inputs);
+    await runnerRes.value.run(inputs);
 
     const written = JSON.parse(readFileSync(cassettePath, "utf8")) as CassetteStore;
     expect(written[key]!.submission).toEqual(subSecond);
@@ -309,15 +342,17 @@ describe("CassetteRunner.record — record mode", () => {
       [existingKey]: { submission: { id: "existing" }, cost: ZERO_COST },
     };
     const cassettePath = join(tmpDir(), "cassette.json");
-    require("node:fs").writeFileSync(cassettePath, JSON.stringify(existingEntry, null, 2));
+    writeFileSync(cassettePath, JSON.stringify(existingEntry, null, 2));
 
     const newInputs = makeInputs({ rubric: "new", userPrompt: "u" });
     const newKey = computeCassetteKey(newInputs);
-    const runner = CassetteRunner.record(
+    const runnerRes = CassetteRunner.record(
       cassettePath,
       new FakeAgentRunner({ kind: "ok", submission: SUBMISSION, cost: ZERO_COST }),
     );
-    await runner.run(newInputs);
+    expect(runnerRes.isOk()).toBe(true);
+    if (!runnerRes.isOk()) return;
+    await runnerRes.value.run(newInputs);
 
     const written = JSON.parse(readFileSync(cassettePath, "utf8")) as CassetteStore;
     expect(written[existingKey]).toBeDefined();
@@ -335,15 +370,19 @@ describe("CassetteRunner — record then fromFile replay", () => {
     const cassettePath = join(tmpDir(), "cassette.json");
 
     // Record
-    const recorder = CassetteRunner.record(
+    const recorderRes = CassetteRunner.record(
       cassettePath,
       new FakeAgentRunner({ kind: "ok", submission: SUBMISSION, cost: COST }),
     );
-    await recorder.run(inputs);
+    expect(recorderRes.isOk()).toBe(true);
+    if (!recorderRes.isOk()) return;
+    await recorderRes.value.run(inputs);
 
     // Replay
-    const replayer = CassetteRunner.fromFile(cassettePath);
-    const replayResult = await replayer.run(inputs);
+    const replayerRes = CassetteRunner.fromFile(cassettePath);
+    expect(replayerRes.isOk()).toBe(true);
+    if (!replayerRes.isOk()) return;
+    const replayResult = await replayerRes.value.run(inputs);
 
     expect(replayResult.isOk()).toBe(true);
     expect(replayResult.isOk() && replayResult.value.submission).toEqual(SUBMISSION);
@@ -355,14 +394,18 @@ describe("CassetteRunner — record then fromFile replay", () => {
     const differentInputs = makeInputs({ rubric: "different", userPrompt: "u" });
     const cassettePath = join(tmpDir(), "cassette.json");
 
-    const recorder = CassetteRunner.record(
+    const recorderRes = CassetteRunner.record(
       cassettePath,
       new FakeAgentRunner({ kind: "ok", submission: SUBMISSION, cost: COST }),
     );
-    await recorder.run(recordedInputs);
+    expect(recorderRes.isOk()).toBe(true);
+    if (!recorderRes.isOk()) return;
+    await recorderRes.value.run(recordedInputs);
 
-    const replayer = CassetteRunner.fromFile(cassettePath);
-    const result = await replayer.run(differentInputs);
+    const replayerRes = CassetteRunner.fromFile(cassettePath);
+    expect(replayerRes.isOk()).toBe(true);
+    if (!replayerRes.isOk()) return;
+    const result = await replayerRes.value.run(differentInputs);
 
     expect(result.isErr() && result.error._tag).toBe("NoSubmitError");
   });

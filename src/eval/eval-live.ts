@@ -1,7 +1,7 @@
 /**
  * eval:live — run the code-review eval with real OpenAI embeddings and update baseline.json
  *
- * Usage:    vp run eval:live
+ * Usage:    vp run eval:live [--update-baseline]
  * Requires: OPENAI_API_KEY env var set to a valid OpenAI key
  *
  * What it does (M3 scaffold):
@@ -11,13 +11,14 @@
  *   3. Runs the eval pipeline with the real OpenAI embedder for semantic grading.
  *   4. Prints metrics to stdout.
  *   5. Checks regression gate against the committed src/eval/baseline.json (if present).
- *   6. Updates src/eval/baseline.json with the freshly computed metrics.
+ *   6. Updates src/eval/baseline.json only when --update-baseline is passed (or no prior
+ *      baseline existed), preventing silent ratchet laundering on every passing run.
  *
  * In M5, this script will be extended to call real specialist models via a live
  * AgentRunner that populates (and re-records) the cassette from live model calls.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CassetteRunner } from "../agent/cassette-runner.js";
@@ -45,15 +46,27 @@ if (!apiKey) {
   process.exit(1);
 }
 
+const updateBaseline = process.argv.includes("--update-baseline");
+
 // ---------------------------------------------------------------------------
 // 2. Load existing baseline for regression gate
 // ---------------------------------------------------------------------------
 
 let baseline: EvalBaseline | undefined;
-try {
-  baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as EvalBaseline;
-  console.log(`Baseline loaded from ${BASELINE_PATH}`);
-} catch {
+const baselineExists = existsSync(BASELINE_PATH);
+if (baselineExists) {
+  try {
+    baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as EvalBaseline;
+    console.log(`Baseline loaded from ${BASELINE_PATH}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `Error: baseline.json exists but is unparseable: ${msg}.\n` +
+        "Refusing to run the gate against a corrupt baseline; fix or delete the file.",
+    );
+    process.exit(2);
+  }
+} else {
   console.log("No baseline found — this run will establish the initial baseline.");
 }
 
@@ -68,7 +81,15 @@ mkdirSync(dirname(CASSETTE_PATH), { recursive: true });
 
 // At M3: replay mode; specialist cassette is empty so findings are {} → empty for all fixtures.
 // At M5: switch to CassetteRunner.record(CASSETTE_PATH, liveRunner) to populate real findings.
-const runner = CassetteRunner.fromFile(CASSETTE_PATH);
+// M5: must switch runner from CassetteRunner (replay) to the live AgentRunner with
+//     SpecialistSubmission + harness-stamping; a cassette miss currently yields empty findings
+//     (runner surfaces a miss count — see runner.ts). Also wire the real specialist rubric.
+const runnerResult = CassetteRunner.fromFile(CASSETTE_PATH);
+if (runnerResult.isErr()) {
+  console.error(`Error: cassette file is corrupt or unreadable: ${runnerResult.error.message}`);
+  process.exit(2);
+}
+const runner = runnerResult.value;
 
 // ---------------------------------------------------------------------------
 // 4. Run eval
@@ -76,11 +97,18 @@ const runner = CassetteRunner.fromFile(CASSETTE_PATH);
 
 console.log(`\nRunning eval against ${ALL_FIXTURES.length} fixtures…`);
 
-const result = await runEval(ALL_FIXTURES, runner, {
-  rubric: EVAL_RUBRIC,
-  embed,
-  baseline,
-});
+let result: Awaited<ReturnType<typeof runEval>>;
+try {
+  result = await runEval(ALL_FIXTURES, runner, {
+    rubric: EVAL_RUBRIC,
+    embed,
+    baseline,
+  });
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`Error: eval run failed (API/network/infra error): ${msg}`);
+  process.exit(2);
+}
 
 // ---------------------------------------------------------------------------
 // 5. Print metrics
@@ -127,8 +155,19 @@ if (result.gateCheck) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Update baseline
+// 7. Update baseline (explicit only — no silent ratchet laundering)
 // ---------------------------------------------------------------------------
 
-writeFileSync(BASELINE_PATH, JSON.stringify(result.metrics, null, 2) + "\n");
-console.log(`\nBaseline updated: ${BASELINE_PATH}`);
+if (!baselineExists) {
+  // Initial run: no prior baseline — establish it unconditionally.
+  writeFileSync(BASELINE_PATH, JSON.stringify(result.metrics, null, 2) + "\n");
+  console.log(`\nBaseline established: ${BASELINE_PATH}`);
+} else if (updateBaseline) {
+  // Explicit re-baseline requested by the operator.
+  writeFileSync(BASELINE_PATH, JSON.stringify(result.metrics, null, 2) + "\n");
+  console.log(`\nBaseline updated (--update-baseline): ${BASELINE_PATH}`);
+} else {
+  console.log(
+    "\nGate passed. Committed baseline left unchanged (re-run with --update-baseline to re-baseline).",
+  );
+}

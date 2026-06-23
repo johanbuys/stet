@@ -16,7 +16,7 @@ export const needsContextWrongArgOrder: Fixture = {
 diff --git a/src/invoice.ts b/src/invoice.ts
 --- a/src/invoice.ts
 +++ b/src/invoice.ts
-@@ -6,3 +6,9 @@
+@@ -6,2 +6,9 @@
  import { formatCurrency } from "./format.js";
 
 +/**
@@ -43,7 +43,7 @@ export function formatCurrency(currency: string, amount: number): string {
     {
       id: "review.bug",
       severity: "error",
-      location: { file: "src/invoice.ts", line: 11 },
+      location: { file: "src/invoice.ts", line: 12 },
       gist: 'Arguments are in the wrong order: formatCurrency expects (currency: string, amount: number) but is called with (price, "USD") — the numeric amount is passed as the first argument.',
     },
   ],

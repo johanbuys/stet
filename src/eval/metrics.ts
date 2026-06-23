@@ -19,6 +19,13 @@ export const ALL_TIERS: readonly FixtureTier[] = ["in-diff", "needs-context", "c
 /** Default gate tolerance: a drop of more than 5% triggers a failure. */
 export const DEFAULT_GATE_EPSILON = 0.05;
 
+/**
+ * Default relative tolerance for the SNR gate.
+ * SNR is unbounded (capped at 999 when NOISE=0), so a relative drop threshold
+ * is correct: a 10% drop (e.g. 10.0 → 9.0) does not fire; a 50% drop does.
+ */
+export const DEFAULT_SNR_RELATIVE_EPSILON = 0.1;
+
 /** Default kappa threshold for grader validation (PRD #13). */
 export const DEFAULT_KAPPA_THRESHOLD = 0.75;
 
@@ -181,21 +188,30 @@ export function computeMetrics(results: FixtureGradeResult[]): EvalMetrics {
 // ---------------------------------------------------------------------------
 
 /**
- * Check whether `current` metrics have regressed beyond `epsilon` from the
+ * Check whether `current` metrics have regressed beyond tolerance from the
  * committed `baseline`.
  *
  * Fails when:
- *   - precision (any tier) drops by > epsilon
- *   - recall (any tier) drops by > epsilon
- *   - SNR drops by > epsilon
- *   - cleanFpr rises by > epsilon  (more false positives is a regression)
+ *   - precision (any tier) drops by > epsilon  (absolute, precision ∈ [0,1])
+ *   - recall (any tier) drops by > epsilon     (absolute, recall ∈ [0,1])
+ *   - SNR drops by > snrRelativeEpsilon        (relative — SNR is unbounded)
+ *   - cleanFpr rises by > epsilon              (absolute, cleanFpr ∈ [0,1])
  *
  * Non-finite values in either side are skipped (no data ⇒ no gate).
+ * A baseline tier that is missing entirely is skipped (no data ⇒ no gate).
+ * When baseline.snr === 0, the SNR gate is skipped (nothing to regress from).
+ *
+ * @param epsilon           Absolute drop/rise tolerance for precision, recall,
+ *                          and cleanFpr (all in [0,1]). Default: 0.05.
+ * @param snrRelativeEpsilon Relative drop tolerance for SNR (unbounded ratio).
+ *                          A value of 0.1 means a >10% relative drop triggers
+ *                          a violation. Default: 0.1.
  */
 export function checkGate(
   current: EvalMetrics,
   baseline: EvalBaseline,
   epsilon = DEFAULT_GATE_EPSILON,
+  snrRelativeEpsilon = DEFAULT_SNR_RELATIVE_EPSILON,
 ): GateCheck {
   const violations: GateViolation[] = [];
 
@@ -213,11 +229,27 @@ export function checkGate(
       violations.push({ metric, baseline: base, current: cur, epsilon, degradation: rise });
   }
 
-  checkDrop("snr", current.snr, baseline.snr);
+  // SNR uses a relative tolerance because it is unbounded (capped at 999 when NOISE=0).
+  // When baseline.snr === 0 there is nothing to regress from — skip.
+  if (baseline.snr > 0) {
+    const relativeDrop = (baseline.snr - current.snr) / baseline.snr;
+    if (relativeDrop > snrRelativeEpsilon) {
+      violations.push({
+        metric: "snr",
+        baseline: baseline.snr,
+        current: current.snr,
+        epsilon: snrRelativeEpsilon,
+        degradation: relativeDrop,
+      });
+    }
+  }
 
   for (const tier of ALL_TIERS) {
     const cur = current.perTier[tier];
     const base = baseline.perTier[tier];
+    // Skip tiers absent from either side — a hand-edited or older-shape baseline
+    // missing a tier must not crash (no data ⇒ no gate).
+    if (!cur || !base) continue;
     checkDrop(`precision.${tier}`, cur.precision, base.precision);
     checkDrop(`recall.${tier}`, cur.recall, base.recall);
   }

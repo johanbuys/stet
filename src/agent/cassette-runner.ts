@@ -28,7 +28,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Result } from "better-result";
 import type { AgentError } from "../errors.js";
-import { NoSubmitError } from "../errors.js";
+import { ConfigError, NoSubmitError } from "../errors.js";
 import type { AgentRunInputs, AgentRunSuccess, AgentRunner } from "./runner.js";
 
 // ---------------------------------------------------------------------------
@@ -83,9 +83,16 @@ export function computeCassetteKey(
 // File helpers (not exported — internal I/O)
 // ---------------------------------------------------------------------------
 
-function loadCassetteFile(cassettePath: string): CassetteStore {
-  if (!existsSync(cassettePath)) return {};
-  return JSON.parse(readFileSync(cassettePath, "utf8")) as CassetteStore;
+function loadCassetteFile(cassettePath: string): Result<CassetteStore, ConfigError> {
+  if (!existsSync(cassettePath)) return Result.ok({});
+  try {
+    return Result.ok(JSON.parse(readFileSync(cassettePath, "utf8")) as CassetteStore);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return Result.err(
+      new ConfigError({ path: cassettePath, message: `cassette file is not valid JSON: ${msg}` }),
+    );
+  }
 }
 
 function saveCassetteFile(cassettePath: string, store: CassetteStore): void {
@@ -114,9 +121,12 @@ export class CassetteRunner implements AgentRunner {
   /**
    * Replay mode — loads the cassette from a JSON file at construction time.
    * If the file does not exist the store is empty; every `run()` call returns a miss.
+   * Returns `Err(ConfigError)` if the file exists but is not valid JSON.
    */
-  static fromFile(cassettePath: string): CassetteRunner {
-    return new CassetteRunner(loadCassetteFile(cassettePath), null, null);
+  static fromFile(cassettePath: string): Result<CassetteRunner, ConfigError> {
+    const storeRes = loadCassetteFile(cassettePath);
+    if (storeRes.isErr()) return Result.err(storeRes.error);
+    return Result.ok(new CassetteRunner(storeRes.value, null, null));
   }
 
   /**
@@ -126,9 +136,14 @@ export class CassetteRunner implements AgentRunner {
    * at construction, then appended/updated in memory before each save).
    *
    * Does NOT persist `Err` results — failures are not cassette-able.
+   * Returns `Err(ConfigError)` if an existing cassette file is not valid JSON.
+   *
+   * // M5: batching multiple writes into a single flush is a future optimization.
    */
-  static record(cassettePath: string, runner: AgentRunner): CassetteRunner {
-    return new CassetteRunner(loadCassetteFile(cassettePath), cassettePath, runner);
+  static record(cassettePath: string, runner: AgentRunner): Result<CassetteRunner, ConfigError> {
+    const storeRes = loadCassetteFile(cassettePath);
+    if (storeRes.isErr()) return Result.err(storeRes.error);
+    return Result.ok(new CassetteRunner(storeRes.value, cassettePath, runner));
   }
 
   async run(inputs: AgentRunInputs): Promise<Result<AgentRunSuccess, AgentError>> {

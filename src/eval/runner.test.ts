@@ -11,6 +11,8 @@
  *   - buildFixturePrompt: diff-only, with baseFiles
  *   - runEval: HIT, VALID, NOISE, cassette miss → empty findings
  *   - runEval gate check: pass and fail against provided baseline
+ *   - runEval error accounting: runnerErrors, parseFailures
+ *   - runEval cosine threshold: below-threshold finding is VALID/NOISE, not HIT
  */
 
 import { describe, expect, it } from "vite-plus/test";
@@ -218,6 +220,57 @@ describe("runEval — cassette miss", () => {
     expect(result.fixtureResults[0]!.findings).toHaveLength(1);
     expect(result.fixtureResults[1]!.findings).toHaveLength(0);
   });
+
+  it("counts all cassette misses as runnerErrors", async () => {
+    // Empty store → every fixture is a cassette miss → Err from CassetteRunner
+    const runner = CassetteRunner.fromStore({});
+
+    const result = await runEval([SIMPLE_FIXTURE, CLEAN_FIXTURE], runner, { embed: sameVecEmbed });
+
+    // Both fixtures miss → 2 runner errors
+    expect(result.runnerErrors).toBe(2);
+    expect(result.parseFailures).toBe(0);
+  });
+});
+
+// ── runEval — parse failures ──────────────────────────────────────────────────
+
+describe("runEval — parse failures", () => {
+  it("counts parseFailures when cassette returns a malformed submission (parseFindings → null)", async () => {
+    // The cassette returns an Ok result, but the submission is malformed:
+    // `findings` contains an object missing required fields → parseFindings returns null.
+    const malformedSubmission = { findings: [{ not_a_valid_finding: true }] };
+    const key = keyForFixture(SIMPLE_FIXTURE);
+    const store: CassetteStore = {
+      [key]: { submission: malformedSubmission, cost: { durationMs: 50 } },
+    };
+    const runner = CassetteRunner.fromStore(store);
+
+    const result = await runEval([SIMPLE_FIXTURE], runner, { embed: sameVecEmbed });
+
+    // Runner returned Ok, but parseFindings returned null → parseFailures = 1
+    expect(result.runnerErrors).toBe(0);
+    expect(result.parseFailures).toBe(1);
+    // Malformed submission contributes no findings → graded as all-missed
+    expect(result.fixtureResults[0]!.findings).toHaveLength(0);
+  });
+
+  it("distinguishes parse-null from a valid empty findings array", async () => {
+    // A valid submission with an empty findings array (not malformed — [] is Ok).
+    const emptySubmission = { findings: [] };
+    const key = keyForFixture(CLEAN_FIXTURE);
+    const store: CassetteStore = {
+      [key]: { submission: emptySubmission, cost: { durationMs: 50 } },
+    };
+    const runner = CassetteRunner.fromStore(store);
+
+    const result = await runEval([CLEAN_FIXTURE], runner, { embed: sameVecEmbed });
+
+    // Empty array is a valid parse result — not a parseFailure
+    expect(result.runnerErrors).toBe(0);
+    expect(result.parseFailures).toBe(0);
+    expect(result.fixtureResults[0]!.findings).toHaveLength(0);
+  });
 });
 
 // ── runEval — gate check ──────────────────────────────────────────────────────
@@ -379,5 +432,63 @@ describe("runEval — multi-fixture metrics", () => {
 
     expect(result.fixtureResults[0]!.findings).toHaveLength(1);
     expect(result.metrics.counts.hit).toBe(1);
+  });
+});
+
+// ── runEval — cosine threshold (Finding #9b) ──────────────────────────────────
+
+describe("runEval — cosine threshold", () => {
+  it("buckets a within-gate finding as VALID/NOISE (not HIT) when cosine is below threshold", async () => {
+    // The finding is on src/a.ts line 5 — inside the location gate of SIMPLE_FIXTURE's expected.
+    // But the embedder returns DIFFERENT vectors for the emitted message vs the expected gist,
+    // producing a cosine well below 0.80 → the grader must NOT classify it as HIT.
+    //
+    // Vectors: emitted message → [1, 0, 0, 0], expected gist → [0, 1, 0, 0]
+    // cosine([1,0,0,0], [0,1,0,0]) = 0.0 < 0.80 → should NOT become a HIT.
+
+    const emittedMessage = "completely unrelated message text";
+    const expectedGist = "off-by-one: arr[arr.length] always undefined";
+
+    // Assign orthogonal vectors: emitted → [1,0,0,0], everything else → [0,1,0,0]
+    const lowCosineEmbed: EmbedFn = async (text: string) => {
+      if (text === emittedMessage) return [1, 0, 0, 0];
+      return [0, 1, 0, 0]; // expectedGist and any other text
+    };
+
+    // Fixture with the expected gist matching the expected in SIMPLE_FIXTURE
+    const fixture: Fixture = {
+      ...SIMPLE_FIXTURE,
+      expected: [
+        {
+          id: "review.bug",
+          severity: "error",
+          location: { file: "src/a.ts", line: 5 }, // same file/line → inside location gate
+          gist: expectedGist,
+        },
+      ],
+    };
+
+    const finding = makeFinding({ message: emittedMessage, file: "src/a.ts", line: 5 });
+    const key = keyForFixture(fixture);
+    const store: CassetteStore = {
+      [key]: { submission: { findings: [finding] }, cost: { durationMs: 50 } },
+    };
+    const runner = CassetteRunner.fromStore(store);
+
+    const result = await runEval([fixture], runner, {
+      embed: lowCosineEmbed,
+      // Use default threshold (0.80); cosine = 0.0 → well below it
+    });
+
+    const fr = result.fixtureResults[0]!;
+    expect(fr.gradeResult.graded).toHaveLength(1);
+    // Finding is inside the location gate but cosine < 0.80 → NOT a HIT
+    expect(fr.gradeResult.graded[0]!.bucket).not.toBe("HIT");
+    // Non-clean fixture → unmatched finding is VALID
+    expect(fr.gradeResult.graded[0]!.bucket).toBe("VALID");
+    // The expected finding was not matched → missed
+    expect(fr.gradeResult.missed).toHaveLength(1);
+    expect(result.metrics.counts.hit).toBe(0);
+    expect(result.metrics.counts.valid).toBe(1);
   });
 });

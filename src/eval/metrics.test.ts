@@ -20,6 +20,7 @@ import {
   cohensKappa,
   DEFAULT_GATE_EPSILON,
   DEFAULT_KAPPA_THRESHOLD,
+  DEFAULT_SNR_RELATIVE_EPSILON,
 } from "./metrics.js";
 import type { FixtureGradeResult, EvalBaseline } from "./metrics.js";
 
@@ -224,18 +225,33 @@ describe("checkGate", () => {
     expect(checkGate(better, baseline).passed).toBe(true);
   });
 
-  it("fails when SNR drops below baseline by more than epsilon", () => {
-    const baseline = makeBaseline({ snr: 5 });
-    const worse: EvalBaseline = { ...baseline, snr: 5 - DEFAULT_GATE_EPSILON - 0.01 };
+  it("fails when SNR drops below baseline by more than the relative epsilon (10% relative)", () => {
+    // SNR 10.0 → 5.0: relative drop = 50% → violation (> 10%)
+    const baseline = makeBaseline({ snr: 10 });
+    const worse: EvalBaseline = { ...baseline, snr: 5 };
     const { passed, violations } = checkGate(worse, baseline);
     expect(passed).toBe(false);
     expect(violations.some((v) => v.metric === "snr")).toBe(true);
   });
 
-  it("passes when SNR drops by exactly epsilon (boundary is exclusive)", () => {
-    const baseline = makeBaseline({ snr: 5 });
-    const onBoundary: EvalBaseline = { ...baseline, snr: 5 - DEFAULT_GATE_EPSILON };
+  it("passes when SNR drops by less than the relative epsilon (10% relative)", () => {
+    // SNR 10.0 → 9.9: relative drop = 1% → no violation
+    const baseline = makeBaseline({ snr: 10 });
+    const slightlyWorse: EvalBaseline = { ...baseline, snr: 9.9 };
+    expect(checkGate(slightlyWorse, baseline).passed).toBe(true);
+  });
+
+  it("passes when SNR drops by exactly snrRelativeEpsilon (boundary is exclusive)", () => {
+    // SNR 10.0 → 9.0: relative drop = exactly 10% → no violation (boundary exclusive)
+    const baseline = makeBaseline({ snr: 10 });
+    const onBoundary: EvalBaseline = { ...baseline, snr: 9 };
     expect(checkGate(onBoundary, baseline).passed).toBe(true);
+  });
+
+  it("skips SNR gate when baseline.snr is 0 (nothing to regress from)", () => {
+    const baseline = makeBaseline({ snr: 0 });
+    const current: EvalBaseline = { ...baseline, snr: 0 };
+    expect(checkGate(current, baseline).passed).toBe(true);
   });
 
   it("fails when precision drops beyond epsilon", () => {
@@ -259,24 +275,64 @@ describe("checkGate", () => {
     expect(checkGate(better, baseline).passed).toBe(true);
   });
 
-  it("violation records metric, baseline, current, epsilon, and degradation", () => {
-    const baseline = makeBaseline({ snr: 5 });
-    const worse: EvalBaseline = { ...baseline, snr: 4.8 };
-    const { violations } = checkGate(worse, baseline);
-    const v = violations.find((x) => x.metric === "snr")!;
-    expect(v.baseline).toBe(5);
-    expect(v.current).toBe(4.8);
-    expect(v.epsilon).toBe(DEFAULT_GATE_EPSILON);
-    expect(v.degradation).toBeCloseTo(0.2);
+  it("does NOT throw when baseline perTier is missing a tier (skips that tier)", () => {
+    // Simulate a hand-edited or older-shape baseline.json that only has "in-diff"
+    const baseline = makeBaseline();
+    const partialBaseline = {
+      ...baseline,
+      perTier: {
+        "in-diff": baseline.perTier["in-diff"],
+        // "needs-context" and "cross-file" are absent
+      },
+    } as unknown as EvalBaseline;
+    const current = makeBaseline();
+    // Must return a GateCheck without throwing
+    expect(() => checkGate(current, partialBaseline)).not.toThrow();
+    const result = checkGate(current, partialBaseline);
+    expect(result).toHaveProperty("passed");
+    expect(result).toHaveProperty("violations");
+    expect(Array.isArray(result.violations)).toBe(true);
   });
 
-  it("accepts a custom epsilon", () => {
-    const baseline = makeBaseline({ snr: 5 });
-    const slightly_worse: EvalBaseline = { ...baseline, snr: 4.94 };
-    // With default epsilon (0.05): no violation (drop = 0.06 > 0.05 → violation)
-    expect(checkGate(slightly_worse, baseline, 0.05).passed).toBe(false);
-    // With epsilon = 0.1: no violation (drop = 0.06 ≤ 0.1)
-    expect(checkGate(slightly_worse, baseline, 0.1).passed).toBe(true);
+  it("violation records metric, baseline, current, epsilon, and degradation (relative drop for snr)", () => {
+    // SNR 10 → 5: relative drop = 0.5 (50%), which exceeds the 10% relative epsilon
+    const baseline = makeBaseline({ snr: 10 });
+    const worse: EvalBaseline = { ...baseline, snr: 5 };
+    const { violations } = checkGate(worse, baseline);
+    const v = violations.find((x) => x.metric === "snr")!;
+    expect(v.baseline).toBe(10);
+    expect(v.current).toBe(5);
+    expect(v.epsilon).toBe(DEFAULT_SNR_RELATIVE_EPSILON);
+    expect(v.degradation).toBeCloseTo(0.5); // relative drop: (10-5)/10
+  });
+
+  it("accepts a custom absolute epsilon for precision/recall/cleanFpr", () => {
+    const baseline = makeBaseline();
+    const worse = JSON.parse(JSON.stringify(baseline)) as EvalBaseline;
+    // precision drop of 0.06 on in-diff tier
+    worse.perTier["in-diff"].precision = 0.8 - 0.06;
+    // With default epsilon (0.05): violation (drop 0.06 > 0.05)
+    expect(
+      checkGate(worse, baseline, 0.05).violations.some((v) => v.metric === "precision.in-diff"),
+    ).toBe(true);
+    // With epsilon = 0.1: no violation (drop 0.06 ≤ 0.1)
+    expect(
+      checkGate(worse, baseline, 0.1).violations.some((v) => v.metric === "precision.in-diff"),
+    ).toBe(false);
+  });
+
+  it("accepts a custom snrRelativeEpsilon as fourth argument", () => {
+    // SNR 10 → 8.5: relative drop = 15%
+    const baseline = makeBaseline({ snr: 10 });
+    const worse: EvalBaseline = { ...baseline, snr: 8.5 };
+    // Default 10% relative epsilon → violation (15% > 10%)
+    expect(checkGate(worse, baseline).violations.some((v) => v.metric === "snr")).toBe(true);
+    // Custom 20% relative epsilon → no violation (15% ≤ 20%)
+    expect(
+      checkGate(worse, baseline, DEFAULT_GATE_EPSILON, 0.2).violations.some(
+        (v) => v.metric === "snr",
+      ),
+    ).toBe(false);
   });
 });
 

@@ -22,6 +22,7 @@ import type { Fixture } from "./fixture.js";
 import type { Finding as FindingType } from "../schema/finding.js";
 import type { EvalBaseline, GateCheck } from "./metrics.js";
 import { computeMetrics, checkGate, DEFAULT_GATE_EPSILON } from "./metrics.js";
+import { FIVE_MINUTE_BUDGETS } from "../agent/budgets.js";
 
 // ---------------------------------------------------------------------------
 // Eval rubric — the system prompt for the M3 eval specialist
@@ -84,18 +85,27 @@ export interface EvalRunResult {
   metrics: ReturnType<typeof computeMetrics>;
   /** Present when cfg.baseline is supplied. */
   gateCheck?: GateCheck;
+  /**
+   * Count of fixtures where the AgentRunner returned Err (cassette miss, model error, etc.).
+   * A non-zero value means some fixtures scored 0 with NO signal — stale or drifted cassettes
+   * are invisible without this count.
+   */
+  runnerErrors: number;
+  /**
+   * Count of fixtures where the runner returned Ok but parseFindings returned null
+   * (malformed submission payload). Distinct from a legitimate empty findings array ([]).
+   * A non-zero value indicates the cassette entry does not conform to the Finding schema.
+   */
+  parseFailures: number;
 }
 
 // ---------------------------------------------------------------------------
-// budgets / toolset defaults for M3 eval runner
+// Budgets for M3 eval runner
 // ---------------------------------------------------------------------------
 
-const EVAL_BUDGETS: AgentRunInputs["budgets"] = {
-  wallClockMs: 120_000,
-  turns: 30,
-  bashTimeoutMs: 30_000,
-  bashOutputCap: 100_000,
-};
+// M3: budgets are inert (CassetteRunner ignores them). Use FIVE_MINUTE_BUDGETS directly
+// since the shape is canonical and there is no eval-specific reason to diverge.
+const EVAL_BUDGETS = FIVE_MINUTE_BUDGETS;
 
 // ---------------------------------------------------------------------------
 // runEval
@@ -106,8 +116,11 @@ const EVAL_BUDGETS: AgentRunInputs["budgets"] = {
  *
  * For each fixture:
  *   1. Build AgentRunInputs (rubric + buildFixturePrompt(fixture) + eval budgets).
- *   2. Call runner.run(inputs). On Err (cassette miss, no creds, etc.) → empty findings.
- *   3. Parse findings from the submission using parseFindings.
+ *   2. Call runner.run(inputs). On Err (cassette miss, no creds, etc.) → empty findings;
+ *      increment runnerErrors so the caller can detect silent grading failures.
+ *   3. Parse findings from the submission using parseFindings. If parseFindings returns null
+ *      (malformed payload), increment parseFailures; use [] for grading.
+ *      If parseFindings returns [] (valid empty array), that is not a failure.
  *   4. Grade findings against fixture.expected via gradeFindings.
  *
  * Aggregate gradeResults into EvalMetrics, apply gate check if baseline supplied.
@@ -123,6 +136,8 @@ export async function runEval(
 ): Promise<EvalRunResult> {
   const rubric = cfg.rubric ?? EVAL_RUBRIC;
   const fixtureResults: FixtureEvalResult[] = [];
+  let runnerErrors = 0;
+  let parseFailures = 0;
 
   for (const fixture of fixtures) {
     const userPrompt = buildFixturePrompt(fixture);
@@ -130,15 +145,31 @@ export async function runEval(
       rubric,
       userPrompt,
       toolset: [],
+      // M5: switch submitSchema to SpecialistSubmission and stamp confidence/phase/specialist
+      // after parse — real specialist submissions omit those harness-stamped fields, so they
+      // parse to null against Finding. See finding.ts SpecialistSubmission and its note.
       submitSchema: Finding,
       budgets: EVAL_BUDGETS,
       cwd: process.cwd(),
     };
 
     const agentResult = await runner.run(inputs);
-    const findings: FindingType[] = agentResult.isOk()
-      ? (parseFindings(agentResult.value.submission) ?? [])
-      : [];
+
+    let findings: FindingType[];
+    if (agentResult.isOk()) {
+      // M5: parseFindings currently requires full Finding (with confidence/phase/specialist).
+      // See comment on submitSchema above — both must change together at M5.
+      const parsed = parseFindings(agentResult.value.submission);
+      if (parsed === null) {
+        parseFailures++;
+        findings = [];
+      } else {
+        findings = parsed;
+      }
+    } else {
+      runnerErrors++;
+      findings = [];
+    }
 
     const gradeResult = await gradeFindings(
       findings,
@@ -159,5 +190,5 @@ export async function runEval(
     gateCheck = checkGate(metrics, cfg.baseline, cfg.epsilon ?? DEFAULT_GATE_EPSILON);
   }
 
-  return { fixtureResults, metrics, gateCheck };
+  return { fixtureResults, metrics, gateCheck, runnerErrors, parseFailures };
 }

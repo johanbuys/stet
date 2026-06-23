@@ -23,6 +23,7 @@ import {
   EMBEDDING_MODEL,
   LOCATION_GATE,
   cosineSimilarity,
+  extractEmbedding,
   gradeFindings,
   inLocationGate,
 } from "./grader.js";
@@ -114,6 +115,27 @@ describe("cosineSimilarity", () => {
   });
 });
 
+// ── extractEmbedding ──────────────────────────────────────────────────────────
+
+describe("extractEmbedding", () => {
+  it("returns the embedding vector from a valid response", () => {
+    const res = { data: [{ embedding: [0.1, 0.2, 0.3] }] };
+    expect(extractEmbedding(res)).toEqual([0.1, 0.2, 0.3]);
+  });
+
+  it("throws a descriptive error when data array is empty", () => {
+    const res = { data: [] };
+    expect(() => extractEmbedding(res)).toThrow(/openai embeddings returned no data/);
+  });
+
+  it("throws a descriptive error when data is missing", () => {
+    const res = {};
+    expect(() => extractEmbedding(res as { data?: { embedding: number[] }[] })).toThrow(
+      /openai embeddings returned no data/,
+    );
+  });
+});
+
 // ── inLocationGate ────────────────────────────────────────────────────────────
 
 describe("inLocationGate", () => {
@@ -164,6 +186,14 @@ describe("inLocationGate", () => {
   it("file-level match when expected has file but no line", () => {
     const f = makeFinding("msg", { file: "src/a.ts", line: 10 });
     const x = makeExpected("gist", { file: "src/a.ts" }); // file, no line
+    expect(inLocationGate(f, x, GATE)).toBe(true);
+  });
+
+  it("file-level expected (no line) matches a finding far from line 1, same file", () => {
+    // A line-less expected is a file-level expectation; the embedding threshold
+    // is the only remaining filter.  A finding at line 500 is still a candidate.
+    const f = makeFinding("msg", { file: "src/a.ts", line: 500 });
+    const x = makeExpected("gist", { file: "src/a.ts" }); // no line → file-level
     expect(inLocationGate(f, x, GATE)).toBe(true);
   });
 });
@@ -285,16 +315,29 @@ describe("gradeFindings — NOISE", () => {
   });
 });
 
+// Vectors for mutual-exclusion test: both f1 and f2 must score ≥ 0.80 vs expected.
+// expected gist → VA (unit vector along axis 0).
+// f1 embeds to VA itself → cosine ≈ 1.0 (wins).
+// f2 embeds to VB which is close-but-not-identical to VA → cosine ≈ 0.95 (also clears 0.80).
+// Both clear the threshold, but only one expected slot → the winner is f1; f2 is VALID
+// because matchedExpected.has(xIdx) blocks it, NOT because it's below threshold.
+const VA = [1, 0, 0, 0]; // "axis 0" — f1 & expected gist
+// VB: [cos(18°), sin(18°), 0, 0] ≈ [0.951, 0.309, 0, 0] → cosine(VB, VA) ≈ 0.951 ≥ 0.80
+const VB = [0.951, 0.309, 0, 0];
+
 describe("gradeFindings — 1-to-1 constraint", () => {
-  it("two emitted findings competing for the same expected: best cosine wins", async () => {
+  it("mutual exclusion: when two findings both clear the threshold for one expected, only the best wins", async () => {
     const f1 = makeFinding("strong match", { file: "src/a.ts", line: 5 });
-    const f2 = makeFinding("weak match", { file: "src/a.ts", line: 5 });
+    const f2 = makeFinding("close-but-second match", { file: "src/a.ts", line: 5 });
     const expected = makeExpected("expected defect", { file: "src/a.ts", line: 5 });
 
+    // cosine(f1, expected) = cosine(VA, VA) = 1.0  ≥ 0.80 ✓
+    // cosine(f2, expected) = cosine(VB, VA) ≈ 0.951 ≥ 0.80 ✓  (both clear threshold)
+    // f1 wins the slot; f2 is blocked by matchedExpected.has(xIdx) → VALID
     const embed = makeFakeEmbedder({
-      [f1.message]: V0,
-      [f2.message]: V01, // lower cosine with expected
-      [expected.gist]: V0, // cosine(f1, expected) = 1.0; cosine(f2, expected) = 0.707
+      [f1.message]: VA,
+      [f2.message]: VB,
+      [expected.gist]: VA,
     });
 
     const { graded } = await gradeFindings([f1, f2], [expected], false, embed);
@@ -302,9 +345,10 @@ describe("gradeFindings — 1-to-1 constraint", () => {
     const f1Grade = graded.find((g) => g.finding === f1)!;
     const f2Grade = graded.find((g) => g.finding === f2)!;
 
-    // f1 wins the expected finding because its cosine is higher
+    // f1 wins the expected slot (highest cosine)
     expect(f1Grade.bucket).toBe("HIT");
-    expect(f2Grade.bucket).toBe("VALID"); // f2 loses the competition; non-clean → VALID
+    // f2 is blocked by mutual exclusion (the slot is taken), NOT by falling below threshold
+    expect(f2Grade.bucket).toBe("VALID");
   });
 
   it("each expected finding matched at most once", async () => {
