@@ -44,6 +44,43 @@ export const Check = Type.Object(
 // ---------------------------------------------------------------------------
 
 /**
+ * A single voter verdict from the agreement-verify stage (TDD A·2).
+ * Emitted via the submit_verdict tool; recorded in VerifyAudit.dropped entries.
+ */
+export const VoterVerdict = Type.Object(
+  {
+    verdict: Type.Union([Type.Literal("uphold"), Type.Literal("refute"), Type.Literal("abstain")]),
+    reason: Type.String(),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Harness-computed verify summary for composite phases that ran agreement-verify (TDD A·4).
+ * Separate from CoordinatorAudit so mechanical agreement-drops read distinctly from judgment-drops.
+ */
+export const VerifyAudit = Type.Object(
+  {
+    /** Number of candidate findings submitted to verify. */
+    received: Type.Number(),
+    /** Candidates dropped by the agreement threshold (upholds ≤ 1/3); each records per-voter verdicts. */
+    dropped: Type.Array(
+      Type.Object(
+        {
+          id: Type.String(),
+          specialist: Type.Optional(Type.String()),
+          /** Count of uphold verdicts across N voters. */
+          upholds: Type.Number(),
+          verdicts: Type.Array(VoterVerdict),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/**
  * Audit trail for a phase — the anti-silent-green mechanism.
  * PRD §4.3. coordinator sub-object is harness-computed, never judge-self-reported.
  */
@@ -61,6 +98,8 @@ export const Audit = Type.Object(
         { additionalProperties: false },
       ),
     ),
+    /** Harness-computed agreement-verify summary (TDD A·4); separate from coordinator audit. */
+    verify: Type.Optional(VerifyAudit),
     /** Harness-computed coordinator summary for composite phases that ran a judge (PRD §3.3a, #31). */
     coordinator: Type.Optional(
       Type.Object(
@@ -226,6 +265,8 @@ export const RunReport = Type.Object(
 // Same-name value+type merging (idiomatic TypeBox): the schema object and its
 // static type share the PRD's name, so code reads like the contract.
 export type Check = Static<typeof Check>;
+export type VoterVerdict = Static<typeof VoterVerdict>;
+export type VerifyAudit = Static<typeof VerifyAudit>;
 export type Audit = Static<typeof Audit>;
 export type Cost = Static<typeof Cost>;
 export type PhaseCost = Static<typeof PhaseCost>;

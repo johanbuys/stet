@@ -84,36 +84,86 @@ export type RunScript = OkScript | ErrScript | DelayScript;
 /**
  * FakeAgentRunner — scripted, synchronous-ish (Promise-returning) agent runner.
  *
- * Constructed with a RunScript; calling run() resolves immediately according to the script.
+ * Constructed with a RunScript (repeated on every call) or RunScript[] (queue —
+ * each successive run() call dequeues the next script; throws when exhausted).
  * Calls onTool("submit_findings") on the Ok path so callers can track progress.
  *
- * Never throws, never rejects — mirrors the real AgentRunner contract.
+ * Agent-run contract: run() always resolves — ok/err/delay paths all return a
+ * Result and never reject. This mirrors the real AgentRunner contract.
+ *
+ * Queue exhaustion is the one intentional exception: nextScript() throws
+ * synchronously when the queue is over-consumed. This is a test-setup
+ * programming error (more run() calls than scripted entries), not a runtime
+ * AgentError, so a loud synchronous throw is the right signal.
  */
 export class FakeAgentRunner implements AgentRunner {
-  private readonly script: RunScript;
+  private readonly singleScript: RunScript | undefined;
+  private readonly queue: RunScript[] | undefined;
+  private queueIndex = 0;
 
-  constructor(script: RunScript) {
-    this.script = script;
+  /**
+   * @param script
+   *   - Single RunScript: the same script is returned on every run() call (backward compat).
+   *   - RunScript[]: positional queue — one entry is consumed per run() invocation.
+   *
+   * Queue contract (important for retrying callers):
+   * The queue is consumed strictly per run() call, not per logical operation.
+   * A retry issued by the code under test (e.g. agreement-verify re-calling a voter)
+   * dequeues the NEXT entry, as does a run() call that loses a wall-clock timeout race
+   * (runWithWallClock still invokes runner.run() even when the timer wins).
+   * Therefore a queue must contain one script per *expected run() invocation* — including
+   * every retry attempt — not one per logical voter or operation. If the queue is shorter
+   * than the actual call count, nextScript() will throw to signal the test-setup error.
+   */
+  constructor(script: RunScript | ReadonlyArray<RunScript>) {
+    if (Array.isArray(script)) {
+      this.queue = [...(script as RunScript[])];
+      this.singleScript = undefined;
+    } else {
+      this.singleScript = script as RunScript;
+      this.queue = undefined;
+    }
+  }
+
+  /**
+   * Returns the next script to execute.
+   *
+   * For single-script construction: always returns the same script.
+   * For queue construction: dequeues the next entry in order.
+   *
+   * Throws synchronously if the queue is exhausted — this is a test-setup
+   * programming error (more run() calls than scripted entries), not a runtime
+   * AgentError. See the constructor doc for the one-entry-per-run() contract.
+   */
+  private nextScript(): RunScript {
+    if (this.queue !== undefined) {
+      if (this.queueIndex >= this.queue.length) {
+        throw new Error(`FakeAgentRunner: script queue exhausted after ${this.queueIndex} call(s)`);
+      }
+      return this.queue[this.queueIndex++] as RunScript;
+    }
+    return this.singleScript as RunScript;
   }
 
   async run(inputs: AgentRunInputs): Promise<Result<AgentRunSuccess, AgentError>> {
+    const script = this.nextScript();
     const { onTool, signal } = inputs;
 
-    if (this.script.kind === "ok") {
+    if (script.kind === "ok") {
       // Simulate tool invocation progress for the happy path
       onTool?.(SUBMIT_TOOL_NAME);
       return Result.ok({
-        submission: this.script.submission,
-        cost: this.script.cost,
+        submission: script.submission,
+        cost: script.cost,
       });
     }
 
-    if (this.script.kind === "err") {
-      return Result.err(this.script.error);
+    if (script.kind === "err") {
+      return Result.err(script.error);
     }
 
     // kind === "delay": hang for delayMs, or abort early if signal fires.
-    const { delayMs } = this.script;
+    const { delayMs } = script;
     return new Promise<Result<AgentRunSuccess, AgentError>>((resolve) => {
       let timerId: ReturnType<typeof setTimeout>;
 

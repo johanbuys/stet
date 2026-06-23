@@ -32,6 +32,8 @@ export interface AgentRunInputs {
   toolset: string[];
   /** TypeBox schema for the submit_findings parameter (findings + audit + extension). */
   submitSchema: TSchema;
+  /** Name of the completion/submit tool the agent must call. Defaults to "submit_findings". */
+  submitToolName?: string;
   /** Safety budgets: wrapper enforces wallClockMs (M3), runner enforces turns/bash (M3, T12/T13 — not yet implemented). */
   budgets: {
     wallClockMs: number;

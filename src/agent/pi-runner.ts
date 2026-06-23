@@ -165,12 +165,16 @@ export class PiAgentRunner implements AgentRunner {
     }
 
     // -----------------------------------------------------------------------
-    // 3. Build the submit_findings tool via SubmitTool (guards 1 & 2).
+    // 3. Build the submit tool via SubmitTool (guards 1 & 2).
+    //    submitToolName allows callers (e.g. voter phase) to advertise a different
+    //    completion tool name (e.g. "submit_verdict") while reusing the same handler
+    //    and schema-validation logic. Defaults to SUBMIT_TOOL_NAME ("submit_findings").
     // -----------------------------------------------------------------------
+    const submitToolName = inputs.submitToolName ?? SUBMIT_TOOL_NAME;
     const handler = new SubmitTool(inputs.submitSchema);
 
     const submitTool = defineTool({
-      name: SUBMIT_TOOL_NAME,
+      name: submitToolName,
       label: "Submit findings",
       description:
         "Submit your FINAL findings verdict. Call this exactly ONCE when you have " +
@@ -209,11 +213,11 @@ export class PiAgentRunner implements AgentRunner {
     const startMs = Date.now();
 
     // inputs.toolset is forwarded verbatim (mutation-free, phase-owned).
-    // SUBMIT_TOOL_NAME is ensured present as the single completion tool —
+    // submitToolName is ensured present as the single completion tool —
     // a safety net in case a phase omits it, but stub-agent already includes it.
-    const toolsetWithSubmit = inputs.toolset.includes(SUBMIT_TOOL_NAME)
+    const toolsetWithSubmit = inputs.toolset.includes(submitToolName)
       ? inputs.toolset
-      : [...inputs.toolset, SUBMIT_TOOL_NAME];
+      : [...inputs.toolset, submitToolName];
 
     // T13: replace the built-in "bash" with a custom bash tool that enforces
     // the per-call timeout and output cap from inputs.budgets (PRD §3.5, plan §2a/T13).
