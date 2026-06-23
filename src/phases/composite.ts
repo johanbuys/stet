@@ -22,6 +22,7 @@ import type { CoordinatorConfig } from "./coordinator.js";
 import { runCoordinatorJudge } from "./coordinator.js";
 import { classify, type RiskRule } from "../risk/classify.js";
 import { runAgreementVerify, type VerifyConfig } from "./verify.js";
+import { buildAddedLineIndex, markPreexisting } from "../preexisting.js";
 
 // ---------------------------------------------------------------------------
 // Specialist config
@@ -258,6 +259,11 @@ export function makeCompositePhase(
       // Convenience: include resolved level in every completed report (PRD §3.4.1a).
       const levelEntry = resolvedLevel !== undefined ? { level: resolvedLevel } : {};
 
+      // Deterministic pre-existing detection (TDD B·2 / plan M4 step 4 / F2): built once
+      // per run, shared by all five completed-return paths. Applied post-coordinator so the
+      // coordinator's rewrites are visible before the stamp is computed (S5).
+      const addedLineIndex = buildAddedLineIndex(ctx.diff ?? "");
+
       let parallelResults: SpecialistOutcome[];
       try {
         parallelResults = await Promise.all(
@@ -394,7 +400,7 @@ export function makeCompositePhase(
             phase: cfg.id,
             status: "completed",
             ...levelEntry,
-            findings: [...candidateFindings, warnFinding],
+            findings: markPreexisting([...candidateFindings, warnFinding], addedLineIndex),
             audit: verifyAudit !== undefined ? { verify: verifyAudit } : {},
             cost: { durationMs: Date.now() - start, specialists: specialistsCost },
           };
@@ -418,7 +424,7 @@ export function makeCompositePhase(
             phase: cfg.id,
             status: "completed",
             ...levelEntry,
-            findings: [...candidateFindings, warnFinding],
+            findings: markPreexisting([...candidateFindings, warnFinding], addedLineIndex),
             audit: verifyAudit !== undefined ? { verify: verifyAudit } : {},
             cost: { durationMs: Date.now() - start, specialists: specialistsCost },
           };
@@ -525,6 +531,7 @@ export function makeCompositePhase(
             }
           }
 
+          markPreexisting(finalFindings, addedLineIndex);
           return {
             phase: cfg.id,
             status: "completed",
@@ -556,7 +563,7 @@ export function makeCompositePhase(
           phase: cfg.id,
           status: "completed",
           ...levelEntry,
-          findings: [...candidateFindings, warnFinding],
+          findings: markPreexisting([...candidateFindings, warnFinding], addedLineIndex),
           audit: verifyAudit !== undefined ? { verify: verifyAudit } : {},
           cost: { durationMs: Date.now() - start, specialists: specialistsCost },
         };
@@ -567,7 +574,7 @@ export function makeCompositePhase(
         phase: cfg.id,
         status: "completed",
         ...levelEntry,
-        findings: candidateFindings,
+        findings: markPreexisting(candidateFindings, addedLineIndex),
         audit: verifyAudit !== undefined ? { verify: verifyAudit } : {},
         cost: { durationMs: Date.now() - start, specialists: specialistsCost },
       };

@@ -389,3 +389,139 @@ describe("verify wiring — no verify configured", () => {
     expect(report.findings.find((f) => f.id === "test-phase.bug")?.confidence).toBe("medium");
   });
 });
+
+// ---------------------------------------------------------------------------
+// markPreexisting finalization wraps all five completed return paths (T12 · M4 · plan step 4)
+//
+// TDD B·2 / plan F2: a single markPreexisting call is applied post-coordinator on every
+// completed return path. Pre-existing findings (location.line NOT in the diff added-line
+// set) receive meta.preexisting = true; introduced findings (line IS in the added set) do not.
+// A finding with no location.line is never stamped (conservative: still gates).
+//
+// The accept criterion for "non-gating" is structural: meta.preexisting = true means the
+// downstream gate (deriveExit, M6 step 3) skips the finding. The harness stamps it here;
+// M6 reads it. Tested here via the meta value directly.
+// ---------------------------------------------------------------------------
+
+/** A diff in which src/a.ts line 2 is added, lines 1/3/4 are context (pre-existing). */
+const DIFF_WITH_ADDED_LINE = [
+  "diff --git a/src/a.ts b/src/a.ts",
+  "--- a/src/a.ts",
+  "+++ b/src/a.ts",
+  "@@ -1,3 +1,4 @@",
+  " existing line one",
+  "+new added line",
+  " existing line three",
+  " existing line four",
+].join("\n");
+
+function ctxWithDiff() {
+  return {
+    cwd: "/tmp/composite-test",
+    scope: { kind: "staged" as const, files: ["src/a.ts"] },
+    config: {},
+    diff: DIFF_WITH_ADDED_LINE,
+  };
+}
+
+describe("markPreexisting finalization — no-coordinator (trivial) path (T12, TDD B·2)", () => {
+  it("finding on a pre-existing line gets meta.preexisting = true", async () => {
+    const finding = fakeFinding({
+      id: "test-phase.preexist",
+      location: { file: "src/a.ts", line: 1 }, // line 1 is context, not added
+    });
+    const phase = makePhase({ alphaFindings: [finding] });
+
+    const report = await phase.run(ctxWithDiff());
+
+    const f = report.findings.find((f) => f.id === "test-phase.preexist");
+    expect(f).toBeDefined();
+    expect(f!.meta).toMatchObject({ preexisting: true });
+  });
+
+  it("finding on an added line does NOT get meta.preexisting", async () => {
+    const finding = fakeFinding({
+      id: "test-phase.introduced",
+      location: { file: "src/a.ts", line: 2 }, // line 2 is the added line
+    });
+    const phase = makePhase({ alphaFindings: [finding] });
+
+    const report = await phase.run(ctxWithDiff());
+
+    const f = report.findings.find((f) => f.id === "test-phase.introduced");
+    expect(f).toBeDefined();
+    expect((f!.meta as Record<string, unknown> | undefined)?.preexisting).toBeUndefined();
+  });
+
+  it("finding with no location.line is not stamped (conservative)", async () => {
+    const finding = fakeFinding({
+      id: "test-phase.noloc",
+      // No location field — cross-cutting finding
+    });
+    const phase = makePhase({ alphaFindings: [finding] });
+
+    const report = await phase.run(ctxWithDiff());
+
+    const f = report.findings.find((f) => f.id === "test-phase.noloc");
+    expect((f!.meta as Record<string, unknown> | undefined)?.preexisting).toBeUndefined();
+  });
+
+  it("status remains completed and report validates against PhaseReport schema", async () => {
+    const finding = fakeFinding({
+      id: "test-phase.preexist2",
+      location: { file: "src/a.ts", line: 3 },
+    });
+    const phase = makePhase({ alphaFindings: [finding] });
+
+    const report = await phase.run(ctxWithDiff());
+
+    expect(report.status).toBe("completed");
+    expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+});
+
+describe("markPreexisting finalization — coordinator-ok path (T12, TDD B·2)", () => {
+  it("coordinator-ok path: pre-existing finding gets meta.preexisting = true", async () => {
+    const finding = fakeFinding({
+      id: "test-phase.coord-preexist",
+      location: { file: "src/a.ts", line: 1 }, // pre-existing line
+    });
+    const coordOutput = fakeFinding({
+      id: "test-phase.coord-preexist",
+      location: { file: "src/a.ts", line: 1 },
+    });
+
+    const phase = makePhase({
+      alphaFindings: [finding],
+      coordRunner: passthroughCoordinator([coordOutput]),
+    });
+
+    const report = await phase.run(ctxWithDiff());
+
+    const f = report.findings.find((f) => f.id === "test-phase.coord-preexist");
+    expect(f).toBeDefined();
+    expect(f!.meta).toMatchObject({ preexisting: true });
+  });
+
+  it("coordinator-ok path: introduced finding is not stamped", async () => {
+    const finding = fakeFinding({
+      id: "test-phase.coord-new",
+      location: { file: "src/a.ts", line: 2 }, // added line
+    });
+    const coordOutput = fakeFinding({
+      id: "test-phase.coord-new",
+      location: { file: "src/a.ts", line: 2 },
+    });
+
+    const phase = makePhase({
+      alphaFindings: [finding],
+      coordRunner: passthroughCoordinator([coordOutput]),
+    });
+
+    const report = await phase.run(ctxWithDiff());
+
+    const f = report.findings.find((f) => f.id === "test-phase.coord-new");
+    expect(f).toBeDefined();
+    expect((f!.meta as Record<string, unknown> | undefined)?.preexisting).toBeUndefined();
+  });
+});
