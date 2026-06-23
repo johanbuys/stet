@@ -1,0 +1,36 @@
+## 2026-06-23 - TASK-071 (T7): CassetteRunner — record/replay at the AgentRunner seam
+
+**What was done:** Implemented `CassetteRunner implements AgentRunner` in `src/agent/cassette-runner.ts` (plan §M3a / PL·2 · TDD C·1). Exports `computeCassetteKey`, `CassetteEntry`, `CassetteStore`, and `CassetteRunner` with three factory constructors.
+
+- `computeCassetteKey(inputs)`: SHA-256 of `JSON.stringify({ model: model ?? null, rubric, userPrompt })`. Excludes non-serializable fields (submitSchema, signal, onTool, toolset, budgets, cwd, submitToolName). `model ?? null` normalises undefined → null so missing-model and explicit-null produce the same key.
+- `CassetteRunner.fromStore(store)`: in-memory replay (no file I/O, ideal for unit tests).
+- `CassetteRunner.fromFile(cassettePath)`: loads JSON cassette file at construction; returns Err(NoSubmitError) if file missing or key absent.
+- `CassetteRunner.record(cassettePath, runner)`: wraps a live runner; on Ok, saves `{key → submission, cost}` to the JSON file; Err results are not persisted.
+- On-disk format: pretty-printed JSON object (`Record<hexKey, {submission, cost}>`); human-readable in code review.
+- Miss behavior: `Err(NoSubmitError)` with first 16 hex chars of the key in the message.
+- 28 tests in `src/agent/cassette-runner.test.ts` covering: key determinism, field isolation, model-undefined normalisation, key format, replay hit/miss, message content, multi-entry stores, file-based replay, record writes, record preserves other entries, Err-not-persisted, accumulation, overwrite, integration record→replay.
+
+**Learnings:**
+- Using `require("node:fs")` inside test file bodies works fine for occasional helper writes in the file-based tests (no import needed; avoids wrapping every test in async FS setup).
+- The linter caught `NoSubmitError` imported but unused in the test file — only the `_tag` string is compared, not the class itself. Removed the import.
+- `vp check --fix` reformatted the long `createHash` chain in `cassette-runner.ts` from multi-line to single line — formatting check must be run after --fix, before declaring clean.
+- The formatter is also run as a linter pass (not just on staged), so `vp check` alone catches formatting drift without a separate `vp fmt` invocation.
+----
+
+## 2026-06-23 - TASK-070 (T6): Deterministic pre-existing detection (@@-hunk parsing + mark)
+
+**What was done:** Implemented `buildAddedLineIndex(diff)` and `markPreexisting(findings, index)` in `src/preexisting.ts` (M2 steps 2,3 · TDD B·2). New code — `diff-sections.ts` parses file sections only; it has no `@@` hunk or line-number parser.
+
+- `src/preexisting.ts`: `AddedLineIndex` type alias, `buildAddedLineIndex` (walks `+++ ` lines to detect file, `@@` headers to reset the new-file line counter, then classifies `+`/` `/`-` body lines), `markPreexisting` (stamps `meta.preexisting: true` on findings whose `location.line` is not in the added set; no `location.line` → unchanged).
+- `src/preexisting.test.ts`: 22 tests — empty diff, no-hunk file, single added line, context-only, deleted-line counter, mixed +/context/-, multi-hunk (counter resets per `@@`), mid-file hunk offset, off-by-one (first line, last line), multi-file independence, pure deletion (`/dev/null`), b/ prefix stripping, and full `markPreexisting` suite (introduced, preexisting, file-not-in-index, no-location, meta-preserve, multi-finding, returns-same-array, integration with `buildAddedLineIndex`).
+
+**Learnings:**
+- `finding.meta` has static TypeBox type `{} | undefined`; need `{ ...(finding.meta as Record<string, unknown>), preexisting: true }` to spread and set — direct key access on `{}` has no index signature. The cast is narrow and local.
+- `null` sentinel for `currentLine` (vs `0`) is safer: `+0` start line could theoretically appear (pure-addition hunks) and would trigger the `currentLine === 0` guard incorrectly. Using `null` means "not in a hunk" unambiguously.
+- Pure deletion hunks (`+++ /dev/null`) set `currentFile = null`, so subsequent hunk body lines are ignored — no spurious entries for `/dev/null`.
+- `vp check --fix` reformats inline comments (e.g. `// new line 1`) — style is correct after the formatter runs. Run `vp check` after `--fix` to confirm no remaining type errors.
+----
+
+## 2026-06-23 - TASK-069 (T5): SpecialistSubmission schema + open-meta keys
+
+**What was done:** Added `SpecialistSubmission` TypeBox schema to `src/schema/finding.ts` (M2 step 1,4 · TDD B·1/B·3). Schema = `Finding` minus `confidence`/`specialist`/`phase` (all three are harness-stamped, not model-supplied). `meta` stays `additionalProperties:true` (open) — no narrowing. `meta.selfConfidence` and `meta.preexisting` documented in comments as conventional keys, not added to the schema type.
