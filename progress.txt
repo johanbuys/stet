@@ -1,3 +1,27 @@
+## 2026-06-23 - TASK-073 (T9): Grader (LLM-judge HIT/VALID/NOISE) + pin embedding lib
+
+**What was done:** Implemented `gradeFindings` + supporting types in `src/eval/grader.ts` (plan §M3b spike · TDD C·2). Added `openai` as a dependency (pinned to `text-embedding-3-small` / `https://api.openai.com/v1`). 32 tests in `src/eval/grader.test.ts` verify all bucketing scenarios using a fake injectable EmbedFn (no API keys needed).
+
+- `EMBEDDING_PACKAGE = "openai"`, `EMBEDDING_MODEL = "text-embedding-3-small"`, `EMBEDDING_ENDPOINT`, `COSINE_THRESHOLD = 0.80`, `LOCATION_GATE = 3` — all exported as named constants (the "pinned" commit, TDD C·2).
+- `EmbedFn = (text: string) => Promise<number[]>` — injectable interface; tests use a lookup-table fake, production uses `makeOpenAIEmbedder(apiKey)`.
+- `cosineSimilarity(a, b)` — pure utility; handles zero/empty/mismatched lengths (returns 0).
+- `inLocationGate(finding, expected, gate)` — same file + |line diff| ≤ gate; file-level match when either side has no line; no location on finding → false.
+- `gradeFindings(emitted, expected, clean, embed, cfg?)`:
+  - Step 1: build (emitted, expected) candidate pairs via location gate.
+  - Step 2: embed unique texts in parallel (deduped Map to avoid re-embedding).
+  - Step 3: score each candidate pair by cosine similarity.
+  - Step 4: greedy 1-to-1 assignment (sort by cosine desc, take first unmatched pair ≥ threshold → HIT).
+  - Step 5: unmatched emitted → VALID (non-clean fixture) or NOISE (clean fixture).
+- `makeOpenAIEmbedder(apiKey, baseURL?)` — lazy dynamic import so tests that inject a fake never pay the openai import cost and never need `OPENAI_API_KEY`.
+
+**Learnings:**
+- `VALID` vs `NOISE` for unmatched findings is determined by the `clean` flag from the fixture — clean → NOISE (false positive), non-clean → VALID (real-but-unseeded). This is the algorithmic resolution for T9; a real LLM judge for the distinction is deferred to T10/T16.
+- Greedy 1-to-1 matching (sort by cosine desc, skip already-matched sides) is sufficient for the spike and simpler than the Hungarian algorithm. When two emitted findings compete for the same expected, the one with the higher cosine wins; the loser becomes VALID/NOISE.
+- Deduping texts before embedding (`new Set(...)`) avoids N² API calls when the same message appears in multiple candidate pairs.
+- `dynamic import("openai")` inside the production embedder factory keeps openai out of the module-level import graph — test files never trigger the import.
+- pnpm (not bun) is the package manager here; `pnpm add openai` didn't touch workspace catalog fields (unlike bun). No `git checkout -- package.json` needed.
+----
+
 ## 2026-06-23 - TASK-072 (T8): Fixture type + synthetic fixtures
 
 **What was done:** Implemented `Fixture` TypeBox schema in `src/eval/fixture.ts` (plan §M3 · TDD C·4 / PRD C5). Added five hand-authored synthetic fixtures in `src/eval/fixtures/`, covering all three visibility tiers plus clean. 26 tests in `src/eval/fixture.test.ts` verify schema validation, tier coverage, and the clean/non-clean invariant.

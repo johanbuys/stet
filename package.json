@@ -40,6 +40,7 @@
     "@earendil-works/pi-coding-agent": "^0.79.1",
     "@sinclair/typebox": "^0.34.49",
     "better-result": "^2.9.2",
+    "openai": "^6.44.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
