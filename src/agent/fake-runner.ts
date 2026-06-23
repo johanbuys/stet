@@ -88,13 +88,33 @@ export type RunScript = OkScript | ErrScript | DelayScript;
  * each successive run() call dequeues the next script; throws when exhausted).
  * Calls onTool("submit_findings") on the Ok path so callers can track progress.
  *
- * Never throws, never rejects — mirrors the real AgentRunner contract.
+ * Agent-run contract: run() always resolves — ok/err/delay paths all return a
+ * Result and never reject. This mirrors the real AgentRunner contract.
+ *
+ * Queue exhaustion is the one intentional exception: nextScript() throws
+ * synchronously when the queue is over-consumed. This is a test-setup
+ * programming error (more run() calls than scripted entries), not a runtime
+ * AgentError, so a loud synchronous throw is the right signal.
  */
 export class FakeAgentRunner implements AgentRunner {
   private readonly singleScript: RunScript | undefined;
   private readonly queue: RunScript[] | undefined;
   private queueIndex = 0;
 
+  /**
+   * @param script
+   *   - Single RunScript: the same script is returned on every run() call (backward compat).
+   *   - RunScript[]: positional queue — one entry is consumed per run() invocation.
+   *
+   * Queue contract (important for retrying callers):
+   * The queue is consumed strictly per run() call, not per logical operation.
+   * A retry issued by the code under test (e.g. agreement-verify re-calling a voter)
+   * dequeues the NEXT entry, as does a run() call that loses a wall-clock timeout race
+   * (runWithWallClock still invokes runner.run() even when the timer wins).
+   * Therefore a queue must contain one script per *expected run() invocation* — including
+   * every retry attempt — not one per logical voter or operation. If the queue is shorter
+   * than the actual call count, nextScript() will throw to signal the test-setup error.
+   */
   constructor(script: RunScript | ReadonlyArray<RunScript>) {
     if (Array.isArray(script)) {
       this.queue = [...(script as RunScript[])];
@@ -105,6 +125,16 @@ export class FakeAgentRunner implements AgentRunner {
     }
   }
 
+  /**
+   * Returns the next script to execute.
+   *
+   * For single-script construction: always returns the same script.
+   * For queue construction: dequeues the next entry in order.
+   *
+   * Throws synchronously if the queue is exhausted — this is a test-setup
+   * programming error (more run() calls than scripted entries), not a runtime
+   * AgentError. See the constructor doc for the one-entry-per-run() contract.
+   */
   private nextScript(): RunScript {
     if (this.queue !== undefined) {
       if (this.queueIndex >= this.queue.length) {

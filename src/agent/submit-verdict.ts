@@ -4,6 +4,10 @@
  * Mirrors SubmitTool (submit-tool.ts) but for voter verdicts emitted during the
  * agreement-verify stage (TDD A·2). The schema is fixed: { verdict, reason }.
  *
+ * Delegates all guard-1/2 logic to an internal SubmitTool instance, parameterised
+ * with VERDICT_TOOL_NAME and the VoterVerdict-specific acceptance message. The only
+ * genuinely different piece is the typed .submission getter (VoterVerdict | undefined).
+ *
  * Guard 1 (schema-validate-or-retry):
  *   Input is validated against VoterVerdict. Invalid input is rejected with a
  *   corrective message; state is NOT captured, so a later valid call can succeed.
@@ -15,10 +19,10 @@
  * Plan refs: M1 step 1 · TDD A·2
  */
 
-import { Value } from "@sinclair/typebox/value";
-
 import { VoterVerdict as VoterVerdictSchema } from "../schema/report.js";
 import type { VoterVerdict } from "../schema/report.js";
+import { SubmitTool } from "./submit-tool.js";
+import type { SubmitResult } from "./submit-tool.js";
 
 // ---------------------------------------------------------------------------
 // Shared constant — single source of truth for the submit_verdict tool name
@@ -27,59 +31,39 @@ import type { VoterVerdict } from "../schema/report.js";
 export const VERDICT_TOOL_NAME = "submit_verdict";
 
 // ---------------------------------------------------------------------------
-// Submit result
+// Submit result — re-exported alias for API compatibility
 // ---------------------------------------------------------------------------
 
-export interface VerdictSubmitResult {
-  accepted: boolean;
-  message: string;
-}
+export type VerdictSubmitResult = SubmitResult;
 
 // ---------------------------------------------------------------------------
 // SubmitVerdictTool
 // ---------------------------------------------------------------------------
 
 export class SubmitVerdictTool {
-  private _submission: VoterVerdict | undefined = undefined;
-  private _captured = false;
+  // Delegate all guard logic to SubmitTool, configured with the verdict tool name
+  // and verdict-specific success message. This eliminates ~60 lines of duplicated
+  // guard-1/2 logic while keeping the typed .submission getter below.
+  private readonly _inner: SubmitTool;
+
+  constructor() {
+    this._inner = new SubmitTool(
+      VoterVerdictSchema,
+      VERDICT_TOOL_NAME,
+      "Verdict recorded. You are done — stop now.",
+    );
+  }
 
   submit(params: unknown): VerdictSubmitResult {
-    // Guard 1: schema validation
-    if (!Value.Check(VoterVerdictSchema, params)) {
-      const errors = [...Value.Errors(VoterVerdictSchema, params)];
-      const first = errors[0];
-      const detail = first
-        ? `${first.path || "/"}: ${first.message}`
-        : "parameters did not match the expected schema";
-      return {
-        accepted: false,
-        message: `submit_verdict validation failed — ${detail}. Fix your parameters and resubmit.`,
-      };
-    }
-
-    // Guard 2: idempotency
-    if (this._captured) {
-      return {
-        accepted: false,
-        message:
-          "A result was already recorded; this duplicate was ignored. You are done — stop now.",
-      };
-    }
-
-    // First valid submission — capture and acknowledge
-    this._submission = params as VoterVerdict;
-    this._captured = true;
-    return {
-      accepted: true,
-      message: "Verdict recorded. You are done — stop now.",
-    };
+    return this._inner.submit(params);
   }
 
   get hasSubmission(): boolean {
-    return this._captured;
+    return this._inner.hasSubmission;
   }
 
+  /** Typed accessor — narrows from unknown to VoterVerdict. */
   get submission(): VoterVerdict | undefined {
-    return this._submission;
+    return this._inner.hasSubmission ? (this._inner.submission as VoterVerdict) : undefined;
   }
 }

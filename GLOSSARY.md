@@ -37,6 +37,20 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   falls back to the raw roll-up + a `coordinator-failed` warning (#29).
   ⚠ not a specialist (it runs after them and sees all their output); ⚠ never invents a phase.
   → harness PRD §3.3a; decisions #25, #29–#31; `research/cloudflare-ai-review-reference.md`
+- **agreement-verify** — a harness stage on composite phases that runs _between_ the specialist
+  roll-up and the coordinator: for each candidate finding it runs N independent voters, aggregates
+  their `uphold` verdicts against **absolute** thresholds (not fractions of N), and stamps
+  harness-owned confidence (`high`/`medium`) or drops the finding. Mechanical agreement, distinct
+  from the coordinator's judgment; its drops are recorded in `audit.verify.dropped`.
+  ⚠ not the coordinator (counts votes, makes no judgment). → harness PRD #35; code-review TDD A·2–A·4
+- **voter** — one independent agent call in **agreement-verify** that re-examines a candidate
+  finding through a distinct **lens** and emits a **VoterVerdict** via the `submit_verdict` tool.
+- **lens (verify)** — the refutation angle handed to a single **voter** (e.g. correctness,
+  security, reproducibility) so N voters attack a finding from independent directions.
+  ⚠ a _voter_-level concept, **not** the retired `lens`→**specialist** rename (GLOSSARY top): that
+  "lens" became `specialist`; this one is the per-voter angle inside agreement-verify.
+- **VoterVerdict** — a single voter's result: `{ verdict: uphold | refute | abstain, reason }`.
+  ⚠ not the Phase-5 **verdict** (`passed/failed/blocked/inconclusive`). → code-review TDD A·2
 - **risk classifier / level** — a deterministic harness step `classify(diff, paths, rules) → level`
   evaluated once per declaring phase before fan-out, over the pre-filtered diff; the `level`
   scales _how much_ a composite phase spends (specialist subset, coordinator on/off). Harness

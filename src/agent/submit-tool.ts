@@ -73,11 +73,22 @@ export interface SubmitResult {
  */
 export class SubmitTool {
   private readonly schema: TSchema;
+  private readonly toolName: string;
+  private readonly successMessage: string;
   private _submission: unknown = undefined;
   private _captured = false;
 
-  constructor(schema: TSchema) {
+  /**
+   * @param schema       TypeBox schema to validate submissions against.
+   * @param toolName     Tool name to embed in guard-1 validation-failure messages.
+   *                     Defaults to SUBMIT_TOOL_NAME ("submit_findings").
+   * @param successMessage  Text returned on first valid submission. Defaults to
+   *                     "Findings recorded. You are done — stop now."
+   */
+  constructor(schema: TSchema, toolName = SUBMIT_TOOL_NAME, successMessage?: string) {
     this.schema = schema;
+    this.toolName = toolName;
+    this.successMessage = successMessage ?? "Findings recorded. You are done — stop now.";
   }
 
   // ---------------------------------------------------------------------------
@@ -109,7 +120,7 @@ export class SubmitTool {
         : "parameters did not match the expected schema";
       return {
         accepted: false,
-        message: `submit_findings validation failed — ${detail}. Fix your parameters and resubmit.`,
+        message: `${this.toolName} validation failed — ${detail}. Fix your parameters and resubmit.`,
       };
     }
 
@@ -127,7 +138,7 @@ export class SubmitTool {
     this._captured = true;
     return {
       accepted: true,
-      message: "Findings recorded. You are done — stop now.",
+      message: this.successMessage,
     };
   }
 
