@@ -180,6 +180,28 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   `blocked`/`inconclusive` are accepted. Encodes "blunt conservative beats precise permissive."
 - **content-aware grader** — asserts the verdict **and** that the right issue was flagged
   (pattern match over named result fields).
+- **code-review eval fixture** — a unified diff paired with ground-truth `expected` findings, a
+  visibility `tier`, and a `clean` flag; the unit the code-review grader scores against. ⚠ not the
+  Phase-5 **fixture** above (a standalone repo with `task.md`/`run.md`) — same word, different shape.
+- **HIT / VALID / NOISE** — the grader's bucket for one emitted finding: **HIT** = matches a seeded
+  expected defect (location gate ±N + embedding ≥ threshold, 1-to-1); **VALID** = unmatched on a
+  non-clean fixture (real-but-unseeded, counts as signal); **NOISE** = unmatched on a clean fixture
+  (false positive). → code-review TDD C·2
+- **SNR** — the eval's headline metric: `(HIT + VALID) / NOISE`; capped at 999 when NOISE=0 and
+  signal>0 (kept JSON-serializable). Higher = cleaner reviewer. → code-review TDD C·3
+- **clean-FPR** — `NOISE / total_emitted` on **clean** fixtures: the false-positive rate the gate
+  guards against rising. → code-review TDD C·3
+- **visibility tier** — `in-diff | needs-context | cross-file`: how much context a fixture's defect
+  needs to find; precision/recall are reported per-tier. ⚠ not a model/routing **tier**
+  (`fast`/`robust`) — same word, different axis. → code-review TDD C·3
+- **regression gate (eval)** — fails the eval when a metric degrades past `epsilon` vs the committed
+  `baseline.json` (P/R/SNR drop, clean-FPR rise). The baseline is a human-blessed reference;
+  re-baselining is an explicit act, not an automatic side effect of a passing run. → code-review TDD C·3
+- **cassette** — recorded `{key → submission, cost}` at the AgentRunner seam (key =
+  SHA-256 of `{model, rubric, userPrompt}`), so eval/tests replay model calls deterministically
+  with no network. → code-review TDD C·1
+- **Cohen's kappa** — grader-vs-human agreement on a golden subset; a grader-validation utility
+  (threshold ~0.75), not a gated metric. → code-review PRD #13
 
 ## External names
 
