@@ -1,3 +1,25 @@
+## 2026-06-23 - TASK-074 (T10): Metrics + baseline + regression gate + eval:live script
+
+**What was done:** Implemented `computeMetrics`, `checkGate`, and `cohensKappa` in `src/eval/metrics.ts` (TDD C·3). Implemented `runEval` + `buildFixturePrompt` in `src/eval/runner.ts`, wiring the eval pipeline: fixture → CassetteRunner → gradeFindings → EvalMetrics. Committed `src/eval/baseline.json` with initial all-zero metrics (floor that will be updated by `vp run eval:live` after M5). Added `eval:live` script to package.json, backed by `src/eval/eval-live.ts`. 46 tests (31 metrics + 15 runner) all pass; `vp check` clean.
+
+- `computeMetrics(results)`: aggregates `GradeResult[]` per fixture → SNR=(HIT+VALID)/NOISE; per-tier precision=HIT/(HIT+NOISE) and recall=HIT/(HIT+missed); cleanFpr=NOISE/total_emitted on clean fixtures. SNR capped at 999 when NOISE=0 and signal>0 (keeps JSON-serializable).
+- `checkGate(current, baseline, epsilon?)`: regression gate — fails when precision/recall/SNR drops >ε OR cleanFpr rises >ε. Skips non-finite values (no-data tiers).
+- `cohensKappa(n11, n10, n01, n00)`: binary kappa for grader-vs-human golden-subset validation (PRD #13 κ≥0.75 check).
+- `buildFixturePrompt(fixture)`: deterministic prompt = `diff:\n${fixture.diff}` + `\n\nfile: ${path}\n${content}` per baseFile. This is the documented cassette-key input.
+- `EVAL_RUBRIC`: constant rubric string for M3 eval (placeholder, replaced by real rubric in M5).
+- `runEval(fixtures, runner, cfg)`: for each fixture, builds `AgentRunInputs` from `EVAL_RUBRIC + buildFixturePrompt(fixture)`, calls runner, parses findings via `parseFindings`, grades with `gradeFindings`, aggregates metrics. Cassette miss (Err) → empty findings (no crash).
+- `src/eval/eval-live.ts`: the `eval:live` script — loads baseline, runs eval with real OpenAI embedder + CassetteRunner.fromFile, prints metrics, checks gate (exits 1 if failed), updates baseline.json.
+- `eval:live` package.json script: `node --experimental-strip-types src/eval/eval-live.ts` (Node.js 22.12+ required, matching peerDep floor).
+
+**Learnings:**
+- `vp test` has pre-existing failures in `signals.test.ts` (ENOENT for jiti binary). This is an environment issue noted in prior sessions (TASK-068) — safe to ignore.
+- JSON doesn't serialize `Infinity` or `NaN` (both become `null`). Solved by capping SNR at 999 when NOISE=0 and returning 0 for undefined precision/recall — all values stay finite and round-trip through JSON cleanly.
+- For the gate, FPR violations use `checkRise` (more FP = worse) while P/R/SNR violations use `checkDrop` (lower = worse). The `degradation` field is always positive for a violation, regardless of direction.
+- `vp check --fix` reformats test helpers that have function signatures split across lines. Always run `vp check` after `--fix` before declaring clean.
+- Tests for `buildFixturePrompt` must account for trailing `\n` in the diff strings: joining with `\n\n` produces 3 consecutive newlines if the diff already ends with `\n`. The test for blank-line separation was adjusted to use string index comparison rather than `.split("\n\n").length`.
+- The `eval:live` script at M3 runs with empty cassettes (findings always empty), so all metrics are 0. Real quality numbers arrive at M5 when specialists are wired. This is correct and documented.
+----
+
 ## 2026-06-23 - TASK-073 (T9): Grader (LLM-judge HIT/VALID/NOISE) + pin embedding lib
 
 **What was done:** Implemented `gradeFindings` + supporting types in `src/eval/grader.ts` (plan §M3b spike · TDD C·2). Added `openai` as a dependency (pinned to `text-embedding-3-small` / `https://api.openai.com/v1`). 32 tests in `src/eval/grader.test.ts` verify all bucketing scenarios using a fake injectable EmbedFn (no API keys needed).

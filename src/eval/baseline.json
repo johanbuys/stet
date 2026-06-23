@@ -1,0 +1,41 @@
+{
+  "snr": 0,
+  "perTier": {
+    "in-diff": {
+      "fixtureCount": 2,
+      "hitCount": 0,
+      "noiseCount": 0,
+      "validCount": 0,
+      "missedCount": 2,
+      "precision": 0,
+      "recall": 0
+    },
+    "needs-context": {
+      "fixtureCount": 1,
+      "hitCount": 0,
+      "noiseCount": 0,
+      "validCount": 0,
+      "missedCount": 1,
+      "precision": 0,
+      "recall": 0
+    },
+    "cross-file": {
+      "fixtureCount": 1,
+      "hitCount": 0,
+      "noiseCount": 0,
+      "validCount": 0,
+      "missedCount": 1,
+      "precision": 0,
+      "recall": 0
+    }
+  },
+  "cleanFpr": 0,
+  "counts": {
+    "hit": 0,
+    "valid": 0,
+    "noise": 0,
+    "missed": 4
+  },
+  "fixtureCount": 5,
+  "cleanFixtureCount": 1
+}
