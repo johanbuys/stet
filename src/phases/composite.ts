@@ -15,7 +15,7 @@ import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
 import type { Cost, PhaseReport, VerifyAudit } from "../schema/report.js";
-import { type Finding, parseFindings, severityAtLeast } from "../schema/finding.js";
+import { type Finding, type Severity, parseFindings, severityAtLeast } from "../schema/finding.js";
 import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
 import type { CoordinatorConfig } from "./coordinator.js";
@@ -46,6 +46,17 @@ export interface SpecialistConfig {
   buildUserPrompt: (ctx: PhaseContext) => string;
   /** Narrows which scope this specialist runs for. Defaults to always-true. */
   activation?: (ctx: ActivationContext) => boolean;
+  /**
+   * Maximum severity this specialist may emit (PRD §3.3, TDD D).
+   * Documented config — not yet enforced by the composite roll-up; enforced via rubric text (M6+).
+   * bugs/security → "error"; quality/coverage-gaps → "warning".
+   */
+  severityCeiling?: Severity;
+  /**
+   * Per-specialist finding cap (R8 — configurable, default 5 for review specialists).
+   * Documented config — communicated to the model via the rubric text placeholder {MAX_FINDINGS}.
+   */
+  maxFindings?: number;
 }
 
 // ---------------------------------------------------------------------------
