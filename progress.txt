@@ -1,3 +1,20 @@
+## 2026-06-23 - TASK-072 (T8): Fixture type + synthetic fixtures
+
+**What was done:** Implemented `Fixture` TypeBox schema in `src/eval/fixture.ts` (plan §M3 · TDD C·4 / PRD C5). Added five hand-authored synthetic fixtures in `src/eval/fixtures/`, covering all three visibility tiers plus clean. 26 tests in `src/eval/fixture.test.ts` verify schema validation, tier coverage, and the clean/non-clean invariant.
+
+- `ExpectedFinding` TypeBox schema: `{ id, severity, location?, gist }` — ground-truth entry for the grader's HIT matching.
+- `FixtureTier` union: `"in-diff" | "needs-context" | "cross-file"`.
+- `Fixture` TypeBox schema: `{ id, diff, baseFiles?, expected[], clean, tier, sensitivePaths? }` — `additionalProperties: false` at top level.
+- Fixtures: `in-diff-off-by-one` (arr[arr.length] off-by-one), `in-diff-divide-by-zero` (no empty-array guard), `needs-context-wrong-arg-order` (reversed args, baseFiles has function signature), `cross-file-broken-import` (renamed export, baseFiles has consumer), `clean-rename` (local variable rename, no bugs).
+- `ALL_FIXTURES` in `src/eval/fixtures/index.ts` exports them as `readonly Fixture[]`.
+
+**Learnings:**
+- `Type.Record(Type.String(), Type.String())` is the TypeBox idiom for `baseFiles?: Record<string, string>` — works correctly for optional file maps.
+- The formatter reformatted long gist strings in fixture files from multi-line to single-line — run `vp check --fix` then `vp check` as always.
+- `needs-context` and `cross-file` fixtures must have `baseFiles` — enforced in tests with a coverage check; this constraint is not in the schema (it's a fixture-quality rule, not a wire contract).
+- `clean: true` and `expected: []` are decoupled in the schema (TypeBox doesn't enforce their co-occurrence), but the test suite enforces the invariant explicitly.
+----
+
 ## 2026-06-23 - TASK-071 (T7): CassetteRunner — record/replay at the AgentRunner seam
 
 **What was done:** Implemented `CassetteRunner implements AgentRunner` in `src/agent/cassette-runner.ts` (plan §M3a / PL·2 · TDD C·1). Exports `computeCassetteKey`, `CassetteEntry`, `CassetteStore`, and `CassetteRunner` with three factory constructors.
