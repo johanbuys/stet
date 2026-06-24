@@ -13,7 +13,7 @@ import { SpecialistSubmission } from "../../schema/finding.js";
 import { SUBMIT_TOOL_NAME } from "../../agent/submit-tool.js";
 import { FIVE_MINUTE_BUDGETS } from "../../agent/budgets.js";
 import type { AgentRunner } from "../../agent/runner.js";
-import type { PhaseConfiguration, ActivationContext } from "../types.js";
+import type { PhaseConfiguration, PhaseContext, ActivationContext } from "../types.js";
 import { makeCompositePhase, type SpecialistConfig } from "../composite.js";
 import type { VerifyConfig } from "../verify.js";
 
@@ -180,13 +180,46 @@ function reviewActivation(ctx: ActivationContext): boolean {
  * When verify is configured, `runners["verify"]` must also be present.
  * When coordinator is configured, `runners["coordinator"]` must be present.
  *
- * For unit tests, pass FakeAgentRunners scripted to return { findings: Finding[] }.
+ * `model` is the pre-M6 stopgap (plan §2a/P10): the CLI passes `process.env.PI_TEST_MODEL`.
+ * When undefined → creds gate fires: the phase immediately reports status "error" / "no model
+ * available", never completed+empty (AC#8 / plan M4 step 5 F3).
+ * M6 routing will replace this parameter with a resolved model from the routing layer.
+ *
+ * For unit tests, pass FakeAgentRunners scripted to return { findings: Finding[] } and
+ * any non-undefined string as `model` (FakeAgentRunner ignores the model field).
  */
-export function makeReviewPhase(runners: Record<string, AgentRunner>): PhaseConfiguration {
+export function makeReviewPhase(
+  runners: Record<string, AgentRunner>,
+  model?: string,
+): PhaseConfiguration {
+  // Creds gate (AC#8 / plan M4 step 5 F3): no model → immediate error phase.
+  // The composite phase rolls up specialist failures as "completed" (it never forfeits
+  // other specialists' findings); that would yield completed+empty when all specialists
+  // fail with ModelError. This wrapper short-circuits before the composite runs.
+  if (model === undefined) {
+    return {
+      id: "review",
+      kind: "agent",
+      toolset: BUGS_SPECIALIST.toolset,
+      activation: reviewActivation,
+      async run(_ctx: PhaseContext) {
+        return {
+          phase: "review",
+          status: "error" as const,
+          reason:
+            "no model available — set PI_TEST_MODEL (pre-M6 stopgap) or configure model routing (M6)",
+          findings: [],
+          audit: {},
+          cost: { durationMs: 0 },
+        };
+      },
+    };
+  }
+
   return makeCompositePhase(runners, {
     id: "review",
-    specialists: [BUGS_SPECIALIST],
-    verify: REVIEW_VERIFY_CONFIG,
+    specialists: [{ ...BUGS_SPECIALIST, model }],
+    verify: { ...REVIEW_VERIFY_CONFIG, model },
     activation: reviewActivation,
   });
 }

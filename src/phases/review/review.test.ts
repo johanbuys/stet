@@ -1,5 +1,6 @@
 /**
- * Tests for the review phase factory + bugs specialist (T13 · M4 · plan steps 2,3).
+ * Tests for the review phase factory + bugs specialist (T13 · M4 · plan steps 2,3)
+ * and CLI creds gate (T14 · M4 · plan step 5 · AC#8).
  *
  * Fake-driven: the bugs specialist is driven by a scripted FakeAgentRunner.
  * Verifies:
@@ -9,8 +10,9 @@
  *   - Activation: ≥1 file → true (R1); 0 files → false.
  *   - Full run with fakes: findings routed from bugs specialist.
  *   - Phase validates against the PhaseReport schema.
+ *   - Creds gate (AC#8): model=undefined → status "error", never completed+empty.
  *
- * TDD refs: D (specialist wiring), A·2 (verify lenses). Plan: M4 steps 2,3.
+ * TDD refs: D (specialist wiring), A·2 (verify lenses). Plan: M4 steps 2,3,5.
  */
 
 import { describe, expect, it } from "vite-plus/test";
@@ -140,7 +142,7 @@ describe("REVIEW_VERIFY_CONFIG", () => {
 
 describe("makeReviewPhase — identity", () => {
   function makePhase() {
-    return makeReviewPhase({ bugs: bugsRunner([]) });
+    return makeReviewPhase({ bugs: bugsRunner([]) }, "fake/model");
   }
 
   it('id is "review"', () => {
@@ -158,7 +160,7 @@ describe("makeReviewPhase — identity", () => {
 
 describe("makeReviewPhase — activation (R1)", () => {
   function makePhase() {
-    return makeReviewPhase({ bugs: bugsRunner([]) });
+    return makeReviewPhase({ bugs: bugsRunner([]) }, "fake/model");
   }
 
   it("returns true when scope has ≥1 file", () => {
@@ -186,15 +188,18 @@ describe("makeReviewPhase — activation (R1)", () => {
 describe("makeReviewPhase — full run with fakes", () => {
   it("completes and includes bugs specialist findings when all voters uphold", async () => {
     const finding = fakeFinding({ id: "review.bug", confidence: "high" });
-    const phase = makeReviewPhase({
-      bugs: bugsRunner([finding]),
-      // 3 voters each upholding — one per-voter runner repeated for all candidates
-      verify: new FakeAgentRunner({
-        kind: "ok",
-        submission: { verdict: "uphold", reason: "confirmed" },
-        cost: { model: "fake/voter", inputTokens: 3, outputTokens: 2, durationMs: 1 },
-      }),
-    });
+    const phase = makeReviewPhase(
+      {
+        bugs: bugsRunner([finding]),
+        // 3 voters each upholding — one per-voter runner repeated for all candidates
+        verify: new FakeAgentRunner({
+          kind: "ok",
+          submission: { verdict: "uphold", reason: "confirmed" },
+          cost: { model: "fake/voter", inputTokens: 3, outputTokens: 2, durationMs: 1 },
+        }),
+      },
+      "fake/model",
+    );
 
     const report = await phase.run(ctx());
 
@@ -205,10 +210,13 @@ describe("makeReviewPhase — full run with fakes", () => {
 
   it("finding is phase-tagged as review and specialist-tagged as bugs", async () => {
     const finding = fakeFinding({ id: "review.bug" });
-    const phase = makeReviewPhase({
-      bugs: bugsRunner([finding]),
-      verify: upholdVoter(),
-    });
+    const phase = makeReviewPhase(
+      {
+        bugs: bugsRunner([finding]),
+        verify: upholdVoter(),
+      },
+      "fake/model",
+    );
 
     const report = await phase.run(ctx());
 
@@ -220,10 +228,13 @@ describe("makeReviewPhase — full run with fakes", () => {
 
   it("report validates against PhaseReport schema", async () => {
     const finding = fakeFinding({ id: "review.bug" });
-    const phase = makeReviewPhase({
-      bugs: bugsRunner([finding]),
-      verify: upholdVoter(),
-    });
+    const phase = makeReviewPhase(
+      {
+        bugs: bugsRunner([finding]),
+        verify: upholdVoter(),
+      },
+      "fake/model",
+    );
 
     const report = await phase.run(ctx());
 
@@ -234,10 +245,13 @@ describe("makeReviewPhase — full run with fakes", () => {
     // When run is called directly with 0 files, the composite still runs but no findings
     // are produced if no bugs are found (the phase activation guard is at the scheduler level).
     // The composite itself does not re-check activation inside run().
-    const phase = makeReviewPhase({
-      bugs: bugsRunner([]),
-      verify: upholdVoter(),
-    });
+    const phase = makeReviewPhase(
+      {
+        bugs: bugsRunner([]),
+        verify: upholdVoter(),
+      },
+      "fake/model",
+    );
 
     const report = await phase.run(ctx([]));
 
@@ -247,15 +261,65 @@ describe("makeReviewPhase — full run with fakes", () => {
 
   it("status is completed and audit.verify is populated when verify runs", async () => {
     const finding = fakeFinding({ id: "review.bug" });
-    const phase = makeReviewPhase({
-      bugs: bugsRunner([finding]),
-      verify: upholdVoter(),
-    });
+    const phase = makeReviewPhase(
+      {
+        bugs: bugsRunner([finding]),
+        verify: upholdVoter(),
+      },
+      "fake/model",
+    );
 
     const report = await phase.run(ctx());
 
     expect(report.status).toBe("completed");
     expect(report.audit.verify).toBeDefined();
     expect(report.audit.verify!.received).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Creds gate — model=undefined → error, never completed+empty (AC#8)
+// ---------------------------------------------------------------------------
+
+describe("makeReviewPhase — creds gate (T14 · AC#8 / plan M4 step 5 F3)", () => {
+  it("returns status:error when model is undefined", async () => {
+    const phase = makeReviewPhase({}, undefined);
+    const report = await phase.run(ctx());
+    expect(report.status).toBe("error");
+  });
+
+  it("reason mentions 'no model available' when model is undefined", async () => {
+    const phase = makeReviewPhase({}, undefined);
+    const report = await phase.run(ctx());
+    expect(report.reason).toMatch(/no model available/);
+  });
+
+  it("findings is empty on the error phase (not completed+empty — AC#8)", async () => {
+    const phase = makeReviewPhase({}, undefined);
+    const report = await phase.run(ctx());
+    // completed+empty is the AC#8 forbidden state; error with [] is the correct state.
+    expect(report.status).not.toBe("completed");
+    expect(report.findings).toHaveLength(0);
+  });
+
+  it("phase id is 'review' on the error phase", async () => {
+    const phase = makeReviewPhase({}, undefined).id;
+    expect(phase).toBe("review");
+  });
+
+  it("kind is 'agent' on the error phase", () => {
+    expect(makeReviewPhase({}, undefined).kind).toBe("agent");
+  });
+
+  it("activation still uses reviewActivation on the error phase", () => {
+    const phase = makeReviewPhase({}, undefined);
+    expect(phase.activation({ scope: { kind: "staged", files: ["src/a.ts"] } })).toBe(true);
+    expect(phase.activation({ scope: { kind: "staged", files: [] } })).toBe(false);
+  });
+
+  it("error phase report validates against PhaseReport schema", async () => {
+    const phase = makeReviewPhase({}, undefined);
+    const report = await phase.run(ctx());
+    expect(Value.Check(PhaseReport, report)).toBe(true);
   });
 });

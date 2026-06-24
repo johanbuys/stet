@@ -25,14 +25,23 @@ export { registerPhase, registeredPhases, resetRegistry } from "./registry.js";
 // --- Stub phases (permanent product surface, PRD §3.9) ---
 export { stubDet } from "./stub-det.js";
 
+// --- Review phase factory (M4 — bugs specialist + verify, registered in cli.ts entry block) ---
+export {
+  makeReviewPhase,
+  BUGS_SPECIALIST,
+  REVIEW_VERIFY_CONFIG,
+  MAX_FINDINGS,
+} from "./review/review.js";
+
 /**
  * The explicit default phase set.
  * This is the set the CLI registers at startup (via registerDefaultPhases).
  *
- * Current contents: stub phases only (harness is the only thing built).
- * Real phases will be added here as they are implemented; each new phase
- * is one new import + one array entry, nothing else — acceptance #1 ("adding a sixth
- * phase touches no harness code").
+ * Current contents: deterministic stub phase only.
+ * Agent phases (stub-agent, review) require a live AgentRunner and model at
+ * construction time, so they are registered in the CLI entry block (cli.ts)
+ * via registerPhase() rather than here — this keeps the array side-effect-free
+ * and the module import lightweight (plan §2a/P10, decision P10).
  */
 export const defaultPhases: PhaseConfiguration[] = [stubDet];
 

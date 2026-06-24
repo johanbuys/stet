@@ -577,12 +577,22 @@ if (isEntryPoint) {
       // malfunction) rather than escaping to Node's exit 1.
       const { PiAgentRunner } = await import("./agent/pi-runner.js");
       const { makeStubAgent } = await import("./phases/stub-agent.js");
+      const { makeReviewPhase } = await import("./phases/review/review.js");
       // Pre-M6 model stopgap (plan §2a/P10): agent phases resolve their model from
-      // PI_TEST_MODEL until M6 routing exists. Unset ⇒ the agent phase reports
-      // "no model available" (PiAgentRunner Part B) and the deterministic half still runs.
-      // Done in the entry block (the impure wiring layer) so module import stays
-      // side-effect-free and defaultPhases stays a static [stubDet].
-      registerPhase(makeStubAgent(new PiAgentRunner(), process.env.PI_TEST_MODEL));
+      // PI_TEST_MODEL until M6 routing exists. Unset ⇒ stub-agent reports "no model
+      // available" (PiAgentRunner Part B); review phase fires the creds gate (AC#8 /
+      // plan M4 step 5 F3) and reports status "error" / "no model available" instead
+      // of completed+empty. Done in the entry block (the impure wiring layer) so module
+      // import stays side-effect-free and defaultPhases stays a static [stubDet].
+      const piModel = process.env.PI_TEST_MODEL;
+      registerPhase(makeStubAgent(new PiAgentRunner(), piModel));
+      // Review phase (M4 thin slice — bugs specialist + 3-voter agreement verify).
+      // One PiAgentRunner per role: "bugs" (specialist), "verify" (per-voter).
+      // Coordinator deferred to M5. makeReviewPhase gates on piModel — when undefined
+      // the phase immediately reports status "error", never completed+empty (AC#8).
+      registerPhase(
+        makeReviewPhase({ bugs: new PiAgentRunner(), verify: new PiAgentRunner() }, piModel),
+      );
     }
 
     const { result, received } = await runWithSignals((signal) =>
