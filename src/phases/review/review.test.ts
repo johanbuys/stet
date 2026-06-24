@@ -288,6 +288,16 @@ describe("makeReviewPhase — creds gate (T14 · AC#8 / plan M4 step 5 F3)", () 
     expect(report.status).toBe("error");
   });
 
+  it("returns status:error when model is an empty string (AC#8 — empty PI_TEST_MODEL)", async () => {
+    // A falsy-but-defined model (e.g. `PI_TEST_MODEL=` or CI expanding an unset var) must
+    // fire the gate too — otherwise it reaches the specialist runner, fails with ModelError,
+    // and the composite rolls it up as the forbidden completed+empty state.
+    const phase = makeReviewPhase({}, "");
+    const report = await phase.run(ctx());
+    expect(report.status).toBe("error");
+    expect(report.findings).toHaveLength(0);
+  });
+
   it("reason mentions 'no model available' when model is undefined", async () => {
     const phase = makeReviewPhase({}, undefined);
     const report = await phase.run(ctx());

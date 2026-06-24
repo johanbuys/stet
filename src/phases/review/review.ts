@@ -181,8 +181,8 @@ function reviewActivation(ctx: ActivationContext): boolean {
  * When coordinator is configured, `runners["coordinator"]` must be present.
  *
  * `model` is the pre-M6 stopgap (plan §2a/P10): the CLI passes `process.env.PI_TEST_MODEL`.
- * When undefined → creds gate fires: the phase immediately reports status "error" / "no model
- * available", never completed+empty (AC#8 / plan M4 step 5 F3).
+ * When falsy (undefined or empty string) → creds gate fires: the phase immediately reports
+ * status "error" / "no model available", never completed+empty (AC#8 / plan M4 step 5 F3).
  * M6 routing will replace this parameter with a resolved model from the routing layer.
  *
  * For unit tests, pass FakeAgentRunners scripted to return { findings: Finding[] } and
@@ -196,7 +196,10 @@ export function makeReviewPhase(
   // The composite phase rolls up specialist failures as "completed" (it never forfeits
   // other specialists' findings); that would yield completed+empty when all specialists
   // fail with ModelError. This wrapper short-circuits before the composite runs.
-  if (model === undefined) {
+  // Gate on falsiness, not strict-undefined: an empty PI_TEST_MODEL (e.g. `PI_TEST_MODEL=`
+  // or CI expanding an unset variable) is just as much "no model" — it would otherwise reach
+  // the specialist runner, fail with ModelError, and roll up as the forbidden completed+empty.
+  if (!model) {
     return {
       id: "review",
       kind: "agent",
