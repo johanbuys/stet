@@ -54,7 +54,8 @@ export interface SpecialistConfig {
   severityCeiling?: Severity;
   /**
    * Per-specialist finding cap (R8 — configurable, default 5 for review specialists).
-   * Documented config — communicated to the model via the rubric text placeholder {MAX_FINDINGS}.
+   * Documented config — communicated to the model via the rubric text, which substitutes the value
+   * at build time (the `${MAX_FINDINGS}` template literal in review.ts).
    */
   maxFindings?: number;
 }
