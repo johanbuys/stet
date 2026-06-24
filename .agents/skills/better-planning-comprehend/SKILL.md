@@ -46,14 +46,20 @@ checkpoint in the drift ledger, so it knows the exact window).
 
 ## The loop — refresh the shape, then reconcile what moved
 
-Run the canvas for the walk (see **canvas** for the serving mechanics; this skill provides the
-content):
+**The walk runs on a canvas — that is the default surface, not an upgrade you offer at the end.**
+Serve the shape as a diagram-kit diagram and walk the moves on it (see **canvas** for the serving
+mechanics; this skill provides the content). Fall back to an inline text sketch *only* when canvas
+isn't installed or no server can run — never narrate the shape in prose and tack "I can put this on
+a canvas" on as an afterthought. The picture is the point.
 
 1. **Refresh the shape first.** Show the system as its handful of concepts and how they connect — the
    top level of the TDD's system map, not its detail. You re-grasp the *whole* before any single
    change. This is the part the old loop skipped, and it's why a change-by-change walk feels too low
-   to follow. Draw it with the **canvas diagram kit** (a node per concept, arrows for the
-   connections; `canvas/references/diagram-kit.md`) so the shape is a picture you point at, not prose.
+   to follow. **Render it as a served canvas diagram-kit diagram by default — a node per concept,
+   arrows for the connections (`canvas/references/diagram-kit.md`) — before you write prose about
+   it.** An ASCII or bulleted sketch is the fallback for when no canvas can run, not the normal path:
+   the whole reason the loop draws the shape is to hand you a picture to point at and a legend to
+   toggle what moved, which prose can't give you.
 2. **Show what moved — on the shape.** From the diff, keep only the changes that touch a concept, a
    boundary, a contract, or a TDD decision; summarize routine within-spec work in a line, don't walk
    it. Frame each kept change as a *move on the map* — "the coordinator grew a responsibility", "a new
