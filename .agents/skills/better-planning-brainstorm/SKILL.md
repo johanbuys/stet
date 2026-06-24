@@ -30,7 +30,9 @@ Two companions cut across the phases: **canvas** (the interactive surface) and
 landed code). Every family skill opens the same way: read `docs/better-planning/README.md`'s status index to
 see where things stand. If the work belongs to a different phase, say so and offer the right
 sibling — wrong entry door, right room. Every skill closes with a handoff: flip the artifact's
-status, update the index, offer the next phase. The artifact, not the conversation, carries the
+status, update the index, offer the next phase. Every family skill also reads the project's `GLOSSARY.md` — use its terms as
+the shared vocabulary, add any term you coin (create the file just-in-time if absent), and don't
+improvise a name for something it already names. The artifact, not the conversation, carries the
 state — so "keep going now" and "pick it up in a fresh session next week" are equally safe.
 
 ## Detect state

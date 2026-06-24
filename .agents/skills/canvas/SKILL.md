@@ -1,6 +1,6 @@
 ---
 name: canvas
-description: "An interactive surface for agents — present any explanation, design, decision, lesson, or review as a served HTML page with comment boxes on every section, and run a live loop where the user submits feedback in the browser, the agent wakes automatically, responds or regenerates, and the page reloads itself. Use this whenever the user wants to review, learn, or brainstorm visually — \"put this on a canvas\", \"make a review page\", \"let me comment on each part\", \"host the html\", \"quiz me\", \"show me\" — whenever an HTML artifact must be viewed from another machine (SSH/remote sessions where file:// is unreachable), and as the preferred surface for the better-planning family's review rounds and walkthroughs and for study's interactive lessons when it's installed."
+description: "An interactive surface for agents — present any explanation, design, decision, lesson, or review as a served HTML page with comment boxes on every section, and run a live loop where the user submits feedback in the browser, the agent wakes automatically, responds or regenerates, and the page reloads itself. It also ships a diagram kit that draws a clean concept map / architecture / flow from a node-and-arrow scene, with a live legend toggling parts on and off. Use this whenever the user wants to review, learn, or brainstorm visually, or to draw a diagram of a system's shape — \"put this on a canvas\", \"make a review page\", \"let me comment on each part\", \"host the html\", \"quiz me\", \"show me\", \"diagram this\", \"draw the concept map\" — whenever an HTML artifact must be viewed from another machine (SSH/remote sessions where file:// is unreachable), and as the preferred surface for the better-planning family's review rounds and walkthroughs and for study's interactive lessons when it's installed."
 ---
 
 # Canvas
@@ -90,11 +90,33 @@ decision/review page on the same server (watch both wake markers). Full protocol
 `references/canvas-pages.md` → Doc-review page. Offer it whenever a review round starts or the
 user asks to "see the full document", "read the source", or comment while reading.
 
+## The diagram kit
+
+For anything whose shape is a **node-and-arrow graph** — a concept map, an architecture, a flow, a
+mind map — canvas ships a shared drawing primitive: `assets/diagram-kit.js` renders clean SVG from a
+structured `{nodes, edges}` scene. The agent authors only the scene (a JSON block on the page); the
+kit lays it out, draws it, and renders a **live legend** — clicking a state's chip toggles its nodes
+on/off (hide `base` to see only what changed), no agent round-trip. It is the visual sibling of the
+comment box — comment boxes are canvas's shared *interactive* primitive, this is its shared
+*drawing* primitive.
+
+It is **generic**: it knows shapes and five visual **states** — `base`, `highlight`, `emphasis`
+(grew — bigger node), `alert` (problem — dashed red), `new` — and nothing about any domain.
+Consumers map their own words onto the states, both in prose and as legend labels (the better-planning
+family maps drift → `alert`, ballooned → `emphasis`, and so on — see `html-artifacts.md`). Because
+the scene is a *document*, not a drawing, the agent reads and edits it — which is the foundation for
+a future drag-and-edit board. Full schema, layouts, states, legend, and the editable-board direction:
+`references/diagram-kit.md`. A self-contained demo is `assets/diagram-demo.html`.
+
+Keep the CSS components for *linear* shapes (pipelines, layers, state cards — they're cheaper); reach
+for the kit when the shape is a 2D graph the CSS boxes can't draw.
+
 ## Page quality bar
 
 Canvas pages follow the better-planning family's design language (`assets/overview-template.html`, component
-table in `html-artifacts.md`): self-contained except for the two canvas JS blocks, CSS-only
-diagrams, options compared *on the page* with trade-offs visible, recommendations marked.
+table in `html-artifacts.md`): self-contained except for the canvas JS blocks (comment capture,
+auto-reload, and the optional diagram kit); diagrams are CSS-only for linear shapes or the SVG
+diagram kit for graphs; options compared *on the page* with trade-offs visible, recommendations marked.
 Stable, meaningful `data-review-id`s (`decision-3-storage`, `sec-milestones`) — they appear in
 the feedback JSON and in your replies, and they let consecutive rounds diff cleanly.
 

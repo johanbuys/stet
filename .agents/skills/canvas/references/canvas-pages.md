@@ -152,7 +152,10 @@ stays canonical), regenerate with the next decision, bump the version.
 
 **Explainer page** — no decision pending, just "look at this": architecture, a diff's story, a
 pipeline. Comment boxes on each section invite reactions; the live loop turns reactions into a
-conversation.
+conversation. When the thing to look at is a node-and-arrow graph (a concept map, an architecture,
+a system shape), draw it with the **diagram kit** (`references/diagram-kit.md`) rather than
+hand-authoring SVG — its live legend lets the reader toggle parts of the diagram on and off, and a
+comment box beside it captures their reaction like any section.
 
 **Doc-review page** — the full markdown source of a real artifact (a PRD, a plan, any doc),
 rendered live with a comment box per `##` section. Built from `assets/docview-template.html`

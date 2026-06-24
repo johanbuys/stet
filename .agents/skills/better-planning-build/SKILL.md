@@ -124,6 +124,9 @@ bundled recommendations, no flourish.
   slice is finished.
 - **Irreversible steps need an explicit go** — merges, pushes, anything outward-facing.
 - **Plain language and the report shape, every time.**
+- **Use the project's words.** Read the project's `GLOSSARY.md` and use its terms in briefs and
+  reports; don't improvise a name for something it already names. A term the build coins gets flagged
+  for the glossary, not silently adopted.
 
 ## Not this skill
 

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>canvas diagram kit — demo</title>
+<!-- Self-contained demo of the canvas diagram kit. Open directly (file://) or
+     serve it; it references diagram-kit.js as a sibling. The agent authors only
+     the JSON scene blocks below — the kit renders the SVG and the interactive
+     legend (click a legend chip to toggle that state's nodes on/off). -->
+<style>
+  :root {
+    --ink:#1a2233; --muted:#5b6678; --faint:#8b94a6; --bg:#fafbfd; --card:#fff; --line:#e3e8f0;
+    --accent:#0f62fe; --warn:#d97706; --err:#dc2626; --ok:#059669;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color:var(--ink);
+         background:var(--bg); line-height:1.55; font-size:16px; }
+  .wrap { max-width:1000px; margin:0 auto; padding:48px 28px 100px; }
+  h1 { font-size:30px; font-weight:800; letter-spacing:-.8px; }
+  .sub { color:var(--muted); margin-top:6px; max-width:720px; }
+  h2 { font-size:18px; font-weight:700; margin:42px 0 4px; }
+  .lede { color:var(--muted); font-size:14px; margin-bottom:14px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 16px 10px;
+           box-shadow:0 1px 2px rgba(20,30,60,.04); }
+  code { font-family:ui-monospace,Menlo,monospace; font-size:.86em; background:#eef1f6; padding:1px 6px; border-radius:4px; }
+  .note { font-size:13px; color:var(--muted); margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>canvas diagram kit</h1>
+  <p class="sub">A generic node-and-arrow concept map, clean SVG, rendered from a structured
+  <code>{nodes, edges}</code> scene. The kit knows shapes and five visual <b>states</b> — it knows
+  nothing about any domain. Consumers map their own words onto the states, and the
+  <b>legend below each diagram is live</b>: click a chip to toggle that state's nodes on or off.</p>
+
+  <h2>1 · Concept map (radial layout)</h2>
+  <p class="lede">A real shape from stet's review phase. <code>composite.run</code> is the hub; one node
+  carries each state. No coordinates given — the kit places them. Try toggling <b>unchanged</b> off to
+  see only what moved.</p>
+  <div class="panel">
+    <div class="dk" data-diagram>
+      <script type="application/json">
+      {
+        "layout": "radial",
+        "legend": { "base": "unchanged", "highlight": "moved", "emphasis": "grew", "alert": "drift", "new": "new" },
+        "nodes": [
+          { "id": "composite", "label": "composite.run", "state": "emphasis" },
+          { "id": "specialist", "label": "specialists" },
+          { "id": "verify", "label": "agreement-verify", "state": "highlight" },
+          { "id": "coordinator", "label": "coordinator", "state": "alert" },
+          { "id": "rollup", "label": "all-low roll-up", "state": "new" },
+          { "id": "findings", "label": "findings" }
+        ],
+        "edges": [
+          { "from": "composite", "to": "specialist", "label": "fans out" },
+          { "from": "specialist", "to": "verify", "label": "submits" },
+          { "from": "verify", "to": "coordinator", "label": "feeds" },
+          { "from": "coordinator", "to": "findings", "label": "rolls up" },
+          { "from": "verify", "to": "rollup", "label": "degraded →", "state": "new" },
+          { "from": "rollup", "to": "findings" }
+        ]
+      }
+      </script>
+    </div>
+  </div>
+  <p class="note">The amber <b>grew</b> node is bigger — that's the "this concept grew past its
+  original job" signal. The red dashed <b>drift</b> node and the green <b>new</b> node + edge show a
+  change landing. The five states are the kit's; <code>"unchanged / moved / grew / drift / new"</code>
+  are this project's labels, passed in <code>legend</code>.</p>
+
+  <h2>2 · Pipeline (row layout)</h2>
+  <p class="lede">The same kit, laid out left-to-right — for a flow rather than a graph.</p>
+  <div class="panel">
+    <div class="dk" data-diagram>
+      <script type="application/json">
+      {
+        "layout": "row", "height": 200,
+        "legend": { "base": "unchanged", "highlight": "moved", "emphasis": "grew" },
+        "nodes": [
+          { "id": "diff", "label": "diff" },
+          { "id": "tracer", "label": "tracer", "state": "highlight" },
+          { "id": "scheduler", "label": "scheduler" },
+          { "id": "phases", "label": "phases", "state": "emphasis" },
+          { "id": "report", "label": "report" }
+        ],
+        "edges": [
+          { "from": "diff", "to": "tracer" },
+          { "from": "tracer", "to": "scheduler" },
+          { "from": "scheduler", "to": "phases" },
+          { "from": "phases", "to": "report" }
+        ]
+      }
+      </script>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:34px">Scene is the source of truth — the agent reads and writes
+  this JSON, and a future in-browser editor edits the same document. Clean straight lines, no external
+  library.</p>
+</div>
+<script src="diagram-kit.js"></script>
+</body>
+</html>

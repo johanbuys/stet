@@ -28,6 +28,10 @@ landed code as these tasks are executed). Every family skill opens by reading
 `docs/better-planning/README.md`'s status index; if the work belongs to a different phase, say so
 and offer the right sibling.
 
+Every family skill also reads the project's `GLOSSARY.md` — use its terms as the shared vocabulary,
+add any term you coin (create the file just-in-time if absent), and don't improvise a name for
+something it already names.
+
 ## Pick up from the plan
 
 Tasks derive from a **settled** plan — check the index on open. Plan in draft, or no plan?

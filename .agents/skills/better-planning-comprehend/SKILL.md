@@ -52,13 +52,16 @@ content):
 1. **Refresh the shape first.** Show the system as its handful of concepts and how they connect — the
    top level of the TDD's system map, not its detail. You re-grasp the *whole* before any single
    change. This is the part the old loop skipped, and it's why a change-by-change walk feels too low
-   to follow.
+   to follow. Draw it with the **canvas diagram kit** (a node per concept, arrows for the
+   connections; `canvas/references/diagram-kit.md`) so the shape is a picture you point at, not prose.
 2. **Show what moved — on the shape.** From the diff, keep only the changes that touch a concept, a
    boundary, a contract, or a TDD decision; summarize routine within-spec work in a line, don't walk
    it. Frame each kept change as a *move on the map* — "the coordinator grew a responsibility", "a new
-   concept appeared between X and Y" — not a flat list of diffs. **Call out complexity growth
-   plainly:** a new concept, or one that ballooned past its original job. That's the "did my simple
-   idea get complex?" check, run every time.
+   concept appeared between X and Y" — not a flat list of diffs. On the diagram, mark each moved
+   concept with its state — `highlight` moved, `emphasis` ballooned, `new` appeared, `alert` drift
+   (the family→state mapping in `html-artifacts.md`). **Call out complexity growth plainly:** a new
+   concept, or one that ballooned past its original job (that's an `emphasis` node — bigger, on
+   purpose). That's the "did my simple idea get complex?" check, run every time.
 3. **Recall before reveal.** For the key move, ask the human to say what they think changed *before*
    showing them. Holding the system means being able to reconstruct it, not just nod at it.
 4. **Reconcile each move against the TDD**, one at a time:
@@ -101,6 +104,16 @@ protocol.
 
 The drift ledger format (`assets/drift-ledger-template.md`) and layout conventions live in
 `references/doc-layout.md` → Drift ledger.
+
+## The glossary — curate the living vocabulary
+
+A sync is also where the project's shared vocabulary stays honest. Read `GLOSSARY.md` (repo root;
+create it if absent) and use its terms when you describe the shape and the moves — don't improvise a
+name for something it already names. When a sync surfaces a term the build coined, or one that isn't
+in the glossary yet, flag it like a move: "new term `X` — add it, rename it, or map it to one we
+already have?" Append the ones the human accepts, each with a one-line meaning and a `→` to where
+it's specced. The glossary is a living doc like the TDD — keep it current in the same commit as the
+sync. Format: `better-planning-design/assets/glossary-template.md`.
 
 ## Handoff
 

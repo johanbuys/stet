@@ -30,6 +30,12 @@ and keeps it living). Every family skill opens by reading `docs/better-planning/
 index; if the work belongs to a different phase, say so and offer the right sibling. Every skill
 closes with a handoff: flip the artifact's status, update the index, offer the next phase.
 
+Every family skill also reads the project's `GLOSSARY.md` and uses its terms as the shared
+vocabulary, never improvising a name for something it already names. **This phase is where the
+glossary is born:** as the TDD names the system's concepts, record each one in `GLOSSARY.md` (create
+it just-in-time if absent), so the build inherits one settled vocabulary instead of drifting names.
+Format: `assets/glossary-template.md`.
+
 ## Pick up from the PRD
 
 A TDD derives from a **settled** feature PRD — designing against a draft bakes its open questions

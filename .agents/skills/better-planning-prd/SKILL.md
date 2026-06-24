@@ -29,6 +29,10 @@ landed code). Every family skill opens by reading `docs/better-planning/README.m
 belongs to a different phase, say so and offer the right sibling. Every skill closes with a
 handoff: flip the artifact's status, update the index, offer the next phase.
 
+Every family skill also reads the project's `GLOSSARY.md` — use its terms as the shared vocabulary,
+add any term you coin (create the file just-in-time if absent), and don't improvise a name for
+something it already names.
+
 ## Pick up from the brief
 
 The brief is written *for* this skill. On open:

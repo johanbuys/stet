@@ -15,7 +15,10 @@ truth; the HTML is the review surface.
   no CDN links, no JS frameworks, no external fonts or images, no server. It must render
   identically from `file://` on any machine, forever.
 - **CSS-only diagrams.** Flexbox/grid boxes, borders, and pills compose into architecture
-  diagrams, timelines, ladders, state machines. No image files, no mermaid.
+  diagrams, timelines, ladders, state machines. No image files, no mermaid. *Exception:* when
+  **canvas** is installed and the shape is a node-and-arrow graph (a system shape / concept map),
+  use its **diagram kit** (`canvas/references/diagram-kit.md`) — a self-contained SVG renderer,
+  still no CDN — rather than forcing a graph into CSS boxes.
 - **Tell the user how to open it** (`xdg-open <path>` / `open <path>`) every time you create or
   update one.
 
@@ -101,7 +104,25 @@ looks like one family. Available components (see template source for markup):
 | state cards (colored top border) | state machines, outcome states |
 | decision table (`.dec-res` dots) | resolved (green) vs open (amber) decisions |
 | ask boxes (amber left border) | "things to poke at" items |
+| concept map (canvas diagram kit) | a system's shape — concepts as nodes, how they connect (graphs CSS boxes can't draw) |
 
 Adapt freely — the family resemblance matters more than pixel fidelity. For accents, derive a
 small set of semantic colors per project (e.g., one per phase/component) and use them
 consistently across all of that project's artifacts.
+
+## Diagram states — the family's mapping
+
+The canvas diagram kit is **generic**: it knows five visual states and nothing about planning. The
+family maps its vocabulary onto them, so a concept map reads the same in any phase. Use these terms
+when you describe a diagram, and the matching state when you draw one:
+
+| family term | canvas state | when |
+|---|---|---|
+| unchanged | `base` | the concept is as it was |
+| moved / touched | `highlight` | it changed this milestone |
+| **ballooned / grew** | `emphasis` | it grew past its original job (the "did my idea get complex?" flag) |
+| **drift** | `alert` | code diverged from a decision — flagged for fix |
+| new concept | `new` | it appeared this milestone |
+
+If a project coins a sixth thing to show, it maps onto an existing state — the kit stays generic and
+canvas stays installable on its own. Full schema: `canvas/references/diagram-kit.md`.
