@@ -118,7 +118,8 @@ export async function runCoordinatorJudge(
 
   if (result.isOk()) {
     const { submission, cost } = result.value;
-    const findings = parseFindings(submission) ?? [];
+    // Coordinator ingests harness-stamped findings → validates against full Finding (default).
+    const findings = (parseFindings(submission) as Finding[] | null) ?? [];
     return { kind: "ok", findings, cost: { ...cost, durationMs } };
   }
 

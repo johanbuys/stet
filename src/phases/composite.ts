@@ -14,13 +14,21 @@ import type { TSchema } from "@sinclair/typebox";
 import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
-import type { Cost, PhaseReport } from "../schema/report.js";
-import { type Finding, parseFindings, severityAtLeast } from "../schema/finding.js";
+import type { Cost, PhaseReport, VerifyAudit } from "../schema/report.js";
+import {
+  type Finding,
+  type Severity,
+  parseFindings,
+  severityAtLeast,
+  SpecialistSubmission,
+} from "../schema/finding.js";
 import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
 import type { CoordinatorConfig } from "./coordinator.js";
 import { runCoordinatorJudge } from "./coordinator.js";
 import { classify, type RiskRule } from "../risk/classify.js";
+import { runAgreementVerify, type VerifyConfig } from "./verify.js";
+import { buildAddedLineIndex, markPreexisting } from "../preexisting.js";
 
 // ---------------------------------------------------------------------------
 // Specialist config
@@ -44,6 +52,18 @@ export interface SpecialistConfig {
   buildUserPrompt: (ctx: PhaseContext) => string;
   /** Narrows which scope this specialist runs for. Defaults to always-true. */
   activation?: (ctx: ActivationContext) => boolean;
+  /**
+   * Maximum severity this specialist may emit (PRD §3.3, TDD D).
+   * Documented config — not yet enforced by the composite roll-up; enforced via rubric text (M6+).
+   * bugs/security → "error"; quality/coverage-gaps → "warning".
+   */
+  severityCeiling?: Severity;
+  /**
+   * Per-specialist finding cap (R8 — configurable, default 5 for review specialists).
+   * Documented config — communicated to the model via the rubric text, which substitutes the value
+   * at build time (the `${MAX_FINDINGS}` template literal in review.ts).
+   */
+  maxFindings?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +95,12 @@ export interface CompositePhaseConfig {
    * Applied only when riskRules is declared and a level is resolved.
    */
   riskLevels?: Record<string, RiskLevel>;
+  /**
+   * Optional agreement-verify config (TDD A·1 / plan M4 step 1).
+   * When set, `runners["verify"]` must be provided; runs over the raw roll-up before
+   * the coordinator, stamping harness-controlled confidence on each surviving finding.
+   */
+  verify?: VerifyConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +125,9 @@ type SpecialistOutcome = SpecialistSkipped | SpecialistRan;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Ranks confidence levels numerically for comparison in the protected-class reconciliation. */
+const CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 } as const;
+
 function costFromError(error: AgentError): Partial<Cost> {
   if (
     error._tag === "NoSubmitError" ||
@@ -119,6 +148,17 @@ function costFromError(error: AgentError): Partial<Cost> {
 function coordinatorWarning(phaseId: string, message: string): Finding {
   return {
     id: `${phaseId}.coordinator-failed`,
+    phase: phaseId,
+    severity: "warning",
+    confidence: "high",
+    message,
+  };
+}
+
+/** Build the harness warning emitted when agreement-verify fails (TDD A·3 total failure). */
+function verifyDegradedWarning(phaseId: string, message: string): Finding {
+  return {
+    id: `${phaseId}.verify-degraded`,
     phase: phaseId,
     severity: "warning",
     confidence: "high",
@@ -237,6 +277,11 @@ export function makeCompositePhase(
       // Convenience: include resolved level in every completed report (PRD §3.4.1a).
       const levelEntry = resolvedLevel !== undefined ? { level: resolvedLevel } : {};
 
+      // Deterministic pre-existing detection (TDD B·2 / plan M4 step 4 / F2): built once
+      // per run, shared by all five completed-return paths. Applied post-coordinator so the
+      // coordinator's rewrites are visible before the stamp is computed (S5).
+      const addedLineIndex = buildAddedLineIndex(ctx.diff ?? "");
+
       let parallelResults: SpecialistOutcome[];
       try {
         parallelResults = await Promise.all(
@@ -295,10 +340,16 @@ export function makeCompositePhase(
 
         if (runResult.isOk()) {
           const { submission, cost } = runResult.value;
-          const findings = parseFindings(submission) ?? [];
-          for (const f of findings) {
-            // Overwrite phase + set specialist: provenance is harness-controlled, not model-controlled.
-            allFindings.push({ ...f, phase: cfg.id, specialist: name });
+          // Specialists submit SpecialistSubmission shape (no confidence/specialist/phase) —
+          // those three are harness-stamped here, not model-controlled (TDD B·1/B·3).
+          // Validate against SpecialistSubmission, NOT full Finding: a no-confidence
+          // submission must parse, then be stamped into a valid Finding below.
+          const submitted = (parseFindings(submission, SpecialistSubmission) ??
+            []) as SpecialistSubmission[];
+          for (const f of submitted) {
+            // Provenance is harness-controlled: phase + specialist stamped from config,
+            // confidence stamped provisionally as "low" (agreement-verify upgrades it later).
+            allFindings.push({ ...f, phase: cfg.id, specialist: name, confidence: "low" });
           }
           specialistsCost[name] = { ...cost, durationMs };
         } else {
@@ -307,9 +358,73 @@ export function makeCompositePhase(
         }
       }
 
+      // Agreement-verify stage (TDD A·1 / plan M4 step 1): runs over the raw specialist
+      // roll-up before the coordinator. Voter lenses receive diff so they can inspect the
+      // full change (S4). On total failure (no runner or ConfigError): fall back to raw
+      // roll-up with confidence: low + emit a verify-degraded warning (TDD A·3).
+      let candidateFindings: Finding[] = allFindings;
+      let verifyAudit: VerifyAudit | undefined;
+      // When verify is configured but degrades (no runner / run error), the conservative
+      // roll-up (all findings forced to "low" + a verify-degraded warning) is final: the
+      // coordinator is SKIPPED. Otherwise a configured coordinator could raise those findings
+      // back to "high" (re-gating the build) and drop the warning, so a broken-verify run
+      // would masquerade as a clean, gating one.
+      let verifyDegraded = false;
+
+      if (cfg.verify) {
+        const verifyRunner = runners["verify"];
+        if (!verifyRunner) {
+          verifyDegraded = true;
+          candidateFindings = [
+            ...allFindings.map((f) => ({ ...f, confidence: "low" as const })),
+            verifyDegradedWarning(
+              cfg.id,
+              "Agreement-verify could not run (no verify runner configured). All findings stamped confidence: low.",
+            ),
+          ];
+        } else {
+          const verifyResult = await runAgreementVerify(verifyRunner, allFindings, cfg.verify, {
+            cwd: ctx.cwd,
+            diff: ctx.diff,
+            signal: ctx.signal,
+          });
+          if (verifyResult.isOk()) {
+            candidateFindings = verifyResult.value.verified;
+            verifyAudit = verifyResult.value.audit;
+          } else {
+            verifyDegraded = true;
+            candidateFindings = [
+              ...allFindings.map((f) => ({ ...f, confidence: "low" as const })),
+              verifyDegradedWarning(
+                cfg.id,
+                `Agreement-verify failed: ${verifyResult.error.message}. All findings stamped confidence: low.`,
+              ),
+            ];
+          }
+        }
+      }
+
+      // Confidence-by-id index: populated from the verified candidates when verify ran
+      // successfully. Used to (a) re-stamp confidence after coordinator re-attribution so the
+      // coordinator cannot overwrite harness-controlled confidence (TDD A·4), and (b) gate
+      // the protected-class predicate — only verify-stamped "high" findings are protected
+      // against coordinator dropping/downgrading (not model-supplied confidence values).
+      const confidenceById = new Map<string, Finding["confidence"]>();
+      if (verifyAudit !== undefined) {
+        for (const f of candidateFindings) {
+          const existing = confidenceById.get(f.id);
+          if (existing === undefined || CONFIDENCE_RANK[f.confidence] > CONFIDENCE_RANK[existing]) {
+            confidenceById.set(f.id, f.confidence);
+          }
+        }
+      }
+
       // Coordinator judge pass (PRD §3.3a) — runs after roll-up when configured and not
       // suppressed by the risk level (e.g. riskLevels["trivial"].coordinator === false).
-      if (cfg.coordinator && !skipCoordinatorForLevel) {
+      // Also skipped when verify degraded: the conservative all-low roll-up + verify-degraded
+      // warning is final, so the coordinator cannot re-raise confidence or drop the warning
+      // (falls through to the no-coordinator return below with verifyAudit still undefined).
+      if (cfg.coordinator && !skipCoordinatorForLevel && !verifyDegraded) {
         const coordinatorRunner = runners["coordinator"];
         if (!coordinatorRunner) {
           const warnFinding = coordinatorWarning(
@@ -320,15 +435,20 @@ export function makeCompositePhase(
             phase: cfg.id,
             status: "completed",
             ...levelEntry,
-            findings: [...allFindings, warnFinding],
-            audit: {},
+            findings: markPreexisting([...candidateFindings, warnFinding], addedLineIndex),
+            audit: verifyAudit !== undefined ? { verify: verifyAudit } : {},
             cost: { durationMs: Date.now() - start, specialists: specialistsCost },
           };
         }
 
         let outcome: Awaited<ReturnType<typeof runCoordinatorJudge>>;
         try {
-          outcome = await runCoordinatorJudge(coordinatorRunner, cfg.coordinator, allFindings, ctx);
+          outcome = await runCoordinatorJudge(
+            coordinatorRunner,
+            cfg.coordinator,
+            candidateFindings,
+            ctx,
+          );
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           const warnFinding = coordinatorWarning(
@@ -339,8 +459,8 @@ export function makeCompositePhase(
             phase: cfg.id,
             status: "completed",
             ...levelEntry,
-            findings: [...allFindings, warnFinding],
-            audit: {},
+            findings: markPreexisting([...candidateFindings, warnFinding], addedLineIndex),
+            audit: verifyAudit !== undefined ? { verify: verifyAudit } : {},
             cost: { durationMs: Date.now() - start, specialists: specialistsCost },
           };
         }
@@ -357,17 +477,23 @@ export function makeCompositePhase(
           // collide on an id (#48). The coordinator sees roll-up findings only by id, so such an
           // id is genuinely ambiguous: rather than guess (last-in-roll-up wins would mis-attribute),
           // the harness records it as ambiguous and the survivor carries no specialist.
+          // Re-attribute specialist by id: harness-controlled, model cannot fabricate it (#48).
+          // Also re-stamp confidence by id from verify results (TDD A·4): coordinator cannot
+          // overwrite harness-controlled confidence. Only populated when verify ran.
           const specialistById = new Map<string, string | undefined>();
-          for (const f of allFindings) {
+          for (const f of candidateFindings) {
             if (!specialistById.has(f.id)) specialistById.set(f.id, f.specialist);
             else if (specialistById.get(f.id) !== f.specialist) specialistById.set(f.id, undefined);
           }
           const finalFindings = outcome.findings.map((f) => {
             const { specialist: _modelSupplied, ...rest } = f;
             const origin = specialistById.get(f.id);
-            return origin !== undefined
-              ? { ...rest, phase: cfg.id, specialist: origin }
-              : { ...rest, phase: cfg.id };
+            const stampedConf = confidenceById.get(f.id);
+            const base =
+              origin !== undefined
+                ? { ...rest, phase: cfg.id, specialist: origin }
+                : { ...rest, phase: cfg.id };
+            return stampedConf !== undefined ? { ...base, confidence: stampedConf } : base;
           });
 
           // Constrained authority (PRD #30, §4.6) + drop audit (#31).
@@ -379,8 +505,11 @@ export function makeCompositePhase(
           // rest (#30) — and (b) under-count drops when the judge keeps one copy but drops its
           // siblings (#31). We hold a per-id pool of surviving finding indices and consume
           // from it greedily so each raw finding is accounted for individually.
-          const CONFIDENCE_RANK = { high: 2, medium: 1, low: 0 } as const;
-
+          //
+          // Protected class (TDD A·4): evidence.command (deterministic) OR verify-stamped
+          // confidence "high" (3/3 agreement). Only verify-stamped high is protected — model-
+          // supplied high (without verify) is NOT, preventing the predicate from silently
+          // changing behaviour for phases that don't run verify.
           const survivorPool = new Map<string, number[]>();
           finalFindings.forEach((f, i) => {
             const pool = survivorPool.get(f.id);
@@ -391,10 +520,10 @@ export function makeCompositePhase(
           const reinstated: { id: string; specialist?: string }[] = [];
           const dropped: { id: string; specialist?: string; message: string }[] = [];
 
-          for (const raw of allFindings) {
+          for (const raw of candidateFindings) {
             const pool = survivorPool.get(raw.id) ?? [];
 
-            if (raw.evidence?.command !== undefined) {
+            if (raw.evidence?.command !== undefined || confidenceById.get(raw.id) === "high") {
               // Protected: satisfied by any surviving copy the judge did not downgrade in
               // severity or confidence. Consume that copy if present.
               const okPos = pool.findIndex((i) => {
@@ -437,14 +566,16 @@ export function makeCompositePhase(
             }
           }
 
+          markPreexisting(finalFindings, addedLineIndex);
           return {
             phase: cfg.id,
             status: "completed",
             ...levelEntry,
             findings: finalFindings,
             audit: {
+              ...(verifyAudit !== undefined ? { verify: verifyAudit } : {}),
               coordinator: {
-                received: allFindings.length,
+                received: candidateFindings.length,
                 dropped,
                 reinstated,
               },
@@ -457,7 +588,7 @@ export function makeCompositePhase(
           };
         }
 
-        // Coordinator failed — fall back to raw roll-up (decision #29: never forfeits findings).
+        // Coordinator failed — fall back to verified roll-up (decision #29: never forfeits findings).
         const failReason = `${outcome.error._tag}: ${outcome.error.message}`;
         const warnFinding = coordinatorWarning(
           cfg.id,
@@ -467,19 +598,19 @@ export function makeCompositePhase(
           phase: cfg.id,
           status: "completed",
           ...levelEntry,
-          findings: [...allFindings, warnFinding],
-          audit: {},
+          findings: markPreexisting([...candidateFindings, warnFinding], addedLineIndex),
+          audit: verifyAudit !== undefined ? { verify: verifyAudit } : {},
           cost: { durationMs: Date.now() - start, specialists: specialistsCost },
         };
       }
 
-      // No coordinator (or skipped by risk level) — return plain roll-up unchanged.
+      // No coordinator (or skipped by risk level) — return verified roll-up unchanged.
       return {
         phase: cfg.id,
         status: "completed",
         ...levelEntry,
-        findings: allFindings,
-        audit: {},
+        findings: markPreexisting(candidateFindings, addedLineIndex),
+        audit: verifyAudit !== undefined ? { verify: verifyAudit } : {},
         cost: { durationMs: Date.now() - start, specialists: specialistsCost },
       };
     },

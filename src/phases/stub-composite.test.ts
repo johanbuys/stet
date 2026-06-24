@@ -17,7 +17,10 @@ import { Value } from "@sinclair/typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 import { FakeAgentRunner } from "../agent/fake-runner.js";
 import { ModelError, BudgetError } from "../errors.js";
-import type { Finding } from "../schema/finding.js";
+import type {
+  Finding,
+  SpecialistSubmission as SpecialistSubmissionType,
+} from "../schema/finding.js";
 import { PhaseReport } from "../schema/report.js";
 import {
   makeStubComposite,
@@ -39,8 +42,21 @@ function ctx() {
   };
 }
 
-/** A valid Finding that a fake runner can submit (phase will be overwritten by composite). */
-function fakeFinding(overrides: Partial<Finding> = {}): Finding {
+// A specialist submission (SpecialistSubmission shape — no phase/specialist/confidence;
+// those are harness-stamped by the composite roll-up, which validates submissions against
+// SpecialistSubmission, not full Finding).
+function fakeFinding(overrides: Partial<SpecialistSubmissionType> = {}): SpecialistSubmissionType {
+  return {
+    id: "stub-composite.test.finding",
+    severity: "info",
+    message: "test finding",
+    ...overrides,
+  };
+}
+
+// A full Finding the COORDINATOR runner re-emits (the coordinator path validates against the
+// default full-Finding schema, since it ingests already-stamped findings).
+function fakeCoordFinding(overrides: Partial<Finding> = {}): Finding {
   return {
     id: "stub-composite.test.finding",
     phase: "stub-composite",
@@ -51,7 +67,7 @@ function fakeFinding(overrides: Partial<Finding> = {}): Finding {
   };
 }
 
-function okRunner(findings: Finding[], model = "fake/model") {
+function okRunner(findings: unknown[], model = "fake/model") {
   return new FakeAgentRunner({
     kind: "ok",
     submission: { findings },
@@ -137,8 +153,10 @@ describe("stub-composite — all specialists succeed (roll-up)", () => {
     expect(report.findings).toHaveLength(3);
   });
 
-  it("each finding carries phase: stub-composite (overwritten from submission)", async () => {
-    const submitted = fakeFinding({ phase: "some-other-phase" }); // will be overwritten
+  it("each finding carries phase: stub-composite (harness-stamped, not model-supplied)", async () => {
+    // SpecialistSubmission has no `phase` field — the model cannot supply one; the harness
+    // stamps the composite phase id at roll-up.
+    const submitted = fakeFinding({ id: "stub-composite.test.finding" });
     const phase = makeStubComposite({
       alpha: okRunner([submitted]),
       beta: okRunner([]),
@@ -498,9 +516,9 @@ describe("stub-composite — risk classifier wiring (T29, PRD §3.4.1a)", () => 
   it("large diff → all three specialists run", async () => {
     const coordRunner = okRunner(
       [
-        fakeFinding({ id: "risk.alpha.f", message: "alpha" }),
-        fakeFinding({ id: "risk.beta.f", message: "beta" }),
-        fakeFinding({ id: "risk.gamma.f", message: "gamma" }),
+        fakeCoordFinding({ id: "risk.alpha.f", message: "alpha" }),
+        fakeCoordFinding({ id: "risk.beta.f", message: "beta" }),
+        fakeCoordFinding({ id: "risk.gamma.f", message: "gamma" }),
       ],
       "fake/coordinator",
     );
@@ -524,8 +542,8 @@ describe("stub-composite — risk classifier wiring (T29, PRD §3.4.1a)", () => 
     // Coordinator drops beta finding and keeps alpha + gamma.
     const coordRunner = okRunner(
       [
-        fakeFinding({ id: "risk.alpha.f", message: "alpha" }),
-        fakeFinding({ id: "risk.gamma.f", message: "gamma" }),
+        fakeCoordFinding({ id: "risk.alpha.f", message: "alpha" }),
+        fakeCoordFinding({ id: "risk.gamma.f", message: "gamma" }),
       ],
       "fake/coordinator",
     );

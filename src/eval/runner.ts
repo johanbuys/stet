@@ -158,8 +158,10 @@ export async function runEval(
     let findings: FindingType[];
     if (agentResult.isOk()) {
       // M5: parseFindings currently requires full Finding (with confidence/phase/specialist).
-      // See comment on submitSchema above — both must change together at M5.
-      const parsed = parseFindings(agentResult.value.submission);
+      // See comment on submitSchema above — both must change together at M5. This caller
+      // stays on the default full-Finding schema (the specialist roll-up uses the
+      // SpecialistSubmission overload instead).
+      const parsed = parseFindings(agentResult.value.submission) as FindingType[] | null;
       if (parsed === null) {
         parseFailures++;
         findings = [];
