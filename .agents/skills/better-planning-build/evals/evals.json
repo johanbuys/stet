@@ -1,0 +1,53 @@
+{
+  "skill_name": "better-planning-build",
+  "evals": [
+    {
+      "id": 0,
+      "name": "review-and-drive-a-loop-pr",
+      "prompt": "The loop landed PR #88 and I killed it. Review it the paired way and let's fix what matters.",
+      "expected_output": "Opens with a Skeptic pass: fans out independent finder subagents by angle, then verifies the single load-bearing finding itself by reading the actual code (does not relay finder output wholesale). Dedupes to the few findings that matter and reports them at intent altitude in the fixed shape — what landed, why it landed that way, the decision(s), plain options — NOT a wall of diff-level findings. For each call the Architect makes, writes a tight test-first Driver brief (scoped, with a stop-and-report clause) and dispatches a Driver; on a structural brief it waits for an explicit go, on a routine brief it shows-and-runs. Verifies each returned diff itself (reads it, runs the suite) rather than trusting the Driver. Escalates only genuine forks; decides mechanism and small conservative defaults itself and reports them. On merge, writes a plain-language review-trail comment and waits for the Architect's explicit go. Offers comprehend once the slice lands.",
+      "files": [
+        "fixtures/loop-pr — a repo with a loop-produced PR whose tests are green but a real-input path is silently broken, plus one latent bug that only triggers at a later milestone"
+      ],
+      "assertions": [
+        "skeptic-pass-fans-out: independent finders are spawned, not a single read",
+        "lead-verifies-the-crux: the most consequential finding is confirmed by the Lead reading the code, not relayed from a finder",
+        "reports-at-intent-altitude: findings are surfaced as a few decisions in the what-why-decision-options shape, not a wall of diff-level items",
+        "driver-brief-is-test-first-and-scoped: each brief names the failing test first plus a do-not-touch fence and a stop-and-report clause",
+        "lead-verifies-the-diff: the Lead reads each returned diff and runs the suite itself before accepting",
+        "escalates-only-genuine-forks: real forks reach the Architect; mechanism and small conservative defaults are decided by the Lead and reported",
+        "review-trail-on-merge: a plain-language summary is posted and the merge waits for an explicit go",
+        "offers-comprehend: comprehend is offered once the slice lands"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "routine-task-turns-structural-escalates",
+      "prompt": "Just fill in the equivalence-filter for the test-quality phase against the interfaces we already have.",
+      "expected_output": "Treats this as routine work (bounded, against frozen interfaces) and proceeds show-and-run. But when the Driver's work turns out to require changing a shared contract or a core type — a structural change — the Lead STOPS the routine flow and surfaces it to the Architect as a structural decision with the tradeoff, rather than letting the Driver quietly alter the contract. Resumes only after the Architect decides.",
+      "files": [
+        "fixtures/test-quality-phase — a repo where the obvious implementation of a routine task cannot be done without changing a shared Finding contract"
+      ],
+      "assertions": [
+        "starts-routine-show-and-run: posts the brief and dispatches without waiting, since it is routine",
+        "detects-structural-touch: recognizes the task now requires a contract / core-type change",
+        "stops-and-escalates: surfaces it as a structural decision with the tradeoff instead of letting the Driver change the contract silently",
+        "does-not-decide-the-fork-itself: the contract change is presented to the Architect, not chosen by the Lead"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "small-default-lead-decides-not-escalates",
+      "prompt": "Wire the new specialist's provisional confidence — whatever's sensible.",
+      "expected_output": "Recognizes this is a small behavior-default with one obviously-conservative answer, not a genuine fork. The Lead picks the conservative value (the lowest / unverified confidence) and notes the choice in passing — it does NOT block the Architect with a question. Only if there were two viable values with materially different consequences would it escalate.",
+      "files": [
+        "fixtures/test-quality-phase — a specialist needing a provisional confidence default before verify runs"
+      ],
+      "assertions": [
+        "decides-the-default-itself: the Lead picks the conservative value without asking",
+        "notes-it-in-passing: the choice is reported, not hidden",
+        "does-not-escalate-a-non-fork: no blocking question for a small obvious default"
+      ]
+    }
+  ]
+}

@@ -86,6 +86,37 @@ gantt bars), dependencies as lanes, the v0 cut visible. Review rounds work exact
 rationale — served through **canvas** when it's installed (live loop, works
 over SSH).
 
+## The rolling horizon — the arc is provisional, revised at each boundary
+
+The plan lays out the **full** milestone arc, so the destination is visible — but only the **next**
+milestone is a firm commitment. Everything past it is a sketch, not a contract: building teaches
+things the plan can't know yet, so the far milestones *will* change. Mark them provisional in the
+plan, explicitly.
+
+What keeps the arc honest is a **revision pass at every milestone boundary** — and it is **gated**:
+better-planning-tasks will not break down the next milestone until this pass is recorded. It pairs
+with **better-planning-comprehend** — same boundary, two directions:
+
+- comprehend looks back at the **code** — does it still match the TDD? (updates the living design)
+- the revision pass looks forward at the **plan** — does the remaining arc still hold? (adjusts it)
+
+### The revision pass (at each boundary, before the next milestone's tasks)
+
+1. **Apply the lessons.** What did the milestone that just landed teach? Re-order, resize, add, or
+   drop the provisional milestones to match what you now know.
+2. **Disposition every deferred item** from the milestone's review — pull the open follow-up issues
+   for the milestone *and* the plan's Carry-forward list. Each item gets exactly one of:
+   - **fold into the next milestone** (its tasks absorb it),
+   - **batch into an `M<n>.5` maintenance milestone** — a first-class milestone made of deferred
+     cleanup, planned and built like any other,
+   - **accept as debt** — explicitly, with a reason; it stays tracked, it does not silently vanish.
+
+   (Accept-as-debt matters: without it the gate would force you to schedule everything and you'd
+   rebuild the very monster plan this design exists to kill.)
+3. **Record it.** Update the milestone arc and the plan's **Carry-forward** section — the live list
+   of deferred items and where each one went. Nothing crosses the boundary undispositioned; that is
+   the gate's whole job.
+
 ## Adversarial review — the cold-reader stress test
 
 The plan's real consumer is an agent (or human) with none of this session's context — so before
@@ -106,10 +137,11 @@ plan must pass, because it's the condition the plan will actually be used under.
 ## Handoff
 
 When the plan settles: flip its status header, update the README index row, commit, and offer
-the next phase — "plan's settled; each milestone is independently verifiable. Want the task
-breakdown next (better-planning-tasks), or is milestone granularity enough to start building?"
-Both are legitimate: tasks add value when work will be parceled out to agents or split across
-sessions; a small feature with a tight plan can go straight to building.
+the next phase — "plan's settled; the full arc is visible but only the first milestone is
+committed. Want tasks for the **first milestone** next (better-planning-tasks)? After it lands,
+comprehend and the revision pass run at the boundary before the next milestone is broken down."
+A small feature with a tight one- or two-milestone plan can go straight to building; anything
+larger runs the milestone-at-a-time loop.
 
 ## What this skill is not
 
