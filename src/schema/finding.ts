@@ -6,7 +6,7 @@
  * NOT a closed enum, so that adding a new phase never requires a schema edit.
  */
 
-import { type Static, Type } from "@sinclair/typebox";
+import { type Static, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
 /** Open phase identifier — kebab-case, not a closed enum (decision #28, PRD §4.1). */
@@ -139,10 +139,13 @@ export const PREEXISTING_META_KEY = "preexisting";
  *   - `meta[PREEXISTING_META_KEY]` (`true`) — set by `markPreexisting` after submission,
  *     never supplied by the model; read via `meta?.preexisting === true` (B·2/B·3).
  *
- * **Not yet wired (M4).** When adopted as the specialist submitSchema, the harness
- * must (a) stamp `confidence`/`phase`/`specialist` after parse and (b) switch the
- * ingestion validation from `Finding` to `SpecialistSubmission` — `parseFindings`
- * currently requires the harness-stamped fields, so the two must change together.
+ * **Wired in the specialist roll-up.** The composite roll-up
+ * (`src/phases/composite.ts`) parses specialist submissions against
+ * `SpecialistSubmission` (via `parseFindings(submission, SpecialistSubmission)`),
+ * then stamps `confidence` (provisional `"low"`, upgraded by agreement-verify),
+ * `specialist`, and `phase` to produce a valid `Finding`. `parseFindings` still
+ * defaults to the full `Finding` schema for the coordinator and eval-runner callers,
+ * which ingest already-stamped findings.
  */
 export const SpecialistSubmission = Type.Omit(Finding, ["confidence", "specialist", "phase"]);
 
@@ -151,16 +154,20 @@ export type SpecialistSubmission = Static<typeof SpecialistSubmission>;
 /**
  * Parse and validate the `findings` array out of an agent submission payload.
  *
- * Returns the typed `Finding[]` when the submission is an object whose `findings`
- * property is an array of values that each satisfy the {@link Finding} schema.
+ * Returns an array of values that each satisfy the given `schema` when the submission
+ * is an object whose `findings` property is an array of such values. Defaults to the
+ * full {@link Finding} schema (used by the coordinator and the eval runner, which both
+ * ingest harness-stamped findings). The specialist roll-up passes
+ * {@link SpecialistSubmission} instead, since a specialist never supplies
+ * `confidence`/`specialist`/`phase` — those are harness-stamped after parse.
  *
  * Returns `null` on ANY validation failure — a non-object submission, a missing or
- * non-array `findings`, or any element that fails `Value.Check(Finding, …)`. Callers
+ * non-array `findings`, or any element that fails `Value.Check(schema, …)`. Callers
  * treat a `null` as "invalid submission contributes no findings" (typically via
  * `parseFindings(submission) ?? []`) so a malformed payload is silently skipped
  * rather than aborting the roll-up.
  */
-export function parseFindings(submission: unknown): Finding[] | null {
+export function parseFindings(submission: unknown, schema: TSchema = Finding): unknown[] | null {
   if (
     typeof submission !== "object" ||
     submission === null ||
@@ -169,10 +176,10 @@ export function parseFindings(submission: unknown): Finding[] | null {
     return null;
   }
   const raw = (submission as Record<string, unknown>).findings as unknown[];
-  const result: Finding[] = [];
+  const result: unknown[] = [];
   for (const item of raw) {
-    if (!Value.Check(Finding, item)) return null;
-    result.push(item as Finding);
+    if (!Value.Check(schema, item)) return null;
+    result.push(item);
   }
   return result;
 }

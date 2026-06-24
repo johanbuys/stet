@@ -30,9 +30,13 @@
 import { Value } from "@sinclair/typebox/value";
 import { describe, expect, it } from "vite-plus/test";
 import { FakeAgentRunner } from "../agent/fake-runner.js";
+import type { OkScript } from "../agent/fake-runner.js";
 import { BudgetError, ModelError, NoSubmitError } from "../errors.js";
 import { deriveExit } from "../exit-codes.js";
-import type { Finding } from "../schema/finding.js";
+import type {
+  Finding,
+  SpecialistSubmission as SpecialistSubmissionType,
+} from "../schema/finding.js";
 import { PhaseReport } from "../schema/report.js";
 import { makeCompositePhase } from "./composite.js";
 import type { CoordinatorConfig } from "./coordinator.js";
@@ -50,7 +54,20 @@ function ctx() {
   };
 }
 
-function fakeFinding(overrides: Partial<Finding> = {}): Finding {
+// A specialist submission (SpecialistSubmission shape — no phase/specialist/confidence;
+// the composite roll-up stamps those and validates against SpecialistSubmission).
+function fakeFinding(overrides: Partial<SpecialistSubmissionType> = {}): SpecialistSubmissionType {
+  return {
+    id: "coordinator-test.default",
+    severity: "warning",
+    message: "default test finding",
+    ...overrides,
+  };
+}
+
+// A full Finding the COORDINATOR runner re-emits (validated against the default full-Finding
+// schema — the coordinator ingests already-stamped findings).
+function fakeCoordFinding(overrides: Partial<Finding> = {}): Finding {
   return {
     id: "coordinator-test.default",
     phase: "coordinator-test-phase",
@@ -61,7 +78,7 @@ function fakeFinding(overrides: Partial<Finding> = {}): Finding {
   };
 }
 
-function okRunner(findings: Finding[], model = "fake/model") {
+function okRunner(findings: unknown[], model = "fake/model") {
   return new FakeAgentRunner({
     kind: "ok",
     submission: { findings },
@@ -69,25 +86,52 @@ function okRunner(findings: Finding[], model = "fake/model") {
   });
 }
 
+// --- Agreement-verify scaffolding (REVIEW_VERIFY_CONFIG shape: 3 voters, high=3, medium=2). ---
+// Confidence is verify-derived, never self-reported (PRD R5): a protected finding only earns
+// gating-eligible "high" by passing a real verify pass (3/3 upholds). These tests therefore route
+// the protected finding through `runners["verify"]` so the coordinator's downgrade is reconciled
+// against a genuinely high-confidence candidate.
+const TEST_VERIFY_CONFIG: VerifyConfig = {
+  voters: 3,
+  lenses: ["lens-a", "lens-b", "lens-c"],
+  agreementForHigh: 3,
+  agreementForMedium: 2,
+  budgets: { wallClockMs: 60_000, turns: 30, bashTimeoutMs: 10_000, bashOutputCap: 4096 },
+};
+
+const UPHOLD_SCRIPT: OkScript = {
+  kind: "ok",
+  submission: { verdict: "uphold", reason: "reproduced" },
+  cost: { durationMs: 0 },
+};
+
+/** A verify runner whose queue yields `count` uphold verdicts, one per voter call (in order). */
+function upholdVerifyRunner(count: number) {
+  return new FakeAgentRunner(Array.from({ length: count }, () => UPHOLD_SCRIPT));
+}
+
 /** Two-specialist composite with a coordinator, used across multiple tests. */
 function makePhaseWithCoordinator(
   coordRunner: FakeAgentRunner,
-  opts: { alphaFindings?: Finding[]; betaFindings?: Finding[] } = {},
+  opts: {
+    alphaFindings?: SpecialistSubmissionType[];
+    betaFindings?: SpecialistSubmissionType[];
+  } = {},
 ) {
+  // Specialist submissions carry no `specialist` field — the harness stamps it from the
+  // runner key ("alpha"/"beta"). Provenance is asserted on the harness output, not the input.
   const alphaFindings = opts.alphaFindings ?? [
-    fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+    fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug" }),
   ];
   const betaFindings = opts.betaFindings ?? [
     fakeFinding({
       id: "ct.beta.duplicate",
       message: "beta: same bug (duplicate)",
-      specialist: "beta",
     }),
     fakeFinding({
       id: "ct.beta.nitpick",
       severity: "info",
       message: "beta: minor style nitpick",
-      specialist: "beta",
     }),
   ];
 
@@ -137,7 +181,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
     // Raw roll-up: [alpha.bug, beta.duplicate, beta.nitpick]
     // Coordinator keeps only alpha.bug (merged the duplicate, dropped the nitpick).
     const coordOutput = [
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -149,7 +193,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
 
   it("survivors keep their originating specialist", async () => {
     const coordOutput = [
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -161,7 +205,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
     const coordOutput = [
       // Judge echoes a fabricated specialist not among the configured specialists —
       // harness re-derives it from the originating finding (ct.alpha.bug → alpha).
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "ghost" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "ghost" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -176,12 +220,12 @@ describe("coordinator — happy path (roll-up replaced)", () => {
     // both to "beta").
     const shared = "ct.shared.id";
     const coordOutput = [
-      fakeFinding({ id: shared, message: "alpha's view", specialist: "alpha" }),
-      fakeFinding({ id: shared, message: "beta's view", specialist: "beta" }),
+      fakeCoordFinding({ id: shared, message: "alpha's view", specialist: "alpha" }),
+      fakeCoordFinding({ id: shared, message: "beta's view", specialist: "beta" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"), {
-      alphaFindings: [fakeFinding({ id: shared, message: "alpha's view", specialist: "alpha" })],
-      betaFindings: [fakeFinding({ id: shared, message: "beta's view", specialist: "beta" })],
+      alphaFindings: [fakeFinding({ id: shared, message: "alpha's view" })],
+      betaFindings: [fakeFinding({ id: shared, message: "beta's view" })],
     });
     const report = await phase.run(ctx());
 
@@ -196,13 +240,13 @@ describe("coordinator — happy path (roll-up replaced)", () => {
     // NOT ambiguous — every copy belongs to alpha, so survivors must keep specialist "alpha".
     const dup = "ct.alpha.dup";
     const coordOutput = [
-      fakeFinding({ id: dup, message: "match A", specialist: "alpha" }),
-      fakeFinding({ id: dup, message: "match B", specialist: "alpha" }),
+      fakeCoordFinding({ id: dup, message: "match A", specialist: "alpha" }),
+      fakeCoordFinding({ id: dup, message: "match B", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"), {
       alphaFindings: [
-        fakeFinding({ id: dup, message: "match A", specialist: "alpha" }),
-        fakeFinding({ id: dup, message: "match B", specialist: "alpha" }),
+        fakeFinding({ id: dup, message: "match A" }),
+        fakeFinding({ id: dup, message: "match B" }),
       ],
       betaFindings: [],
     });
@@ -217,7 +261,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
   it("harness controls phase field on coordinator findings", async () => {
     const coordOutput = [
       // Coordinator submits with wrong phase — harness overrides it.
-      fakeFinding({ id: "ct.alpha.bug", phase: "wrong-phase", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", phase: "wrong-phase", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -227,7 +271,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
 
   it("cost.coordinator is populated with model and durationMs", async () => {
     const coordOutput = [
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -241,7 +285,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
   it("audit.coordinator.received equals the raw roll-up count", async () => {
     // Raw roll-up has 3 findings (1 alpha + 2 beta).
     const coordOutput = [
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -252,7 +296,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
 
   it("audit.coordinator.dropped records the two dropped findings", async () => {
     const coordOutput = [
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -266,7 +310,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
 
   it("dropped entries carry the specialist from the raw roll-up finding", async () => {
     const coordOutput = [
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -295,7 +339,7 @@ describe("coordinator — happy path (roll-up replaced)", () => {
 
   it("audit.coordinator.reinstated is empty (T28 populates this)", async () => {
     const coordOutput = [
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -511,7 +555,7 @@ describe("coordinator — no coordinator configured (plain roll-up)", () => {
 describe("coordinator — schema compliance", () => {
   it("coordinator success report validates against TypeBox PhaseReport schema", async () => {
     const coordOutput = [
-      fakeFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
+      fakeCoordFinding({ id: "ct.alpha.bug", message: "alpha: real bug", specialist: "alpha" }),
     ];
     const phase = makePhaseWithCoordinator(okRunner(coordOutput, "fake/coordinator"));
     const report = await phase.run(ctx());
@@ -569,24 +613,28 @@ describe("coordinator — constrained authority (T28, PRD #30)", () => {
   /** Build a 2-specialist phase with one protected finding (evidence.command) from alpha. */
   function makePhaseWithProtectedFinding(
     coordRunner: FakeAgentRunner,
-    opts: { protectedSeverity?: Finding["severity"]; coordKeepsWith?: Partial<Finding> } = {},
+    opts: {
+      protectedSeverity?: Finding["severity"];
+      coordKeepsWith?: Partial<Finding>;
+      /**
+       * Optional verify runner. When provided, the composite runs agreement-verify
+       * (TEST_VERIFY_CONFIG) over the roll-up before the coordinator, so confidence is
+       * verify-derived rather than self-reported (PRD R5). The queue must script every
+       * voter call in roll-up order: alpha (3 voters), then beta (3 voters).
+       */
+      verifyRunner?: FakeAgentRunner;
+    } = {},
   ) {
-    const protectedFinding: Finding = {
+    const protectedFinding: SpecialistSubmissionType = {
       id: "ct.alpha.deterministic",
-      phase: "coordinator-test-phase",
       severity: opts.protectedSeverity ?? "error",
-      confidence: "high",
       message: "test failure: command exited 1",
-      specialist: "alpha",
       evidence: { command: "npm test", output: "FAIL: 2 tests failed" },
     };
-    const aiJudgmentFinding: Finding = {
+    const aiJudgmentFinding: SpecialistSubmissionType = {
       id: "ct.beta.style",
-      phase: "coordinator-test-phase",
       severity: "warning",
-      confidence: "high",
       message: "beta: style suggestion",
-      specialist: "beta",
     };
 
     const coordConfig: CoordinatorConfig = {
@@ -600,9 +648,11 @@ describe("coordinator — constrained authority (T28, PRD #30)", () => {
           alpha: okRunner([protectedFinding], "fake/alpha"),
           beta: okRunner([aiJudgmentFinding], "fake/beta"),
           coordinator: coordRunner,
+          ...(opts.verifyRunner ? { verify: opts.verifyRunner } : {}),
         },
         {
           id: "coordinator-test-phase",
+          ...(opts.verifyRunner ? { verify: TEST_VERIFY_CONFIG } : {}),
           specialists: [
             {
               name: "alpha",
@@ -732,9 +782,13 @@ describe("coordinator — constrained authority (T28, PRD #30)", () => {
     expect(reinstated.map((r) => r.id)).toContain(protectedFinding.id);
   });
 
-  it("coordinator-lowered-confidence evidence-backed finding is reinstated at original confidence", async () => {
+  // Confidence is verify-derived (PRD R5): the protected finding earns "high" only by passing a
+  // real agreement-verify pass (3/3 upholds), so this test routes it through a scripted verify
+  // runner. The coordinator then lowers confidence high → low; the harness re-stamps the verify-
+  // derived "high" back over the coordinator's value, so the surviving finding keeps "high".
+  it("coordinator-lowered-confidence evidence-backed finding keeps verify-derived confidence", async () => {
     // Coordinator keeps severity but lowers confidence high → low. Confidence is
-    // protected too (PRD §4.6 / #30): the harness must reinstate the original.
+    // harness-owned (PRD §4.6 / #30 / TDD A·4): the coordinator cannot lower it.
     const downgraded: Finding = {
       id: "ct.alpha.deterministic",
       phase: "coordinator-test-phase",
@@ -744,17 +798,19 @@ describe("coordinator — constrained authority (T28, PRD #30)", () => {
     };
     const { phase, protectedFinding } = makePhaseWithProtectedFinding(
       okRunner([downgraded], "fake/coordinator"),
-      { protectedSeverity: "error" },
+      // verify roll-up order: alpha (3 upholds → high), beta (3 upholds → high).
+      { protectedSeverity: "error", verifyRunner: upholdVerifyRunner(6) },
     );
     const report = await phase.run(ctx());
 
     const inFindings = report.findings.find((f) => f.id === protectedFinding.id);
     expect(inFindings).toBeDefined();
-    expect(inFindings!.confidence).toBe("high"); // original confidence, not coordinator's "low"
+    expect(inFindings!.confidence).toBe("high"); // verify-derived confidence, not coordinator's "low"
     expect(inFindings!.severity).toBe("error");
 
-    const reinstated = report.audit.coordinator!.reinstated;
-    expect(reinstated.map((r) => r.id)).toContain(protectedFinding.id);
+    // And it gates at failOn=error (severity error + confidence high).
+    const { gating } = deriveExit([report], "error");
+    expect(gating.map((g) => g.id)).toContain(protectedFinding.id);
   });
 
   it("non-protected finding is not reinstated when coordinator drops it", async () => {
@@ -804,13 +860,10 @@ describe("coordinator — constrained authority (T28, PRD #30)", () => {
 describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
   it("coordinator-downgraded AI-judgment finding (error→warning) stops gating at failOn=error", async () => {
     // Specialist emits an AI-judgment error finding (no evidence.command).
-    const errorFinding: Finding = {
+    const errorFinding: SpecialistSubmissionType = {
       id: "ct.alpha.ai-judgment",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "high",
       message: "potential bug: off-by-one",
-      specialist: "alpha",
     };
     // Coordinator downgrades it to warning — downgrade is accepted (no evidence.command).
     const downgraded: Finding = {
@@ -861,13 +914,10 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
   });
 
   it("coordinator-downgraded AI-judgment finding gates when failOn=warning", async () => {
-    const errorFinding: Finding = {
+    const errorFinding: SpecialistSubmissionType = {
       id: "ct.alpha.ai-judgment",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "high",
       message: "potential bug",
-      specialist: "alpha",
     };
     const downgraded: Finding = {
       id: "ct.alpha.ai-judgment",
@@ -911,15 +961,15 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
     expect(gatingIds).toContain("ct.alpha.ai-judgment");
   });
 
+  // Confidence is verify-derived (PRD R5): a single scripted verify pass (3/3 upholds) earns the
+  // protected finding gating-eligible "high". The coordinator then downgrades its severity; the
+  // harness reinstates the original error severity, and the finding gates at failOn=error.
   it("protected finding (evidence.command) keeps original error severity and gates at failOn=error", async () => {
     // Protected finding: error severity with evidence.command.
-    const protectedFinding: Finding = {
+    const protectedFinding: SpecialistSubmissionType = {
       id: "ct.alpha.deterministic",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "high",
       message: "test failed",
-      specialist: "alpha",
       evidence: { command: "npm test", output: "FAIL" },
     };
     // Coordinator tries to downgrade it — harness reinstates original.
@@ -934,10 +984,13 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
     const phase = makeCompositePhase(
       {
         alpha: okRunner([protectedFinding], "fake/alpha"),
+        // One candidate in the roll-up → 3 voter calls (3 upholds → high).
+        verify: upholdVerifyRunner(3),
         coordinator: okRunner([downgraded], "fake/coordinator"),
       },
       {
         id: "coordinator-test-phase",
+        verify: TEST_VERIFY_CONFIG,
         specialists: [
           {
             name: "alpha",
@@ -969,17 +1022,18 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
     expect(gatingIds).toContain("ct.alpha.deterministic");
   });
 
-  it("protected finding keeps original high confidence and still gates when coordinator lowers confidence", async () => {
+  // Confidence is verify-derived (PRD R5): a single scripted verify pass (3/3 upholds) earns the
+  // protected finding gating-eligible "high". The coordinator then lowers confidence high → low;
+  // the harness re-stamps the verify-derived "high" back over it, so the finding keeps "high" and
+  // still gates at failOn=error.
+  it("protected finding keeps verify-derived high confidence and still gates when coordinator lowers confidence", async () => {
     // Protected finding: error/high with evidence.command. Gating requires
     // confidence === "high" AND severity >= failOn — a confidence downgrade would
-    // otherwise neutralize it (PRD §4.6 / #30).
-    const protectedFinding: Finding = {
+    // otherwise neutralize it (PRD §4.6 / #30 / TDD A·4).
+    const protectedFinding: SpecialistSubmissionType = {
       id: "ct.alpha.deterministic",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "high",
       message: "test failed",
-      specialist: "alpha",
       evidence: { command: "npm test", output: "FAIL" },
     };
     // Coordinator keeps severity error but lowers confidence high → low.
@@ -994,10 +1048,13 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
     const phase = makeCompositePhase(
       {
         alpha: okRunner([protectedFinding], "fake/alpha"),
+        // One candidate in the roll-up → 3 voter calls (3 upholds → high).
+        verify: upholdVerifyRunner(3),
         coordinator: okRunner([downgraded], "fake/coordinator"),
       },
       {
         id: "coordinator-test-phase",
+        verify: TEST_VERIFY_CONFIG,
         specialists: [
           {
             name: "alpha",
@@ -1019,7 +1076,7 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
 
     const report = await phase.run(ctx());
 
-    // Harness reinstated the original high confidence.
+    // Harness re-stamped the verify-derived high confidence over the coordinator's "low".
     const finding = report.findings.find((f) => f.id === "ct.alpha.deterministic");
     expect(finding!.confidence).toBe("high");
 
@@ -1043,7 +1100,7 @@ describe("coordinator — gating interaction (T28, PRD §4.6/§4.8)", () => {
 
 describe("coordinator — duplicate finding ids (reconcile by multiplicity)", () => {
   /** Single-specialist composite whose specialist emits the given findings, plus a coordinator. */
-  function makePhase(alphaFindings: Finding[], coordRunner: FakeAgentRunner) {
+  function makePhase(alphaFindings: SpecialistSubmissionType[], coordRunner: FakeAgentRunner) {
     return makeCompositePhase(
       {
         alpha: okRunner(alphaFindings, "fake/alpha"),
@@ -1072,16 +1129,13 @@ describe("coordinator — duplicate finding ids (reconcile by multiplicity)", ()
   }
 
   it("reinstates EVERY protected copy when N>1 share an id and the judge drops them all", async () => {
-    const protectedA: Finding = {
+    const protectedA: SpecialistSubmissionType = {
       id: "ct.alpha.fixme",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "high",
       message: "FIXME at line 10",
-      specialist: "alpha",
       evidence: { command: "npm test", output: "x" },
     };
-    const protectedB: Finding = { ...protectedA, message: "FIXME at line 20" };
+    const protectedB: SpecialistSubmissionType = { ...protectedA, message: "FIXME at line 20" };
 
     // Coordinator drops both protected findings (returns nothing).
     const phase = makePhase([protectedA, protectedB], okRunner([], "fake/coordinator"));
@@ -1101,15 +1155,12 @@ describe("coordinator — duplicate finding ids (reconcile by multiplicity)", ()
   });
 
   it("counts each dropped duplicate when the judge keeps one of N findings sharing an id", async () => {
-    const dupA: Finding = {
+    const dupA: SpecialistSubmissionType = {
       id: "ct.alpha.dup",
-      phase: "coordinator-test-phase",
       severity: "warning",
-      confidence: "high",
       message: "dup at line 10",
-      specialist: "alpha",
     };
-    const dupB: Finding = { ...dupA, message: "dup at line 20" };
+    const dupB: SpecialistSubmissionType = { ...dupA, message: "dup at line 20" };
 
     // Coordinator keeps a single finding with that id (merges the rest).
     const kept: Finding = {
@@ -1129,16 +1180,13 @@ describe("coordinator — duplicate finding ids (reconcile by multiplicity)", ()
   });
 
   it("reinstates the dropped protected copy even when one copy survives at full severity", async () => {
-    const protectedA: Finding = {
+    const protectedA: SpecialistSubmissionType = {
       id: "ct.alpha.fixme",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "high",
       message: "FIXME at line 10",
-      specialist: "alpha",
       evidence: { command: "npm test", output: "x" },
     };
-    const protectedB: Finding = { ...protectedA, message: "FIXME at line 20" };
+    const protectedB: SpecialistSubmissionType = { ...protectedA, message: "FIXME at line 20" };
 
     // Coordinator keeps only ONE of the two protected copies.
     const survivor: Finding = {
@@ -1159,15 +1207,12 @@ describe("coordinator — duplicate finding ids (reconcile by multiplicity)", ()
   });
 
   it("report with reconciled duplicates validates against the PhaseReport schema", async () => {
-    const a: Finding = {
+    const a: SpecialistSubmissionType = {
       id: "ct.alpha.dup",
-      phase: "coordinator-test-phase",
       severity: "warning",
-      confidence: "high",
       message: "dup at line 10",
-      specialist: "alpha",
     };
-    const b: Finding = { ...a, message: "dup at line 20" };
+    const b: SpecialistSubmissionType = { ...a, message: "dup at line 20" };
     const phase = makePhase([a, b], okRunner([], "fake/coordinator"));
     const report = await phase.run(ctx());
     expect(Value.Check(PhaseReport, report)).toBe(true);
@@ -1205,7 +1250,10 @@ function upholdVoter() {
  * The specialist emits `alphaFindings`; the verify voter always upholds;
  * the coordinator runner is scripted by the caller.
  */
-function makeVerifiedPhase(alphaFindings: Finding[], coordRunner: FakeAgentRunner) {
+function makeVerifiedPhase(
+  alphaFindings: SpecialistSubmissionType[],
+  coordRunner: FakeAgentRunner,
+) {
   return makeCompositePhase(
     {
       alpha: okRunner(alphaFindings, "fake/alpha"),
@@ -1238,13 +1286,10 @@ function makeVerifiedPhase(alphaFindings: Finding[], coordRunner: FakeAgentRunne
 describe("coordinator — verify-stamped confidence 'high' (T11, TDD A·4)", () => {
   it("high+no-evidence dropped by coordinator → reinstated (matrix row 1)", async () => {
     // Verify stamps "high". Coordinator drops the finding (returns empty).
-    const finding: Finding = {
+    const finding: SpecialistSubmissionType = {
       id: "ct.alpha.high-no-evidence",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "medium", // specialist-supplied; verify will re-stamp to "high"
       message: "off-by-one",
-      specialist: "alpha",
     };
 
     const phase = makeVerifiedPhase([finding], okRunner([], "fake/coordinator"));
@@ -1264,13 +1309,10 @@ describe("coordinator — verify-stamped confidence 'high' (T11, TDD A·4)", () 
 
   it("high downgraded by coordinator → reinstated-in-place (matrix row 2)", async () => {
     // Verify stamps "high". Coordinator keeps the id but downgrades severity error→warning.
-    const finding: Finding = {
+    const finding: SpecialistSubmissionType = {
       id: "ct.alpha.high-downgraded",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "medium",
       message: "real bug",
-      specialist: "alpha",
     };
     const downgraded: Finding = {
       id: "ct.alpha.high-downgraded",
@@ -1296,13 +1338,10 @@ describe("coordinator — verify-stamped confidence 'high' (T11, TDD A·4)", () 
   it("high+evidence dropped → ONE reinstatement not two (matrix row 3)", async () => {
     // Both predicates true (evidence.command AND verify-stamped high).
     // Must not produce a double reinstatement.
-    const finding: Finding = {
+    const finding: SpecialistSubmissionType = {
       id: "ct.alpha.high-evidence",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "medium",
       message: "test failed",
-      specialist: "alpha",
       evidence: { command: "npm test", output: "FAIL" },
     };
 
@@ -1317,13 +1356,10 @@ describe("coordinator — verify-stamped confidence 'high' (T11, TDD A·4)", () 
   });
 
   it("report validates against PhaseReport schema after verify-stamped reinstatement", async () => {
-    const finding: Finding = {
+    const finding: SpecialistSubmissionType = {
       id: "ct.alpha.reinstated",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "medium",
       message: "real bug",
-      specialist: "alpha",
     };
 
     const phase = makeVerifiedPhase([finding], okRunner([], "fake/coordinator"));
@@ -1335,13 +1371,10 @@ describe("coordinator — verify-stamped confidence 'high' (T11, TDD A·4)", () 
   it("model-supplied high (no verify) is NOT protected — existing AI-judgment downgrade still accepted", async () => {
     // This is the regression guard: without verify configured, a high-confidence
     // AI-judgment finding can still be downgraded by the coordinator.
-    const aiJudgment: Finding = {
+    const aiJudgment: SpecialistSubmissionType = {
       id: "ct.alpha.ai-judgment",
-      phase: "coordinator-test-phase",
       severity: "error",
-      confidence: "high", // model-supplied, NOT via verify
       message: "potential bug",
-      specialist: "alpha",
     };
     const downgraded: Finding = {
       id: "ct.alpha.ai-judgment",

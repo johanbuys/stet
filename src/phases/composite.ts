@@ -15,7 +15,13 @@ import { runWithWallClock } from "../agent/budgets.js";
 import type { AgentError } from "../errors.js";
 import type { AgentRunSuccess, AgentRunner, AgentRunInputs } from "../agent/runner.js";
 import type { Cost, PhaseReport, VerifyAudit } from "../schema/report.js";
-import { type Finding, type Severity, parseFindings, severityAtLeast } from "../schema/finding.js";
+import {
+  type Finding,
+  type Severity,
+  parseFindings,
+  severityAtLeast,
+  SpecialistSubmission,
+} from "../schema/finding.js";
 import type { Result } from "better-result";
 import type { ActivationContext, PhaseContext, PhaseConfiguration } from "./types.js";
 import type { CoordinatorConfig } from "./coordinator.js";
@@ -334,10 +340,16 @@ export function makeCompositePhase(
 
         if (runResult.isOk()) {
           const { submission, cost } = runResult.value;
-          const findings = parseFindings(submission) ?? [];
-          for (const f of findings) {
-            // Overwrite phase + set specialist: provenance is harness-controlled, not model-controlled.
-            allFindings.push({ ...f, phase: cfg.id, specialist: name });
+          // Specialists submit SpecialistSubmission shape (no confidence/specialist/phase) —
+          // those three are harness-stamped here, not model-controlled (TDD B·1/B·3).
+          // Validate against SpecialistSubmission, NOT full Finding: a no-confidence
+          // submission must parse, then be stamped into a valid Finding below.
+          const submitted = (parseFindings(submission, SpecialistSubmission) ??
+            []) as SpecialistSubmission[];
+          for (const f of submitted) {
+            // Provenance is harness-controlled: phase + specialist stamped from config,
+            // confidence stamped provisionally as "low" (agreement-verify upgrades it later).
+            allFindings.push({ ...f, phase: cfg.id, specialist: name, confidence: "low" });
           }
           specialistsCost[name] = { ...cost, durationMs };
         } else {
@@ -352,10 +364,17 @@ export function makeCompositePhase(
       // roll-up with confidence: low + emit a verify-degraded warning (TDD A·3).
       let candidateFindings: Finding[] = allFindings;
       let verifyAudit: VerifyAudit | undefined;
+      // When verify is configured but degrades (no runner / run error), the conservative
+      // roll-up (all findings forced to "low" + a verify-degraded warning) is final: the
+      // coordinator is SKIPPED. Otherwise a configured coordinator could raise those findings
+      // back to "high" (re-gating the build) and drop the warning, so a broken-verify run
+      // would masquerade as a clean, gating one.
+      let verifyDegraded = false;
 
       if (cfg.verify) {
         const verifyRunner = runners["verify"];
         if (!verifyRunner) {
+          verifyDegraded = true;
           candidateFindings = [
             ...allFindings.map((f) => ({ ...f, confidence: "low" as const })),
             verifyDegradedWarning(
@@ -373,6 +392,7 @@ export function makeCompositePhase(
             candidateFindings = verifyResult.value.verified;
             verifyAudit = verifyResult.value.audit;
           } else {
+            verifyDegraded = true;
             candidateFindings = [
               ...allFindings.map((f) => ({ ...f, confidence: "low" as const })),
               verifyDegradedWarning(
@@ -401,7 +421,10 @@ export function makeCompositePhase(
 
       // Coordinator judge pass (PRD §3.3a) — runs after roll-up when configured and not
       // suppressed by the risk level (e.g. riskLevels["trivial"].coordinator === false).
-      if (cfg.coordinator && !skipCoordinatorForLevel) {
+      // Also skipped when verify degraded: the conservative all-low roll-up + verify-degraded
+      // warning is final, so the coordinator cannot re-raise confidence or drop the warning
+      // (falls through to the no-coordinator return below with verifyAudit still undefined).
+      if (cfg.coordinator && !skipCoordinatorForLevel && !verifyDegraded) {
         const coordinatorRunner = runners["coordinator"];
         if (!coordinatorRunner) {
           const warnFinding = coordinatorWarning(

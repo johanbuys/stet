@@ -18,7 +18,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import { Value } from "@sinclair/typebox/value";
 import { FakeAgentRunner } from "../../agent/fake-runner.js";
-import type { Finding } from "../../schema/finding.js";
+import type { SpecialistSubmission as SpecialistSubmissionType } from "../../schema/finding.js";
 import { SpecialistSubmission } from "../../schema/finding.js";
 import { SUBMIT_TOOL_NAME } from "../../agent/submit-tool.js";
 import { PhaseReport } from "../../schema/report.js";
@@ -37,19 +37,20 @@ function ctx(files: string[] = ["src/a.ts"]) {
   };
 }
 
-function fakeFinding(overrides: Partial<Finding> = {}): Finding {
+// Specialists submit SpecialistSubmission shape: no phase/specialist/confidence —
+// those three are harness-stamped by the composite roll-up. Matching that shape here
+// is what lets the fake submission survive ingestion (it is validated against
+// SpecialistSubmission, not full Finding).
+function fakeFinding(overrides: Partial<SpecialistSubmissionType> = {}): SpecialistSubmissionType {
   return {
     id: "review.bug",
-    phase: "review",
-    specialist: "bugs",
     severity: "error",
-    confidence: "high",
     message: "Missing null check before deref",
     ...overrides,
   };
 }
 
-function bugsRunner(findings: Finding[]) {
+function bugsRunner(findings: SpecialistSubmissionType[]) {
   return new FakeAgentRunner({
     kind: "ok",
     submission: { findings },
@@ -187,7 +188,7 @@ describe("makeReviewPhase — activation (R1)", () => {
 
 describe("makeReviewPhase — full run with fakes", () => {
   it("completes and includes bugs specialist findings when all voters uphold", async () => {
-    const finding = fakeFinding({ id: "review.bug", confidence: "high" });
+    const finding = fakeFinding({ id: "review.bug" });
     const phase = makeReviewPhase(
       {
         bugs: bugsRunner([finding]),
