@@ -35,6 +35,12 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   Authority is constrained: it cannot drop or downgrade deterministic / evidence-backed findings
   (#30); its drops are recorded in `audit.coordinator.dropped` (#31); if its run fails the phase
   falls back to the raw roll-up + a `coordinator-failed` warning (#29).
+- **protected class** — the set of findings the **coordinator** may not silently drop or
+  downgrade: those with deterministic `evidence.command`, **or** verify-stamped `confidence: high`
+  (3/3 agreement). A protected finding the judge drops is reinstated and recorded in
+  `audit.coordinator.reinstated`. Reconciled by **multiplicity** (a per-id pool), not id alone, so
+  N copies of one rule id are each accounted for. ⚠ only _verify_-stamped high is protected, never
+  model-supplied high. → code-review TDD A·4; harness #30
   ⚠ not a specialist (it runs after them and sees all their output); ⚠ never invents a phase.
   → harness PRD §3.3a; decisions #25, #29–#31; `research/cloudflare-ai-review-reference.md`
 - **agreement-verify** — a harness stage on composite phases that runs _between_ the specialist
@@ -87,6 +93,11 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   → harness PRD §4.6
 - **priority** — Phase 5's finer `critical|high|medium|low` granularity, preserved in
   `meta.priority`. Informational; never gates. ⚠ not severity. → harness PRD §4.2
+- **selfConfidence** — a specialist's _own_ rating of a finding it submits, carried in
+  `meta.selfConfidence` (`high|medium|low`). Explicitly labeled, **never shown to voters**
+  (preserves agreement-verify independence), used for **nothing operationally** in v1 — recorded
+  only so the eval can later test whether it predicts agreement. ⚠ not **confidence** (the
+  harness-owned operative value from agreement-verify). → code-review TDD B·1
 - **SpecialistSubmission** — the model-facing submit schema for a review specialist: `Finding`
   minus the three **harness-stamped** fields (`confidence`, `specialist`, `phase`), derived via
   `Type.Omit`. The model proposes; the harness stamps the rest. ⚠ not `Finding` — a model that
