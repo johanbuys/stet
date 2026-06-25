@@ -16,6 +16,25 @@ copy-paste canonical — reuse it rather than reinventing per page.
 The `doc` field names the page (its stem); it keys the feedback files, the wake marker, and the
 localStorage autosave, so several pages can share one server.
 
+## Server lifecycle — don't leak a port
+
+The server is started detached (`… &`), so nothing ties its life to your session. Three habits keep
+it from sticking around:
+
+- **Reap before you start.** Free the target port first so stale servers don't pile up across
+  sessions: `pkill -f "canvas_server.py.*--port <port>"` (or `lsof -ti :<port> | xargs -r kill`).
+- **Idle self-shutdown (automatic).** The server exits itself after `--idle-timeout` seconds with
+  no request (default **900 = 15 min**). The page polls `version.json` every ~3s, so an open tab
+  keeps it alive; once the tab/session is gone, the clock runs out and the process stops on its own.
+  This is the safety net for "user just closed the session" — pass `0` to disable in the rare case
+  you want a long-lived server.
+- **Kill explicitly when done.** `pkill -f canvas_server.py`, or by port. The idle-timeout is the
+  fallback, not a substitute.
+
+For guaranteed cleanup on normal session exits, a harness **SessionEnd hook** can run the `pkill`
+above — belt-and-suspenders on top of the idle-timeout, but it's per-machine `settings.json` config
+and won't fire on a hard close/crash, which is exactly why the idle-timeout exists.
+
 ## Comment capture block
 
 Give every commentable element `data-review-id="<stable-meaningful-id>"`. Include once before

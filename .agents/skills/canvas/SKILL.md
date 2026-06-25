@@ -31,10 +31,14 @@ One server script, one workspace dir, two JS blocks. Copy-paste canonical patter
    `assets/brainstorm-template.html` and each round you write only `state.json`** — never
    regenerate the markup per round (token waste, measured ~80%); see
    `references/canvas-pages.md` → The brainstorm template.
-2. **Serve**: `python3 <skill-dir>/scripts/canvas_server.py --dir <workspace> --port 3119 &`
-   (check the port is free first; any port works). It serves the dir on `0.0.0.0` and accepts
-   `POST /feedback`, writing `feedback/<doc>-feedback.json` + a timestamped archive + a wake
-   marker `feedback/<doc>.new`.
+2. **Serve**: first free the port — reap any stale server on it
+   (`pkill -f "canvas_server.py.*--port 3119"`, or `lsof -ti :3119 | xargs -r kill`) — then
+   `python3 <skill-dir>/scripts/canvas_server.py --dir <workspace> --port 3119 &` (any port
+   works). It serves the dir on `0.0.0.0` and accepts `POST /feedback`, writing
+   `feedback/<doc>-feedback.json` + a timestamped archive + a wake marker `feedback/<doc>.new`.
+   It **self-exits after 15 min idle** so a detached server can't outlive its session — an open
+   page polls every ~3s and keeps it alive, so the timeout only fires once nothing is holding the
+   page open (`--idle-timeout <secs>`, `0` disables).
 3. **Tell the user the URL** — a reachable one: prefer `tailscale ip -4` if present, else
    `hostname -I`; `localhost` only when they're on the same machine. Include the filename.
 4. **Listen**: start a background watch —
@@ -42,8 +46,10 @@ One server script, one workspace dir, two JS blocks. Copy-paste canonical patter
    you. No polling, no "tell me when you're done."
 5. **On wake**: delete the marker, read the latest feedback, act on it, regenerate the page,
    bump `version.json` — the user's browser reloads within seconds. Restart the watch.
-6. **Done**: kill the server, fold anything durable into committed artifacts, leave the
-   feedback archives in place (they're the round-by-round record until the dir is cleaned).
+6. **Done**: kill the server (`pkill -f canvas_server.py`, or by port), fold anything durable
+   into committed artifacts, leave the feedback archives in place (they're the round-by-round
+   record until the dir is cleaned). If you forget — or the session closes before you get here —
+   the idle-timeout reaps it within 15 min, so a forgotten server is self-correcting, not a leak.
 
 If backgrounding isn't available in the environment, degrade gracefully: same page, same
 server, and the user says "done" when they've submitted. If no server can run at all, fall back
