@@ -1,6 +1,6 @@
 # code-review — TDD (technical design)
 
-**Status:** settled — 2026-06-22 (Area A live-walked on canvas; B–G drafted then accepted in one review round, "lgtm")
+**Status:** settled — 2026-06-22 (Area A live-walked on canvas; B–G drafted then accepted in one review round, "lgtm"); **living — comprehend sync M1–M4 2026-06-24** (A·3a added; A·3/B·2/§Stack as-built notes; see `code-review-drift.md`)
 **Depends on:** `code-review-prd.md` (settled) · `features/harness/harness-prd.md` (composite phase, coordinator, classifier, agent runner, Finding schema) · `features/harness/harness-plan.md` (built: M1–M9 + M7.5)
 **Draws on:** the built harness in `src/` (`phases/composite.ts`, `phases/coordinator.ts`, `risk/classify.ts`, `schema/finding.ts`, `agent/*`)
 **Companion:** `code-review-tdd-overview.html`
@@ -133,6 +133,19 @@ gating-grade signal:
 - **Out of scope:** *no model credentials at all* → the phase errors **before** specialists run
   (PRD acceptance #8, "never a false clean"); a phase-level concern, not verify's.
 
+> **A·3a — Total verify failure short-circuits the coordinator** *(added 2026-06-24, comprehend
+> sync M1–M4; drift D3).* On degrade the conservative all-`low` roll-up + `verify-degraded` warning
+> is **final**: a configured coordinator is **skipped**. Rationale: an enabled coordinator could
+> re-raise the `low` findings back to `high` and drop the warning, re-gating a broken-verify run —
+> which would defeat the "broken verify never manufactures a gating signal" guarantee A·3 is built
+> on. (`composite.ts:367–372, 427`.)
+>
+> **A·3 retry refinement** *(as-built, comprehend D1):* voter errors split transient vs
+> non-transient — `BudgetError`/`CancelledError`/already-aborted → abstain **immediately** (no
+> retry: a spent wall-clock window or a cancelled parent will only fail again); other transient
+> `AgentError` → retry once → abstain. An `Ok` whose submission fails the `VoterVerdict` schema →
+> abstain (not retried). Sharper than the original "retry once, then abstain" but the same intent.
+
 ### A·4 — Confidence-on-merge, the protected class, and audit
 
 Two mechanisms come **for free** by reusing the harness-controlled-provenance pattern (the same
@@ -209,6 +222,18 @@ numbers, so added-line parsing is **new** code, not a reuse):
 Placement: a harness finalization step `markPreexisting(findings, addedLineIndex)` applied to the
 final finding set just before the `PhaseReport` is built (after the coordinator). Deterministic and
 location-based, so order vs the coordinator doesn't matter.
+
+> **B·2 as-built notes** *(comprehend sync M1–M4, 2026-06-24):*
+> - **Path normalization (drift D4).** `markPreexisting` reconciles model-supplied finding paths
+>   against index keys via `normalizeFindingPath` — strips `./` and one single-letter diff prefix
+>   (`a/ b/ i/ w/ c/ o/`). The design hadn't specified this reconciliation; accepted as a B·2
+>   detail. It is correctness-load-bearing (a wrong match silently marks a finding `preexisting` →
+>   it stops gating) → **a regression test for the path-mismatch case is an open fix (ledger D4).**
+> - **Combined-diff gap (drift D5).** `buildAddedLineIndex` skips `diff --cc`/`--combined` sections
+>   → empty added-set → those findings all mark `preexisting` → none gate (a "false clean"). The
+>   conservative handling the code's docstring promised "deferred to M4 wiring" was **not** built.
+>   Logged + deferred: likely unreachable in v1 (`--against <ref>` three-dot yields a two-way diff).
+>   → ledger D5.
 
 ### B·3 — Schema mechanics *(settled — review)*
 
@@ -376,12 +401,16 @@ stays fully downstream and deterministic (PRD R6/C6, decision #4). Specialists n
 
 ## Stack / library choices
 
-- **Cassette mechanism** for model calls in tests — *spike:* reuse the POC's recording approach vs a
-  thin record/replay around the AgentRunner seam. Lean: record/replay at the AgentRunner seam (it's
-  the single model boundary).
-- **Embedding similarity** for the grader — *spike:* small local embedding vs provider embedding
-  endpoint (cassette-able). Lean: provider endpoint, recorded in cassettes; cosine threshold + the
-  ±N line gate.
+Both spikes **resolved as-built** (comprehend sync M1–M4, 2026-06-24; drift D2) — promoted from
+"lean" to settled:
+
+- **Cassette mechanism** — record/replay at the **AgentRunner seam** (the single model boundary), as
+  leaned. Lookup key = **SHA-256 of `{model, rubric, userPrompt}`** — the only serialisable inputs
+  (`AgentRunInputs` also holds a `TSchema`, `AbortSignal`, `onTool`, which can't appear in a portable
+  key). On-disk: JSON keyed by 64-char hex. (`src/agent/cassette-runner.ts`.)
+- **Embedding similarity** (grader) — provider endpoint, as leaned: **`openai` pkg ·
+  `text-embedding-3-small` · OpenAI endpoint**, cosine ≥ threshold **after** the ±N line gate,
+  greedy 1-to-1. Injectable `EmbedFn` so tests supply a fake. (`src/eval/grader.ts`.)
 
 ---
 
@@ -402,6 +431,10 @@ Human-made calls (canvas walk) vs draft-level proposals awaiting review.
 | B·3 | Split `SpecialistSubmission` (no `confidence`) from shared `Finding`; additions `meta`-namespaced | draft → user review | non-breaking wire contract; harness owns operative confidence | settled (review 2026-06-22) |
 | C·2–4 | LLM-judge grader (location+embedding, 1-to-1, HIT/VALID/NOISE; κ≥0.75 golden gate); SNR + per-tier P/R + clean-FPR; committed baseline; fixtures under `src/eval/` | draft → user review | mirrors POC + PRD R9/C5/#13/#15 | settled (review 2026-06-22) |
 | D–G | Specialist panel (4 configs, rubric=data), risk rules (levels + sensitive-path overrides), `phases.review` config slice, `deriveExit += high ∧ !preexisting` | draft → user review | assembling built machinery + eval-tuned data; minimal new architecture | settled (review 2026-06-22) |
+| A·3a | **Total verify failure short-circuits the coordinator** (degrade roll-up is final) | user (2026-06-24, comprehend D3) | a coordinator could re-raise degraded `low` findings to `high` + drop the warning → re-gate a broken-verify run; protects A·3's "broken verify never gates" | settled |
+| B·2′ | **Path normalization** (`normalizeFindingPath`) reconciles finding paths to index keys; **combined-diff gap** logged + deferred | user (2026-06-24, comprehend D4/D5) | path match is correctness-load-bearing (needs a test — ledger D4); combined diffs likely unreachable in v1 (ledger D5) | settled (with open fixes) |
+| §Stack′ | **Spikes resolved:** cassette key = SHA-256{model,rubric,userPrompt}; embedding = openai/text-embedding-3-small/cosine | user (2026-06-24, comprehend D2) | both as the TDD leaned; promote "lean" → settled | settled |
+| (open) | **`composite.run()` refactor** to be decided **before M5** — function ballooned to ~380 lines / 9 concerns / 5 return paths | user (2026-06-24, comprehend D6) | on-plan but complexity concentrated; "think about the refactor before we go too deep" | **open — decide before M5** |
 
 > **Spikes flagged for the plan:** cassette record/replay at the AgentRunner seam; embedding-match
 > library. Both in §Technical risks / §Stack.
