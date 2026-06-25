@@ -204,6 +204,185 @@ function validateRiskConfig(cfg: CompositePhaseConfig): void {
   }
 }
 
+/**
+ * Agreement-verify stage (TDD A·1 / plan M4 step 1): runs over the raw specialist
+ * roll-up before the coordinator. Voter lenses receive diff so they can inspect the
+ * full change (S4). On total failure (no runner or ConfigError): fall back to raw
+ * roll-up with confidence: low + emit a verify-degraded warning (TDD A·3).
+ */
+async function runVerifyStage(
+  runners: Record<string, AgentRunner>,
+  cfg: CompositePhaseConfig,
+  allFindings: Finding[],
+  ctx: PhaseContext,
+): Promise<{
+  candidateFindings: Finding[];
+  verifyAudit: VerifyAudit | undefined;
+  verifyDegraded: boolean;
+}> {
+  let candidateFindings: Finding[] = allFindings;
+  let verifyAudit: VerifyAudit | undefined;
+  // When verify is configured but degrades (no runner / run error), the conservative
+  // roll-up (all findings forced to "low" + a verify-degraded warning) is final: the
+  // coordinator is SKIPPED. Otherwise a configured coordinator could raise those findings
+  // back to "high" (re-gating the build) and drop the warning, so a broken-verify run
+  // would masquerade as a clean, gating one.
+  let verifyDegraded = false;
+
+  if (cfg.verify) {
+    const verifyRunner = runners["verify"];
+    if (!verifyRunner) {
+      verifyDegraded = true;
+      candidateFindings = [
+        ...allFindings.map((f) => ({ ...f, confidence: "low" as const })),
+        verifyDegradedWarning(
+          cfg.id,
+          "Agreement-verify could not run (no verify runner configured). All findings stamped confidence: low.",
+        ),
+      ];
+    } else {
+      const verifyResult = await runAgreementVerify(verifyRunner, allFindings, cfg.verify, {
+        cwd: ctx.cwd,
+        diff: ctx.diff,
+        signal: ctx.signal,
+      });
+      if (verifyResult.isOk()) {
+        candidateFindings = verifyResult.value.verified;
+        verifyAudit = verifyResult.value.audit;
+      } else {
+        verifyDegraded = true;
+        candidateFindings = [
+          ...allFindings.map((f) => ({ ...f, confidence: "low" as const })),
+          verifyDegradedWarning(
+            cfg.id,
+            `Agreement-verify failed: ${verifyResult.error.message}. All findings stamped confidence: low.`,
+          ),
+        ];
+      }
+    }
+  }
+
+  return { candidateFindings, verifyAudit, verifyDegraded };
+}
+
+/**
+ * Coordinator-OK reconciliation: re-attribute specialist + re-stamp confidence by id,
+ * then reconcile the coordinator's submission against the roll-up by multiplicity to
+ * produce the final findings plus the reinstated/dropped audit entries.
+ */
+export function reconcileCoordinator(
+  outcomeFindings: Finding[],
+  candidateFindings: Finding[],
+  confidenceById: Map<string, Finding["confidence"]>,
+  phaseId: string,
+): {
+  finalFindings: Finding[];
+  reinstated: { id: string; specialist?: string }[];
+  dropped: { id: string; specialist?: string; message: string }[];
+} {
+  // Coordinator submission replaces the raw roll-up. Provenance is harness-controlled:
+  // phase is forced, and specialist is re-derived from the originating finding (matched
+  // by id) rather than trusted from the judge — a misbehaving model cannot fabricate a
+  // specialist name nor silently drop the field. Findings the judge raises cross-cutting
+  // (no id match in the roll-up) correctly carry no specialist.
+  //
+  // An id may legitimately repeat within ONE specialist (one finding per match) — those
+  // copies share a specialist and attribute cleanly. But two DISTINCT specialists can
+  // collide on an id (#48). The coordinator sees roll-up findings only by id, so such an
+  // id is genuinely ambiguous: rather than guess (last-in-roll-up wins would mis-attribute),
+  // the harness records it as ambiguous and the survivor carries no specialist.
+  // Re-attribute specialist by id: harness-controlled, model cannot fabricate it (#48).
+  // Also re-stamp confidence by id from verify results (TDD A·4): coordinator cannot
+  // overwrite harness-controlled confidence. Only populated when verify ran.
+  const specialistById = new Map<string, string | undefined>();
+  for (const f of candidateFindings) {
+    if (!specialistById.has(f.id)) specialistById.set(f.id, f.specialist);
+    else if (specialistById.get(f.id) !== f.specialist) specialistById.set(f.id, undefined);
+  }
+  const finalFindings = outcomeFindings.map((f) => {
+    const { specialist: _modelSupplied, ...rest } = f;
+    const origin = specialistById.get(f.id);
+    const stampedConf = confidenceById.get(f.id);
+    const base =
+      origin !== undefined
+        ? { ...rest, phase: phaseId, specialist: origin }
+        : { ...rest, phase: phaseId };
+    return stampedConf !== undefined ? { ...base, confidence: stampedConf } : base;
+  });
+
+  // Constrained authority (PRD #30, §4.6) + drop audit (#31).
+  //
+  // Both are reconciled against the roll-up by *multiplicity*, not by id alone.
+  // A single rule id can legitimately appear N>1 times in one roll-up (a specialist
+  // emits one finding per match, all sharing an id). Keying purely by id would
+  // (a) reinstate only the first of N dropped protected copies — silently losing the
+  // rest (#30) — and (b) under-count drops when the judge keeps one copy but drops its
+  // siblings (#31). We hold a per-id pool of surviving finding indices and consume
+  // from it greedily so each raw finding is accounted for individually.
+  //
+  // Protected class (TDD A·4): evidence.command (deterministic) OR verify-stamped
+  // confidence "high" (3/3 agreement). Only verify-stamped high is protected — model-
+  // supplied high (without verify) is NOT, preventing the predicate from silently
+  // changing behaviour for phases that don't run verify.
+  const survivorPool = new Map<string, number[]>();
+  finalFindings.forEach((f, i) => {
+    const pool = survivorPool.get(f.id);
+    if (pool) pool.push(i);
+    else survivorPool.set(f.id, [i]);
+  });
+
+  const reinstated: { id: string; specialist?: string }[] = [];
+  const dropped: { id: string; specialist?: string; message: string }[] = [];
+
+  for (const raw of candidateFindings) {
+    const pool = survivorPool.get(raw.id) ?? [];
+
+    if (raw.evidence?.command !== undefined || confidenceById.get(raw.id) === "high") {
+      // Protected: satisfied by any surviving copy the judge did not downgrade in
+      // severity or confidence. Consume that copy if present.
+      const okPos = pool.findIndex((i) => {
+        const s = finalFindings[i]!;
+        return (
+          severityAtLeast(s.severity, raw.severity) &&
+          CONFIDENCE_RANK[s.confidence] >= CONFIDENCE_RANK[raw.confidence]
+        );
+      });
+      if (okPos !== -1) {
+        pool.splice(okPos, 1);
+        continue;
+      }
+      // No adequate survivor — the judge dropped or downgraded this copy. Reinstate
+      // the original unchanged: replace a downgraded survivor in place if one exists,
+      // else append. phase is harness-controlled; specialist is already correct on raw.
+      const reinstatedFinding = { ...raw, phase: phaseId };
+      const downgradedPos = pool.shift();
+      if (downgradedPos !== undefined) {
+        finalFindings[downgradedPos] = reinstatedFinding;
+      } else {
+        finalFindings.push(reinstatedFinding);
+      }
+      const entry: { id: string; specialist?: string } = { id: raw.id };
+      if (raw.specialist !== undefined) entry.specialist = raw.specialist;
+      reinstated.push(entry);
+      continue;
+    }
+
+    // Non-protected: kept if a surviving copy is available to match it, else dropped.
+    if (pool.length > 0) {
+      pool.shift();
+    } else {
+      const entry: { id: string; specialist?: string; message: string } = {
+        id: raw.id,
+        message: raw.message,
+      };
+      if (raw.specialist !== undefined) entry.specialist = raw.specialist;
+      dropped.push(entry);
+    }
+  }
+
+  return { finalFindings, reinstated, dropped };
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -358,51 +537,12 @@ export function makeCompositePhase(
         }
       }
 
-      // Agreement-verify stage (TDD A·1 / plan M4 step 1): runs over the raw specialist
-      // roll-up before the coordinator. Voter lenses receive diff so they can inspect the
-      // full change (S4). On total failure (no runner or ConfigError): fall back to raw
-      // roll-up with confidence: low + emit a verify-degraded warning (TDD A·3).
-      let candidateFindings: Finding[] = allFindings;
-      let verifyAudit: VerifyAudit | undefined;
-      // When verify is configured but degrades (no runner / run error), the conservative
-      // roll-up (all findings forced to "low" + a verify-degraded warning) is final: the
-      // coordinator is SKIPPED. Otherwise a configured coordinator could raise those findings
-      // back to "high" (re-gating the build) and drop the warning, so a broken-verify run
-      // would masquerade as a clean, gating one.
-      let verifyDegraded = false;
-
-      if (cfg.verify) {
-        const verifyRunner = runners["verify"];
-        if (!verifyRunner) {
-          verifyDegraded = true;
-          candidateFindings = [
-            ...allFindings.map((f) => ({ ...f, confidence: "low" as const })),
-            verifyDegradedWarning(
-              cfg.id,
-              "Agreement-verify could not run (no verify runner configured). All findings stamped confidence: low.",
-            ),
-          ];
-        } else {
-          const verifyResult = await runAgreementVerify(verifyRunner, allFindings, cfg.verify, {
-            cwd: ctx.cwd,
-            diff: ctx.diff,
-            signal: ctx.signal,
-          });
-          if (verifyResult.isOk()) {
-            candidateFindings = verifyResult.value.verified;
-            verifyAudit = verifyResult.value.audit;
-          } else {
-            verifyDegraded = true;
-            candidateFindings = [
-              ...allFindings.map((f) => ({ ...f, confidence: "low" as const })),
-              verifyDegradedWarning(
-                cfg.id,
-                `Agreement-verify failed: ${verifyResult.error.message}. All findings stamped confidence: low.`,
-              ),
-            ];
-          }
-        }
-      }
+      const { candidateFindings, verifyAudit, verifyDegraded } = await runVerifyStage(
+        runners,
+        cfg,
+        allFindings,
+        ctx,
+      );
 
       // Confidence-by-id index: populated from the verified candidates when verify ran
       // successfully. Used to (a) re-stamp confidence after coordinator re-attribution so the
@@ -466,105 +606,12 @@ export function makeCompositePhase(
         }
 
         if (outcome.kind === "ok") {
-          // Coordinator submission replaces the raw roll-up. Provenance is harness-controlled:
-          // phase is forced, and specialist is re-derived from the originating finding (matched
-          // by id) rather than trusted from the judge — a misbehaving model cannot fabricate a
-          // specialist name nor silently drop the field. Findings the judge raises cross-cutting
-          // (no id match in the roll-up) correctly carry no specialist.
-          //
-          // An id may legitimately repeat within ONE specialist (one finding per match) — those
-          // copies share a specialist and attribute cleanly. But two DISTINCT specialists can
-          // collide on an id (#48). The coordinator sees roll-up findings only by id, so such an
-          // id is genuinely ambiguous: rather than guess (last-in-roll-up wins would mis-attribute),
-          // the harness records it as ambiguous and the survivor carries no specialist.
-          // Re-attribute specialist by id: harness-controlled, model cannot fabricate it (#48).
-          // Also re-stamp confidence by id from verify results (TDD A·4): coordinator cannot
-          // overwrite harness-controlled confidence. Only populated when verify ran.
-          const specialistById = new Map<string, string | undefined>();
-          for (const f of candidateFindings) {
-            if (!specialistById.has(f.id)) specialistById.set(f.id, f.specialist);
-            else if (specialistById.get(f.id) !== f.specialist) specialistById.set(f.id, undefined);
-          }
-          const finalFindings = outcome.findings.map((f) => {
-            const { specialist: _modelSupplied, ...rest } = f;
-            const origin = specialistById.get(f.id);
-            const stampedConf = confidenceById.get(f.id);
-            const base =
-              origin !== undefined
-                ? { ...rest, phase: cfg.id, specialist: origin }
-                : { ...rest, phase: cfg.id };
-            return stampedConf !== undefined ? { ...base, confidence: stampedConf } : base;
-          });
-
-          // Constrained authority (PRD #30, §4.6) + drop audit (#31).
-          //
-          // Both are reconciled against the roll-up by *multiplicity*, not by id alone.
-          // A single rule id can legitimately appear N>1 times in one roll-up (a specialist
-          // emits one finding per match, all sharing an id). Keying purely by id would
-          // (a) reinstate only the first of N dropped protected copies — silently losing the
-          // rest (#30) — and (b) under-count drops when the judge keeps one copy but drops its
-          // siblings (#31). We hold a per-id pool of surviving finding indices and consume
-          // from it greedily so each raw finding is accounted for individually.
-          //
-          // Protected class (TDD A·4): evidence.command (deterministic) OR verify-stamped
-          // confidence "high" (3/3 agreement). Only verify-stamped high is protected — model-
-          // supplied high (without verify) is NOT, preventing the predicate from silently
-          // changing behaviour for phases that don't run verify.
-          const survivorPool = new Map<string, number[]>();
-          finalFindings.forEach((f, i) => {
-            const pool = survivorPool.get(f.id);
-            if (pool) pool.push(i);
-            else survivorPool.set(f.id, [i]);
-          });
-
-          const reinstated: { id: string; specialist?: string }[] = [];
-          const dropped: { id: string; specialist?: string; message: string }[] = [];
-
-          for (const raw of candidateFindings) {
-            const pool = survivorPool.get(raw.id) ?? [];
-
-            if (raw.evidence?.command !== undefined || confidenceById.get(raw.id) === "high") {
-              // Protected: satisfied by any surviving copy the judge did not downgrade in
-              // severity or confidence. Consume that copy if present.
-              const okPos = pool.findIndex((i) => {
-                const s = finalFindings[i]!;
-                return (
-                  severityAtLeast(s.severity, raw.severity) &&
-                  CONFIDENCE_RANK[s.confidence] >= CONFIDENCE_RANK[raw.confidence]
-                );
-              });
-              if (okPos !== -1) {
-                pool.splice(okPos, 1);
-                continue;
-              }
-              // No adequate survivor — the judge dropped or downgraded this copy. Reinstate
-              // the original unchanged: replace a downgraded survivor in place if one exists,
-              // else append. phase is harness-controlled; specialist is already correct on raw.
-              const reinstatedFinding = { ...raw, phase: cfg.id };
-              const downgradedPos = pool.shift();
-              if (downgradedPos !== undefined) {
-                finalFindings[downgradedPos] = reinstatedFinding;
-              } else {
-                finalFindings.push(reinstatedFinding);
-              }
-              const entry: { id: string; specialist?: string } = { id: raw.id };
-              if (raw.specialist !== undefined) entry.specialist = raw.specialist;
-              reinstated.push(entry);
-              continue;
-            }
-
-            // Non-protected: kept if a surviving copy is available to match it, else dropped.
-            if (pool.length > 0) {
-              pool.shift();
-            } else {
-              const entry: { id: string; specialist?: string; message: string } = {
-                id: raw.id,
-                message: raw.message,
-              };
-              if (raw.specialist !== undefined) entry.specialist = raw.specialist;
-              dropped.push(entry);
-            }
-          }
+          const { finalFindings, reinstated, dropped } = reconcileCoordinator(
+            outcome.findings,
+            candidateFindings,
+            confidenceById,
+            cfg.id,
+          );
 
           markPreexisting(finalFindings, addedLineIndex);
           return {
