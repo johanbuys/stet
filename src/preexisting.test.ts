@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vite-plus/test";
-import { buildAddedLineIndex, markPreexisting } from "./preexisting.js";
+import { buildAddedLineIndex, markPreexisting, normalizeFindingPath } from "./preexisting.js";
 import { PREEXISTING_META_KEY } from "./schema/finding.js";
 import type { Finding } from "./schema/finding.js";
 
@@ -610,5 +610,102 @@ describe("buildAddedLineIndex — combined diff detection (finding #3)", () => {
     expect(idx.has("src/merge.ts")).toBe(false);
     expect(idx.has("src/normal.ts")).toBe(true);
     expect(idx.get("src/normal.ts")).toEqual(new Set([2]));
+  });
+});
+
+// ── normalizeFindingPath (drift-ledger D4) ────────────────────────────────────
+// Direct unit tests for the path-normalization heuristic that markPreexisting
+// uses to reconcile a model-supplied location.file against the added-line index.
+
+describe("normalizeFindingPath", () => {
+  it("strips a `b/` diff prefix", () => {
+    expect(normalizeFindingPath("b/src/a.ts")).toBe("src/a.ts");
+  });
+
+  it("strips an `a/` diff prefix", () => {
+    expect(normalizeFindingPath("a/src/a.ts")).toBe("src/a.ts");
+  });
+
+  it("strips a leading `./`", () => {
+    expect(normalizeFindingPath("./src/a.ts")).toBe("src/a.ts");
+  });
+
+  it("leaves a bare relative path unchanged", () => {
+    expect(normalizeFindingPath("src/a.ts")).toBe("src/a.ts");
+  });
+
+  it("strips `./` THEN a `b/` prefix (both apply)", () => {
+    expect(normalizeFindingPath("./b/src/a.ts")).toBe("src/a.ts");
+  });
+
+  it("leaves an unrecognized single-letter prefix unchanged (only a|b|c|i|o|w)", () => {
+    expect(normalizeFindingPath("z/src/a.ts")).toBe("z/src/a.ts");
+  });
+
+  it("leaves a multi-segment non-diff prefix unchanged (only ONE leading single-letter prefix is stripped)", () => {
+    expect(normalizeFindingPath("x/y/src/a.ts")).toBe("x/y/src/a.ts");
+  });
+
+  it("leaves an absolute path unchanged", () => {
+    expect(normalizeFindingPath("/src/a.ts")).toBe("/src/a.ts");
+  });
+});
+
+// ── markPreexisting — unreconcilable path is a known false-clean boundary (ledger D4) ─
+// CHARACTERIZATION TESTS. These PIN the CURRENT behavior to document a known
+// limitation — they do NOT describe desired behavior. When normalizeFindingPath
+// cannot strip a path prefix it doesn't recognize, the finding's file fails to
+// match the added-line index, so an added-line finding is silently stamped
+// preexisting and drops out of gating (a "false clean"). If the heuristic is
+// later made smarter, these expectations should be revisited.
+
+describe("markPreexisting — unreconcilable path is a known false-clean boundary (ledger D4)", () => {
+  const base = {
+    phase: "review" as const,
+    confidence: "high" as const,
+    severity: "error" as const,
+  } as const;
+
+  // A normal two-way diff that adds line 5 to src/a.ts.
+  const diff = [
+    "diff --git a/src/a.ts b/src/a.ts",
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -4,1 +4,2 @@",
+    " line 4", // new line 4 (context)
+    "+added 5", // new line 5 (added)
+  ].join("\n");
+
+  it("the index confirms src/a.ts line 5 is added", () => {
+    const idx = buildAddedLineIndex(diff);
+    expect(idx.get("src/a.ts")?.has(5)).toBe(true);
+  });
+
+  it("unreconcilable `z/` prefix → added line 5 is WRONGLY stamped preexisting", () => {
+    const idx = buildAddedLineIndex(diff);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "z/src/a.ts", line: 5 }, // prefix the heuristic does NOT strip
+    });
+    markPreexisting([f], idx);
+    // known limitation (ledger D4): an unreconcilable path silently becomes
+    // pre-existing → drops out of gating.
+    expect((f.meta as Record<string, unknown>)?.[PREEXISTING_META_KEY]).toBe(true);
+  });
+
+  it("contrast control: reconcilable `b/` prefix → added line 5 is correctly introduced", () => {
+    const idx = buildAddedLineIndex(diff);
+    const f = makeFinding({
+      ...base,
+      id: "review.bug",
+      message: "msg",
+      location: { file: "b/src/a.ts", line: 5 }, // prefix the heuristic DOES strip
+    });
+    markPreexisting([f], idx);
+    // The boundary is specifically the unhandled prefix: the same line 5,
+    // reachable via a strippable prefix, is NOT stamped preexisting.
+    expect((f.meta as Record<string, unknown>)?.[PREEXISTING_META_KEY]).toBeUndefined();
   });
 });
