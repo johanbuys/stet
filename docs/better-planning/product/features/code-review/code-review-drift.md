@@ -12,7 +12,7 @@
 
 | Checkpoint | Window (diff range) | Date | Deltas reviewed | Open fixes |
 |---|---|---|---|---|
-| M1–M4 synced | `c5b7c19..e529666` | 2026-06-24 | 6 | 3 |
+| M1–M4 synced | `c5b7c19..e529666` | 2026-06-24 | 6 | 3 → 1 (D6 #93, D4 #94 fixed same day; D5 deferred) |
 
 > First sync was a full catch-up after time away — covered the whole M1–M4 window at once
 > (verify, contract, eval scaffold, thin slice) rather than one milestone. Next sync at M5.
@@ -66,6 +66,8 @@
 - **Disposition:** `undecided` → accepted into TDD as a B·2 detail; **flagged a test gap** (the
   "path mismatch → wrongly pre-existing → wrongly non-gating" case) → Open fix D4.
 - **Decided by:** human 2026-06-24 (accepted recommendation)
+- **✅ Resolved 2026-06-24 — PR #94:** `normalizeFindingPath` direct unit tests + a characterization
+  test pinning the unreconcilable-path false-clean boundary (`preexisting.test.ts`, +11).
 
 ### D5 · combined diffs ⇒ every finding marked pre-existing (non-gating)  *(latent gap)*
 - **Checkpoint:** M1–M4 synced 2026-06-24
@@ -94,9 +96,12 @@
   too deep."** Not resolved this sync. → Open fix D6: decide the composite.run refactor (extract
   verify-wiring / protected-class reconciliation / report-builder helpers?) **before M5**.
 - **Decided by:** human 2026-06-24 (decision deferred, refactor to be considered before M5)
+- **✅ Resolved 2026-06-24 — PR #93:** option-1 surgical refactor — `runVerifyStage` +
+  `reconcileCoordinator` extracted as pure functions; `run()` ~380→~165 lines; behavior-preserving
+  (suite 1031→1042, +11 unit tests on the protected-class loop). Report-builder (seam D) left inline.
 
 ## Open fixes
 
-- [ ] **D6** — decide & (if chosen) execute the `composite.run()` refactor **before M5 starts** — flagged 2026-06-24
-- [ ] **D4** — add a test for the path-mismatch → wrongly-pre-existing → wrongly-non-gating case — flagged 2026-06-24
+- [x] **D6** — `composite.run()` refactor — **done 2026-06-24, PR #93** (extracted `runVerifyStage` + `reconcileCoordinator`; `run()` 380→165 lines)
+- [x] **D4** — test for the path-mismatch → wrongly-pre-existing → wrongly-non-gating case — **done 2026-06-24, PR #94**
 - [ ] **D5** — combined-diff conservative handling (mark findings gating, not pre-existing) — deferred until reachable — flagged 2026-06-24
