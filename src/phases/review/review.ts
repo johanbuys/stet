@@ -1,11 +1,11 @@
 /**
- * review phase — bugs specialist + phase factory (M4 thin slice, T13).
+ * review phase — full specialist panel (M5 full panel, T15).
  *
- * Implements plan §M4 steps 2,3 · TDD D · code-review-rubric-draft.md.
- * M4 ships the `bugs` specialist only; `security`, `quality`, and `coverage-gaps`
- * are added in M5 (T15).
+ * Implements plan §M4 steps 2,3 + M5 · TDD D · code-review-rubric-draft.md.
+ * M4 shipped `bugs` only; M5 (T15) adds `security`, `quality`, and `coverage-gaps`.
  *
- * PRD refs: §R1 (activation), §R3 (specialist panel), §R5 (verify), §R8 (noise control).
+ * PRD refs: §R1 (activation), §R3 (specialist panel), §R5 (verify), §R7 (conventions),
+ *           §R8 (noise control).
  * TDD refs: D (specialist wiring), A·2 (verify lenses).
  */
 
@@ -89,9 +89,67 @@ is in scope. State the input/state -> wrong outcome explicitly.
 Default severity: error for a crash/wrong result on a reachable path; warning for a narrow edge;
 info for a latent risk.`;
 
+/**
+ * Security-specialist focus rubric.
+ * Source: code-review-rubric-draft.md §Specialist: security.
+ * Severity ceiling: error (security may emit up to error severity — PRD §R3, TDD D).
+ */
+const SECURITY_FOCUS = `\
+FOCUS: security defects with a concrete, reachable exploit path. Injection (shell/SQL/command), git/CLI
+option injection (args beginning with "-" reaching a subprocess), path traversal, prototype pollution,
+unsafe deserialization, secret leakage, SSRF.
+
+KEY PRECEDENTS (do not flag these as vulns):
+- Framework escaping is on by default (e.g. React/Angular safe from XSS unless dangerouslySetInnerHTML).
+- Environment variables and CLI flags are trusted input.
+- Findings in test files / fixtures / markdown are not production vulnerabilities.
+Require an attacker-input -> impact scenario. If reachability depends on a caller passing untrusted
+input, say so and set confidence accordingly.
+Default severity: error for a reachable exploit; warning for a defensive/hardening gap with no
+current reachable path.`;
+
+/**
+ * Quality/maintainability-specialist focus rubric.
+ * Source: code-review-rubric-draft.md §Specialist: performance & quality / maintainability.
+ * Severity ceiling: warning (quality NEVER emits error — PRD §R3, TDD D).
+ */
+const QUALITY_FOCUS = `\
+FOCUS: concrete, costly maintainability or efficiency problems introduced by THIS change.
+Re-implementing an existing helper (grep the repo to confirm it exists, name it), redundant or
+derivable state, copy-paste with slight variation, dead code, wrong-altitude abstractions (special
+cases bolted onto shared infra), wasted work added to a hot path or startup, closures that retain
+large scopes.
+
+State the concrete cost (what is duplicated/wasted/harder to change) and the simpler form.
+NOT taste: no naming/formatting opinions. This specialist NEVER emits error — warning is the maximum.
+Default severity: warning at most; info for minor.`;
+
+/**
+ * Coverage-gaps-specialist focus rubric.
+ * Source: code-review-rubric-draft.md §Specialist: coverage-gaps.
+ * Severity ceiling: warning (coverage-gaps NEVER emits error — PRD §R3, TDD D).
+ */
+const COVERAGE_FOCUS = `\
+FOCUS: new or changed BEHAVIOR/branches that this diff's tests do not exercise, risk-weighted.
+Especially error paths, edge cases, and boundaries. Also judge whether added tests would actually
+FAIL if the code were wrong, or merely mirror the implementation (tautological/mock-only assertions).
+
+Only flag genuine gaps — do not demand tests for trivial/obvious code. Name the specific untested
+branch and the regression risk if it changes. This specialist NEVER emits error — warning is the
+maximum.
+Default severity: warning for an untested error/edge path in risky code; info otherwise.`;
+
 // ---------------------------------------------------------------------------
 // Specialist configs
 // ---------------------------------------------------------------------------
+
+/** Shared user-prompt builder used by all four specialists. */
+function buildReviewUserPrompt(ctx: Parameters<SpecialistConfig["buildUserPrompt"]>[0]): string {
+  const files = ctx.scope.files.join("\n  - ");
+  const parts: string[] = [`Changed files:\n  - ${files}`, `Working directory: ${ctx.cwd}`];
+  if (ctx.diff) parts.push(`Diff:\n${ctx.diff}`);
+  return parts.join("\n\n");
+}
 
 /**
  * `bugs` SpecialistConfig (plan M4 step 2 · TDD D).
@@ -110,12 +168,58 @@ export const BUGS_SPECIALIST: SpecialistConfig = {
   budgets: FIVE_MINUTE_BUDGETS,
   severityCeiling: "error",
   maxFindings: MAX_FINDINGS,
-  buildUserPrompt: (ctx) => {
-    const files = ctx.scope.files.join("\n  - ");
-    const parts: string[] = [`Changed files:\n  - ${files}`, `Working directory: ${ctx.cwd}`];
-    if (ctx.diff) parts.push(`Diff:\n${ctx.diff}`);
-    return parts.join("\n\n");
-  },
+  buildUserPrompt: buildReviewUserPrompt,
+};
+
+/**
+ * `security` SpecialistConfig (plan M5 · TDD D · PRD R3).
+ *
+ * - severityCeiling = "error": security exploits may be gating (PRD §R3, TDD D).
+ * - Same read+bash toolset as bugs — security needs to trace code paths.
+ */
+export const SECURITY_SPECIALIST: SpecialistConfig = {
+  name: "security",
+  rubric: `${SHARED_PREAMBLE}\n\n${SECURITY_FOCUS}`,
+  toolset: ["read", "grep", "find", "ls", "bash", SUBMIT_TOOL_NAME],
+  submitSchema: SpecialistSubmission,
+  budgets: FIVE_MINUTE_BUDGETS,
+  severityCeiling: "error",
+  maxFindings: MAX_FINDINGS,
+  buildUserPrompt: buildReviewUserPrompt,
+};
+
+/**
+ * `quality` SpecialistConfig (plan M5 · TDD D · PRD R3).
+ *
+ * - severityCeiling = "warning": quality/maintainability issues never gate on error (TDD D).
+ * - Read-only toolset (no bash): quality analysis is syntactic, no subprocess needed.
+ */
+export const QUALITY_SPECIALIST: SpecialistConfig = {
+  name: "quality",
+  rubric: `${SHARED_PREAMBLE}\n\n${QUALITY_FOCUS}`,
+  toolset: ["read", "grep", "find", "ls", SUBMIT_TOOL_NAME],
+  submitSchema: SpecialistSubmission,
+  budgets: FIVE_MINUTE_BUDGETS,
+  severityCeiling: "warning",
+  maxFindings: MAX_FINDINGS,
+  buildUserPrompt: buildReviewUserPrompt,
+};
+
+/**
+ * `coverage-gaps` SpecialistConfig (plan M5 · TDD D · PRD R3).
+ *
+ * - severityCeiling = "warning": missing tests never gate on error (TDD D).
+ * - Read-only toolset (no bash): gap analysis reads existing tests, no subprocess needed.
+ */
+export const COVERAGE_SPECIALIST: SpecialistConfig = {
+  name: "coverage-gaps",
+  rubric: `${SHARED_PREAMBLE}\n\n${COVERAGE_FOCUS}`,
+  toolset: ["read", "grep", "find", "ls", SUBMIT_TOOL_NAME],
+  submitSchema: SpecialistSubmission,
+  budgets: FIVE_MINUTE_BUDGETS,
+  severityCeiling: "warning",
+  maxFindings: MAX_FINDINGS,
+  buildUserPrompt: buildReviewUserPrompt,
 };
 
 // ---------------------------------------------------------------------------
@@ -172,11 +276,10 @@ function reviewActivation(ctx: ActivationContext): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the review phase configuration.
+ * Build the review phase configuration (full panel — M5 T15).
  *
- * M4 thin slice: bugs specialist only. M5 (T15) adds security, quality, coverage-gaps.
- *
- * `runners` must contain an entry for "bugs".
+ * All 4 specialists (bugs, security, quality, coverage-gaps) fan out in parallel.
+ * `runners` must contain entries for "bugs", "security", "quality", and "coverage-gaps".
  * When verify is configured, `runners["verify"]` must also be present.
  * When coordinator is configured, `runners["coordinator"]` must be present.
  *
@@ -221,7 +324,12 @@ export function makeReviewPhase(
 
   return makeCompositePhase(runners, {
     id: "review",
-    specialists: [{ ...BUGS_SPECIALIST, model }],
+    specialists: [
+      { ...BUGS_SPECIALIST, model },
+      { ...SECURITY_SPECIALIST, model },
+      { ...QUALITY_SPECIALIST, model },
+      { ...COVERAGE_SPECIALIST, model },
+    ],
     verify: { ...REVIEW_VERIFY_CONFIG, model },
     activation: reviewActivation,
   });
