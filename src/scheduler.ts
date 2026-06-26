@@ -156,9 +156,13 @@ async function runPhaseGuarded(
     // "files excluded from analysis" warning to such a phase would misattribute / under-
     // classify (decision #20: harness-emitted findings attach to the phase they concern).
     //
-    // No real phase currently sets consumesDiff: true; the budget mechanism is built ahead
-    // of its first agent-prompt consumer — so the trim/warning branch is intentionally
-    // exercised only by tests for now (not dead code).
+    // The review phase (review.ts) is the first real consumesDiff: true consumer; it
+    // injects the (trimmed) diff into its specialist prompts, so the trim/warning branch
+    // runs in production, not just under test. Note its inner risk classifier
+    // (composite.ts) intentionally does NOT set consumesDiff and reads ctx.diff directly —
+    // but it receives the already-trimmed phaseDiff here. That is currently safe (review's
+    // risk rules are path- and line-count-based, never content-pattern-based), but a future
+    // content-scanning review risk rule would need the untrimmed diff (finding 6).
     let phaseDiff = ctx.diff;
     let coverageWarning: Finding | undefined = undefined;
     if (phase.consumesDiff === true && budgeted !== undefined) {
