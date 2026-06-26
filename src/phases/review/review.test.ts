@@ -1,5 +1,5 @@
 /**
- * Tests for the review phase factory + full specialist panel (T13/T14 · M4, T15 · M5, T17 · M6).
+ * Tests for the review phase factory + full specialist panel (T13/T14 · M4, T15 · M5, T17/T18 · M6).
  *
  * Fake-driven: each specialist is driven by a scripted FakeAgentRunner.
  * Verifies:
@@ -12,8 +12,10 @@
  *   - Phase validates against the PhaseReport schema.
  *   - Creds gate (AC#8): model=undefined → status "error", never completed+empty.
  *   - Risk rules + levels (T17): trivial→bugs-only/no-coordinator; sensitive→full+security.
+ *   - Config-slice validator (T18): parseReviewConfig; disabling a specialist drops it.
  *
- * TDD refs: D (specialist wiring), A·2 (verify lenses), E (risk rules). Plan: M4 steps 2,3,5; M5; M6 step 1.
+ * TDD refs: D (specialist wiring), A·2 (verify lenses), E (risk rules), F (config slice).
+ * Plan: M4 steps 2,3,5; M5; M6 steps 1,2.
  */
 
 import { describe, expect, it } from "vite-plus/test";
@@ -29,6 +31,7 @@ import {
   COVERAGE_SPECIALIST,
   MAX_FINDINGS,
   QUALITY_SPECIALIST,
+  ReviewConfigSchema,
   REVIEW_RISK_LEVELS,
   REVIEW_RISK_RULES,
   REVIEW_SPECIALISTS,
@@ -36,6 +39,7 @@ import {
   SECURITY_SPECIALIST,
   makeReviewPhase,
   makeReviewRunners,
+  parseReviewConfig,
 } from "./review.js";
 
 // ---------------------------------------------------------------------------
@@ -849,6 +853,197 @@ describe("makeReviewPhase — risk level integration (T17 · TDD E)", () => {
     const phase = makeReviewPhase(panelRunners([]), "fake/model");
 
     const report = await phase.run(ctx(["src/utils.ts"]));
+
+    expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Config-slice validator (T18 · M6 step 2 · TDD F · PRD R10)
+// ---------------------------------------------------------------------------
+
+describe("ReviewConfigSchema — structure", () => {
+  it("accepts an empty object (all fields optional)", () => {
+    expect(Value.Check(ReviewConfigSchema, {})).toBe(true);
+  });
+
+  it("accepts a fully-populated config", () => {
+    expect(
+      Value.Check(ReviewConfigSchema, {
+        specialists: {
+          bugs: { enabled: true, maxFindings: 3, model: "haiku" },
+          security: { enabled: false },
+        },
+        maxFindings: 10,
+        verify: { voters: 5 },
+        coordinator: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts unknown keys (forward-compat — additionalProperties: true)", () => {
+    expect(Value.Check(ReviewConfigSchema, { futureKey: "whatever" })).toBe(true);
+  });
+
+  it("rejects non-object input", () => {
+    expect(Value.Check(ReviewConfigSchema, "string")).toBe(false);
+    expect(Value.Check(ReviewConfigSchema, 42)).toBe(false);
+    expect(Value.Check(ReviewConfigSchema, null)).toBe(false);
+  });
+
+  it("rejects specialists entry with wrong type for enabled", () => {
+    expect(Value.Check(ReviewConfigSchema, { specialists: { bugs: { enabled: "yes" } } })).toBe(
+      false,
+    );
+  });
+
+  it("rejects maxFindings below minimum (< 1)", () => {
+    expect(Value.Check(ReviewConfigSchema, { maxFindings: 0 })).toBe(false);
+  });
+
+  it("rejects verify.voters below minimum (< 1)", () => {
+    expect(Value.Check(ReviewConfigSchema, { verify: { voters: 0 } })).toBe(false);
+  });
+});
+
+describe("parseReviewConfig", () => {
+  it("returns empty ReviewConfig for undefined input", () => {
+    expect(parseReviewConfig(undefined)).toEqual({});
+  });
+
+  it("returns empty ReviewConfig for null input", () => {
+    expect(parseReviewConfig(null)).toEqual({});
+  });
+
+  it("returns empty ReviewConfig for invalid type (string)", () => {
+    expect(parseReviewConfig("invalid")).toEqual({});
+  });
+
+  it("returns the input unchanged when it is a valid ReviewConfig", () => {
+    const input = { specialists: { security: { enabled: false } }, coordinator: false };
+    expect(parseReviewConfig(input)).toEqual(input);
+  });
+
+  it("returns empty ReviewConfig when schema fails (wrong enabled type)", () => {
+    expect(parseReviewConfig({ specialists: { bugs: { enabled: "yes" } } })).toEqual({});
+  });
+
+  it("passes maxFindings through when valid", () => {
+    expect(parseReviewConfig({ maxFindings: 3 })).toEqual({ maxFindings: 3 });
+  });
+
+  it("passes verify.voters through when valid", () => {
+    expect(parseReviewConfig({ verify: { voters: 5 } })).toEqual({ verify: { voters: 5 } });
+  });
+
+  it("passes coordinator override through", () => {
+    expect(parseReviewConfig({ coordinator: false })).toEqual({ coordinator: false });
+    expect(parseReviewConfig({ coordinator: true })).toEqual({ coordinator: true });
+  });
+});
+
+describe("makeReviewPhase — config-slice integration (T18 · TDD F)", () => {
+  it("security disabled in config → security finding absent even on sensitive (full-level) path", async () => {
+    const secFinding = fakeFinding({ id: "review.security.sqli", severity: "error" });
+    const phase = makeReviewPhase(
+      panelRunners([], { securityFindings: [secFinding] }),
+      "fake/model",
+    );
+
+    // auth/ → normally "full" level (security-always). But security is disabled via config.
+    const report = await phase.run({
+      ...fullCtx(["src/auth/login.ts"]),
+      config: { specialists: { security: { enabled: false } } },
+    });
+
+    expect(report.status).toBe("completed");
+    expect(report.findings.some((f) => f.id === "review.security.sqli")).toBe(false);
+  });
+
+  it("disabled specialist is absent; other specialists from the same level still run", async () => {
+    const bugFinding = fakeFinding({ id: "review.bug.null" });
+    const secFinding = fakeFinding({ id: "review.security.xss", severity: "error" });
+    const phase = makeReviewPhase(
+      panelRunners([bugFinding], { securityFindings: [secFinding] }),
+      "fake/model",
+    );
+
+    const report = await phase.run({
+      ...fullCtx(["src/auth/login.ts"]),
+      config: { specialists: { security: { enabled: false } } },
+    });
+
+    expect(report.status).toBe("completed");
+    // bugs still runs → its finding present
+    expect(report.findings.some((f) => f.id === "review.bug.null")).toBe(true);
+    // security disabled → absent
+    expect(report.findings.some((f) => f.id === "review.security.xss")).toBe(false);
+  });
+
+  it("empty config ({}) has no effect — all specialists still run on full-level path", async () => {
+    const secFinding = fakeFinding({ id: "review.security.xss", severity: "error" });
+    const phase = makeReviewPhase(
+      panelRunners([], { securityFindings: [secFinding] }),
+      "fake/model",
+    );
+
+    const report = await phase.run({ ...fullCtx(), config: {} });
+
+    expect(report.status).toBe("completed");
+    expect(report.findings.some((f) => f.id === "review.security.xss")).toBe(true);
+  });
+
+  it("invalid config shape (e.g. string) falls back to defaults — no effect", async () => {
+    const bugFinding = fakeFinding({ id: "review.bug.null" });
+    const phase = makeReviewPhase(panelRunners([bugFinding]), "fake/model");
+
+    // Invalid config shape → parseReviewConfig returns {} → no filtering
+    const report = await phase.run({ ...ctx(["src/utils.ts"]), config: "not-an-object" });
+
+    expect(report.status).toBe("completed");
+    // bugs still runs at trivial level
+    expect(report.findings.some((f) => f.id === "review.bug.null")).toBe(true);
+  });
+
+  it("coordinator: false in config does not break a run (report remains completed)", async () => {
+    // full level does not set coordinator: false by default; config override forces it off.
+    // Since no coordinator runner is currently wired, this verifies the override doesn't
+    // cause an error report and the phase completes normally.
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+
+    const report = await phase.run({
+      ...fullCtx(),
+      config: { coordinator: false },
+    });
+
+    expect(report.status).toBe("completed");
+    // No coordinator-failed warning when coordinator is off
+    expect(report.findings.some((f) => f.id.includes("coordinator"))).toBe(false);
+  });
+
+  it("config with specialists.bugs.enabled=false on trivial diff → completed with 0 findings", async () => {
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+
+    const report = await phase.run({
+      ...ctx(["src/utils.ts"]),
+      config: { specialists: { bugs: { enabled: false } } },
+    });
+
+    // trivial level → only bugs was in subset, but bugs is disabled → 0 specialists run
+    expect(report.status).toBe("completed");
+    expect(report.findings).toHaveLength(0);
+  });
+
+  it("config-driven disable does not affect report schema validity", async () => {
+    const phase = makeReviewPhase(
+      panelRunners([], { securityFindings: [fakeFinding({ id: "review.security.xss" })] }),
+      "fake/model",
+    );
+
+    const report = await phase.run({
+      ...fullCtx(),
+      config: { specialists: { security: { enabled: false } } },
+    });
 
     expect(Value.Check(PhaseReport, report)).toBe(true);
   });
