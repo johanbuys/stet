@@ -1,6 +1,6 @@
 # code-review — Implementation Plan
 
-**Status:** settled — 2026-06-22 (two adversarial cold-reader passes incorporated; pass-2 verdict: M1 executable test-first, M2/M4/M6 corrected; "go build M1" is a literal next prompt) · **revised 2026-06-26** at the M6 boundary (comprehend M5–M6 sync, PR #100): M1–M6 built & merged; added **M6.5** (config wiring) + a **Carry-forward** section (PL·6)
+**Status:** settled — 2026-06-22 (two adversarial cold-reader passes incorporated; pass-2 verdict: M1 executable test-first, M2/M4/M6 corrected; "go build M1" is a literal next prompt) · **revised 2026-06-26** at the M6 boundary (comprehend M5–M6 sync, PR #100): M1–M6 built & merged; added **M6.5** (config wiring) + a **Carry-forward** section (PL·6) · **+ M6.6** composite hardening from the PR #88-review cluster — #91 fixed (PR #106), #89/#90 batched (PL·7)
 **Depends on:** `code-review-tdd.md` (settled — cites areas A–G) · `code-review-prd.md` (settled) · the built harness (`src/phases/composite.ts`, `coordinator.ts`, `src/agent/*`, `src/risk/classify.ts`, `src/schema/finding.ts`, `src/schema/report.ts`, `src/diff-sections.ts`, `src/exit-codes.ts`, `src/config/*`)
 **Companion:** `code-review-plan-overview.html`
 
@@ -213,6 +213,32 @@ per-specialist `model` until T23).
 
 ---
 
+### M6.6 — composite reconciliation hardening *(maintenance milestone — added 2026-06-26)*
+**Goal:** clear the `src/phases/composite.ts` cluster deferred from the PR #88 review (issues
+#89/#90/#91) that the M6 revision pass missed — these were tracked only as GitHub issues, never
+dispositioned in this plan. All behavior-preserving; tests stay green. Independent of M6.5 (different
+surface: the coordinator-reconciliation path, not the config slice) — the two PRs do not stack.
+**Files:** `src/phases/composite.ts`, `src/phases/reconcile-coordinator.test.ts`.
+
+- **T24 · fix cross-specialist `id`-collision confidence leak (#91) — done (PR #106).** `confidenceById`
+  keyed verify confidence by `id` alone and max-merged across specialists, so a collision (#48) leaked
+  one specialist's `high` onto another's `medium` (re-stamp + protected-class), able to **falsely gate a
+  run to exit 1**. Latent with one specialist, reachable since M5's 4-specialist panel. Fixed by keying
+  confidence `(id, specialist)` with a conservative per-id-minimum fallback for ambiguous ids.
+  **Verifiable:** new regression test — colliding `medium` is dropped, not protected; `vp test` green. ✅
+- **T25 · collapse `run()` to one completed-report exit + named protected-class predicate (#89).** The
+  completed-`PhaseReport` shape is hand-duplicated across 6 return paths (now ~706 lines); each stage
+  bolted on another branch + another copy. Collapse to one report-builder helper and lift the inline
+  protected-class disjunction into a named predicate. **Absorbs #90** (the `markPreexisting`
+  return-value site at the coordinator-success path — align it to use the return value, removing the
+  latent break-if-made-pure trap). **Verifiable:** `vp test` green, no behavior change; the report shape
+  lives in one place.
+
+**Milestone outcome (run X, see Y):** `vp test` stays green across the refactor, the report shape is
+built in exactly one place, and `#91`'s regression test guards the collision fix.
+
+---
+
 ## Dependencies & parallelism
 
 - **M1 (verify)** ∥ **M2 (contract)** — independent. (M1 step 0a fake-runner extension is internal to M1.)
@@ -248,6 +274,9 @@ crosses a boundary undispositioned. (Established at the M6 boundary, 2026-06-26.
 | `verify.voters` configurability | ledger D8b | **route to design** — needs a lens-generation TDD decision (`verify.ts` throws unless `voters === lenses`); becomes a task only after design settles. Re-enter via better-planning-design |
 | `risk.thresholds` config | comprehend M5–M6 | **cut** — YAGNI in v1 (predicates are eval-tuned code, not user config) |
 | D5 · combined-diff conservative handling | ledger D5 | **accept as debt** — unreachable in v1 (`--against` three-dot → two-way diff); stays tracked, not scheduled |
+| **#91 · cross-specialist `id`-collision confidence leak** | PR #88 review | **done — M6.6 · T24 (PR #106)** — urgent (gating-correctness); fixed standalone ahead of the rest of the cluster |
+| **#89 · collapse `composite.run()` exits + named predicate** | PR #88 review | **M6.6 · T25** — behavior-preserving refactor; **absorbs #90** |
+| #90 · `markPreexisting` return-value at coordinator-success path | PR #88 review | **M6.6 · T25** — folded into the #89 refactor (subsumed) |
 
 ---
 
@@ -273,3 +302,4 @@ The docs follow reality, deliberately. (This pass already exercised the protocol
 | PL·4 | **Cold-reader pass 1 folded in** — added M1 prereqs (fake-runner per-call queue B1; `VerifyAudit` schema B4); re-scoped M2 added-line parsing as new code (B5, TDD corrected); split M3 + synthetic-cassette caveat (S1); expanded M4 verify-wiring sub-steps + diff-threading + post-coordinator `markPreexisting` (S3/S4/S5); made gating harness-global + M6→M2 dep (B3); config slice is review-local (N1); added AC#3/#9/#11/#28 coverage (N2); fixed dep graph (N3) | agent + user | independent cold reader found 5 blockers / 5 should-fixes against the real code; verdict had been "not buildable as written" | applied |
 | PL·5 | **Cold-reader pass 2 folded in** — M1 confirmed buildable. Fixed F1 (`meta` stays **open**; `meta.preexisting` read via runtime check, not a narrowed type — aligns with TDD B·3, avoids breaking Phase-5 meta tests); F2 (`markPreexisting` wraps **all five** completed return paths, not just coordinator-OK — else trivial-level pre-existing findings gate, AC#4); F3 (AC#8 no-creds verifiable); F4 (protected-class test matrix); F5 (CLI `runners`-map wiring + phase registration step); F6 (`eval:live` script); F7 (reuse `PhaseReport.level`) | agent + user | pass 2 verified pass-1 fixes hold and found 2 new blockers (one a contradiction the pass-1 revision introduced) + 3 should-fixes; verdict: M1 executable, M2/M4/M6 now corrected | applied |
 | PL·6 | **Revision pass at the M6 boundary (2026-06-26)** — M1–M6 built & merged; added **M6.5** (config wiring: T21 `maxFindings` firm, T23 per-specialist `model` provisional); routed `verify.voters` to **design**; tracked **CF-1 review→routing** as T23's prerequisite; accepted **D5** as debt; recorded `risk.thresholds` **cut**. Established the Carry-forward section | user (2026-06-26) | comprehend M5–M6 surfaced the narrow config slice + the routing stopgap; disposition every deferred item, none silently dropped | settled |
+| PL·7 | **Added M6.6 — composite hardening (2026-06-26)** — dispositioned the PR #88-review `composite.ts` cluster the M6 revision pass missed (tracked as issues only): **#91** confidence-leak fixed standalone-urgent as **T24 (PR #106)**; **#89** refactor + **#90** (subsumed) batched into **T25**. M6.6 is independent of M6.5 (different surface); PRs do not stack | user (2026-06-26) | the cluster could falsely gate a run (#91) and was never in the plan's Carry-forward — fold it in so no deferred item lives only in the tracker | settled |

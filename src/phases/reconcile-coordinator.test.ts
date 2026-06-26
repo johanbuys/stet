@@ -29,7 +29,7 @@ describe("reconcileCoordinator", () => {
     const { finalFindings, reinstated, dropped } = reconcileCoordinator(
       [candidate],
       [candidate],
-      new Map(),
+      false,
       "review",
     );
 
@@ -49,7 +49,7 @@ describe("reconcileCoordinator", () => {
     const { finalFindings, reinstated, dropped } = reconcileCoordinator(
       [],
       [candidate],
-      new Map(),
+      false,
       "review",
     );
 
@@ -68,7 +68,7 @@ describe("reconcileCoordinator", () => {
     const { finalFindings, reinstated, dropped } = reconcileCoordinator(
       [],
       [candidate],
-      new Map(),
+      false,
       "review",
     );
 
@@ -84,11 +84,11 @@ describe("reconcileCoordinator", () => {
   });
 
   it("reinstates a verify-high finding the judge dropped", () => {
-    const candidate = makeFinding({ id: "x", severity: "warning", confidence: "low" });
+    const candidate = makeFinding({ id: "x", severity: "warning", confidence: "high" });
     const { finalFindings, reinstated, dropped } = reconcileCoordinator(
       [],
       [candidate],
-      new Map([["x", "high"]]),
+      true,
       "review",
     );
 
@@ -99,12 +99,12 @@ describe("reconcileCoordinator", () => {
   });
 
   it("reinstates a protected finding the judge downgraded in severity, in place", () => {
-    const candidate = makeFinding({ id: "x", severity: "error", confidence: "low" });
+    const candidate = makeFinding({ id: "x", severity: "error", confidence: "high" });
     const downgraded = makeFinding({ id: "x", severity: "warning", confidence: "low" });
     const { finalFindings, reinstated, dropped } = reconcileCoordinator(
       [downgraded],
       [candidate],
-      new Map([["x", "high"]]),
+      true,
       "review",
     );
 
@@ -132,7 +132,7 @@ describe("reconcileCoordinator", () => {
     const { finalFindings, reinstated, dropped } = reconcileCoordinator(
       [kept],
       [c1, c2],
-      new Map(),
+      false,
       "review",
     );
 
@@ -149,7 +149,7 @@ describe("reconcileCoordinator", () => {
     const { finalFindings, reinstated, dropped } = reconcileCoordinator(
       [kept],
       [c1, c2],
-      new Map(),
+      false,
       "review",
     );
 
@@ -163,7 +163,7 @@ describe("reconcileCoordinator", () => {
     const c1 = makeFinding({ id: "x", specialist: "bugs" });
     const c2 = makeFinding({ id: "x", specialist: "security" });
     const outcome = makeFinding({ id: "x" });
-    const { finalFindings } = reconcileCoordinator([outcome], [c1, c2], new Map(), "review");
+    const { finalFindings } = reconcileCoordinator([outcome], [c1, c2], false, "review");
 
     expect(finalFindings).toHaveLength(1);
     expect(finalFindings[0]!.specialist).toBeUndefined();
@@ -172,22 +172,30 @@ describe("reconcileCoordinator", () => {
   it("re-attributes the specialist by id, ignoring the model-supplied value", () => {
     const candidate = makeFinding({ id: "x", specialist: "bugs" });
     const outcome = makeFinding({ id: "x", specialist: "evil" });
-    const { finalFindings } = reconcileCoordinator([outcome], [candidate], new Map(), "review");
+    const { finalFindings } = reconcileCoordinator([outcome], [candidate], false, "review");
 
     expect(finalFindings[0]!.specialist).toBe("bugs");
   });
 
-  it("re-stamps confidence from the verify map, overriding the judge", () => {
+  it("re-stamps confidence from the verified candidates, overriding the judge", () => {
     const candidate = makeFinding({ id: "x", confidence: "high" });
     const outcome = makeFinding({ id: "x", confidence: "low" });
-    const { finalFindings } = reconcileCoordinator(
-      [outcome],
-      [candidate],
-      new Map([["x", "high"]]),
-      "review",
-    );
+    const { finalFindings } = reconcileCoordinator([outcome], [candidate], true, "review");
 
     expect(finalFindings[0]!.confidence).toBe("high");
+  });
+
+  it("does not protect a colliding medium copy via another specialist's verify-high (#91)", () => {
+    // Two distinct specialists collide on the same id (#48): bugs verified "high",
+    // security only "medium". The judge keeps the bugs copy and drops the security one.
+    const bugsHigh = makeFinding({ id: "x", specialist: "bugs", confidence: "high" });
+    const securityMedium = makeFinding({ id: "x", specialist: "security", confidence: "medium" });
+    const kept = makeFinding({ id: "x", specialist: "bugs", confidence: "high" });
+    const { dropped } = reconcileCoordinator([kept], [bugsHigh, securityMedium], true, "review");
+
+    // security's "medium" is not verify-high, so it is NOT protected. The judge's drop of it
+    // must stand — bugs' "high" on the shared id must not leak protection onto it.
+    expect(dropped.some((d) => d.specialist === "security")).toBe(true);
   });
 
   it("keeps a cross-cutting finding (no id match) with no specialist, un-audited", () => {
@@ -196,7 +204,7 @@ describe("reconcileCoordinator", () => {
     const { finalFindings, reinstated, dropped } = reconcileCoordinator(
       [candidate, crossCutting],
       [candidate],
-      new Map(),
+      false,
       "review",
     );
 
