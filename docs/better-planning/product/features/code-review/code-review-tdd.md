@@ -312,6 +312,10 @@ abstention) from the rubric draft, applied to all. `submitSchema = SpecialistSub
 `confidence`). `maxFindings` default 5 (R8). The **3 verify lenses** (A·2) are supplied here as
 review config. Coordinator rubric includes the **"merge keeps highest-confidence id"** rule (A·4).
 
+**As-built (M5, comprehend):** the panel derives from a single `REVIEW_SPECIALISTS` list and
+`makeReviewRunners` builds the runner map from it, so the CLI runner map can't drift from the panel
+(fix after #96 shipped a 2-of-4 runner map — PR #97).
+
 ---
 
 ## Area E — Risk classifier rules *(settled — config data, eval-tuned)*
@@ -327,11 +331,20 @@ review config. Coordinator rubric includes the **"merge keeps highest-confidence
 
 Thresholds are **config-overridable** and settled empirically by Area C, not in this TDD.
 
+**Classifier input (decided M6, comprehend M5–M6):** `classify()` reads the **untrimmed** diff
+(`ctx.fullDiff`), never the budget-trimmed `ctx.diff` that a `consumesDiff` phase receives. The
+scheduler forwards `fullDiff` unconditionally; `composite.ts` classify reads it. This decouples
+"inject a budget-trimmed diff into prompts" from "classify on every file" — prompt-budget trimming
+can never downgrade the resolved risk level (the bug PR #99 fixed).
+
 ---
 
-## Area F — Config slice `phases.review` *(settled — merges into built 4-layer config)*
+## Area F — Config slice `phases.review` *(wired subset M6; rest deferred to M6.5)*
 
-Extends the existing config schema/load/merge (built M5). Slice:
+Extends the existing config schema/load/merge (built M5), resolved **per run** inside the
+review-phase wrapper: `makeReviewPhase().run()` parses the slice, filters specialists, and rebuilds
+the composite each run (the slice is dynamic, so the composite is constructed at run time, not at
+registration — this is the responsibility the review phase grew in M6, comprehend M5–M6).
 
 ```ts
 phases.review = {
@@ -339,10 +352,19 @@ phases.review = {
   maxFindings?: number,                 // global default (5)
   verify?: { voters?: number },         // N (default 3)
   coordinator?: boolean,                // on/off override
-  risk?: { thresholds?: ... },          // override the eval-tuned defaults
   // gating threshold inherited from output.failOn (not duplicated here)
 }
 ```
+
+**Wired (M6):** `specialists.<n>.enabled` (drop from panel) · `coordinator` (force off at every level).
+**Deferred to M6.5** — validated + accepted but not yet applied (ledger D7–D9): `maxFindings`
+(top + per-specialist) · `verify.voters` · per-specialist `model`. **Cut:** `risk.thresholds`
+(YAGNI in v1 — predicates are eval-tuned code, not user config; comprehend M5–M6).
+
+**No silent no-op (M6, comprehend M5–M6):** a recognized-but-unwired key surfaces as a non-gating
+`review.config-ignored` finding (confidence `low`) naming it — the no-silent-pass principle applied
+to our own config; it never gates a build. Wired keys and genuinely-unknown forward-compat keys are
+not flagged.
 
 Precedence rides the built 4-layer merge; no new mechanism.
 
@@ -398,6 +420,8 @@ stays fully downstream and deterministic (PRD R6/C6, decision #4). Specialists n
 - **Cost:** scales with risk level; trivial diffs cost ~1 specialist, no voters.
 - **Determinism:** default `vp test` is fully deterministic (cassettes); live mode is not, by design.
 - **Bounded coverage:** over-budget diffs → `review.partial-coverage` warning (no silent truncation).
+- **No silent config:** recognized-but-unwired `phases.review` keys → non-gating `review.config-ignored`
+  finding (Area F). Config never no-ops in silence.
 
 ## Stack / library choices
 
@@ -434,7 +458,10 @@ Human-made calls (canvas walk) vs draft-level proposals awaiting review.
 | A·3a | **Total verify failure short-circuits the coordinator** (degrade roll-up is final) | user (2026-06-24, comprehend D3) | a coordinator could re-raise degraded `low` findings to `high` + drop the warning → re-gate a broken-verify run; protects A·3's "broken verify never gates" | settled |
 | B·2′ | **Path normalization** (`normalizeFindingPath`) reconciles finding paths to index keys; **combined-diff gap** logged + deferred | user (2026-06-24, comprehend D4/D5) | path match is correctness-load-bearing (needs a test — ledger D4); combined diffs likely unreachable in v1 (ledger D5) | settled (with open fixes) |
 | §Stack′ | **Spikes resolved:** cassette key = SHA-256{model,rubric,userPrompt}; embedding = openai/text-embedding-3-small/cosine | user (2026-06-24, comprehend D2) | both as the TDD leaned; promote "lean" → settled | settled |
-| (open) | **`composite.run()` refactor** to be decided **before M5** — function ballooned to ~380 lines / 9 concerns / 5 return paths | user (2026-06-24, comprehend D6) | on-plan but complexity concentrated; "think about the refactor before we go too deep" | **open — decide before M5** |
+| D6 | **`composite.run()` refactor** — surgically extract pure helpers | user (2026-06-24, comprehend D6) | function had ballooned to ~380 lines / 9 concerns / 5 return paths; complexity concentrated | **resolved — PR #93** (`runVerifyStage` + `reconcileCoordinator` extracted; 380→165 lines) |
+| E′ | **Risk classifier reads the untrimmed `fullDiff`**, never the budget-trimmed `ctx.diff`; prompt-budget trimming can't downgrade the resolved level | user (2026-06-26, comprehend M5–M6) | a `consumesDiff` phase trims `ctx.diff` for prompts; classifying on it could downgrade a large diff (full→trivial) — exactly when partial-coverage fires | settled (PR #99) |
+| F′ | **Config slice ships a wired subset** (`enabled`, `coordinator`); `maxFindings`/`verify.voters`/per-specialist `model` deferred to M6.5 (ledger D7–D9); `risk.thresholds` cut; unwired keys surface a non-gating `review.config-ignored` advisory | user (2026-06-26, comprehend M5–M6) | no-silent-pass applied to config; voters/model carry real blockers (lens count, per-specialist routing) | settled (with deferred fixes) |
+| D′ | **Review panel derives from one `REVIEW_SPECIALISTS` list**; runner map built from it via `makeReviewRunners` | user (2026-06-26, comprehend M5–M6) | CLI shipped a 2-of-4 runner map (#96); single source prevents recurrence | settled (PR #97) |
 
 > **Spikes flagged for the plan:** cassette record/replay at the AgentRunner seam; embedding-match
 > library. Both in §Technical risks / §Stack.

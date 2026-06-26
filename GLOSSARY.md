@@ -213,6 +213,17 @@ If a doc and this glossary disagree, one of them is wrong — fix it in the same
   with no network. → code-review TDD C·1
 - **Cohen's kappa** — grader-vs-human agreement on a golden subset; a grader-validation utility
   (threshold ~0.75), not a gated metric. → code-review PRD #13
+- **risk level** — the review phase's resolved tier for a diff: `trivial` (bugs only, coordinator
+  off) · `standard` (bugs + quality + coverage) · `full` (all four incl. security). Set by
+  `classify()` from line-count thresholds + sensitive-path globs; security always runs on sensitive
+  paths. → code-review TDD E
+- **`review.partial-coverage`** — non-gating warning naming files excluded when an over-budget diff
+  is trimmed to `DIFF_BUDGET`; no silent truncation. → code-review TDD §NFRs
+- **`review.config-ignored`** — non-gating advisory (confidence `low`) naming `phases.review` config
+  keys that are recognized but not yet wired, so config never no-ops in silence. → code-review TDD F
+- **`fullDiff` vs `diff` (PhaseContext)** — `diff` is the budget-trimmed prefix a `consumesDiff`
+  phase injects into prompts; `fullDiff` is the untrimmed run-wide diff the risk classifier reads, so
+  trimming for prompt budget can't downgrade the risk level. → code-review TDD E
 
 ## External names
 
