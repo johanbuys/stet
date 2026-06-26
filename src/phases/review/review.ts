@@ -17,6 +17,7 @@
 import { type Static, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { SpecialistSubmission } from "../../schema/finding.js";
+import type { Finding } from "../../schema/finding.js";
 import { SUBMIT_TOOL_NAME } from "../../agent/submit-tool.js";
 import { FIVE_MINUTE_BUDGETS } from "../../agent/budgets.js";
 import type { AgentRunner } from "../../agent/runner.js";
@@ -187,6 +188,49 @@ export type ReviewConfig = Static<typeof ReviewConfigSchema>;
 export function parseReviewConfig(config: unknown): ReviewConfig {
   if (Value.Check(ReviewConfigSchema, config)) return config;
   return {};
+}
+
+/**
+ * Dotted paths of `phases.review` keys that the schema RECOGNIZES but `run()` does not
+ * yet honor — so setting one is a silent no-op without the advisory below. stet's identity
+ * is "nothing passes silently", so a recognized-but-unwired key must be surfaced, not
+ * dropped. Wired keys (`specialists.<n>.enabled`, `coordinator`) are intentionally excluded.
+ *
+ * Each entry has a known blocker (tracked separately): `maxFindings` is a prompt-only cap
+ * today (rubric text, no per-run rebuild); `verify.voters` is coupled to lens count
+ * (verify.ts throws unless voters === lenses); `specialists.<n>.model` needs per-specialist
+ * routing. When a key becomes wired, delete its detector here.
+ */
+export function findIgnoredConfigKeys(cfg: ReviewConfig): string[] {
+  const ignored: string[] = [];
+  if (cfg.maxFindings !== undefined) ignored.push("maxFindings");
+  if (cfg.verify?.voters !== undefined) ignored.push("verify.voters");
+  for (const [name, entry] of Object.entries(cfg.specialists ?? {})) {
+    if (entry?.maxFindings !== undefined) ignored.push(`specialists.${name}.maxFindings`);
+    if (entry?.model !== undefined) ignored.push(`specialists.${name}.model`);
+  }
+  return ignored;
+}
+
+/**
+ * Advisory emitted when config sets keys `findIgnoredConfigKeys` flags (mirrors the
+ * harness's partial-coverage warning: surface, don't truncate silently).
+ *
+ * Intentionally NON-GATING: confidence is "low", which keeps it below the "high" gating
+ * bar at every `--fail-on` (exit-codes gates only confidence === "high"). This is the
+ * deliberate difference from partial-coverage (which is "high"): a not-yet-wired config
+ * key is a usage notice, never a build failure.
+ */
+function configIgnoredFinding(keys: string[]): Finding {
+  return {
+    id: "review.config-ignored",
+    phase: "review",
+    severity: "warning",
+    confidence: "low",
+    message:
+      `phases.review set ${keys.length} recognized but not-yet-applied key(s): ` +
+      `${keys.join(", ")}. Ignored for this run (no effect).`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +583,11 @@ export function makeReviewPhase(
     async run(ctx: PhaseContext) {
       const reviewCfg = parseReviewConfig(ctx.config);
 
+      // Surface recognized-but-unwired config keys as a non-gating advisory rather than
+      // silently ignoring them (stet's no-silent-pass principle). Prepended to the report
+      // below, after the composite runs.
+      const ignoredKeys = findIgnoredConfigKeys(reviewCfg);
+
       // Filter specialists: specialists.<name>.enabled === false → drop from panel.
       const enabledSpecialists = REVIEW_SPECIALISTS.filter(
         (s) => reviewCfg.specialists?.[s.name]?.enabled !== false,
@@ -583,7 +632,13 @@ export function makeReviewPhase(
         };
       }
 
-      return composite.run(ctx);
+      const report = await composite.run(ctx);
+      // Lead with the advisory so an ignored-config notice isn't buried under findings
+      // (mirrors the scheduler prepending partial-coverage — PRD #20).
+      if (ignoredKeys.length > 0) {
+        return { ...report, findings: [configIgnoredFinding(ignoredKeys), ...report.findings] };
+      }
+      return report;
     },
   };
 }
