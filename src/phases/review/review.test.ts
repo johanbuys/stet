@@ -1,5 +1,5 @@
 /**
- * Tests for the review phase factory + full specialist panel (T13/T14 · M4, T15 · M5).
+ * Tests for the review phase factory + full specialist panel (T13/T14 · M4, T15 · M5, T17 · M6).
  *
  * Fake-driven: each specialist is driven by a scripted FakeAgentRunner.
  * Verifies:
@@ -11,8 +11,9 @@
  *   - Full panel fan-out: all 4 specialists run; findings from each are included.
  *   - Phase validates against the PhaseReport schema.
  *   - Creds gate (AC#8): model=undefined → status "error", never completed+empty.
+ *   - Risk rules + levels (T17): trivial→bugs-only/no-coordinator; sensitive→full+security.
  *
- * TDD refs: D (specialist wiring), A·2 (verify lenses). Plan: M4 steps 2,3,5; M5 step.
+ * TDD refs: D (specialist wiring), A·2 (verify lenses), E (risk rules). Plan: M4 steps 2,3,5; M5; M6 step 1.
  */
 
 import { describe, expect, it } from "vite-plus/test";
@@ -22,11 +23,14 @@ import type { SpecialistSubmission as SpecialistSubmissionType } from "../../sch
 import { SpecialistSubmission } from "../../schema/finding.js";
 import { SUBMIT_TOOL_NAME } from "../../agent/submit-tool.js";
 import { PhaseReport } from "../../schema/report.js";
+import { classify } from "../../risk/classify.js";
 import {
   BUGS_SPECIALIST,
   COVERAGE_SPECIALIST,
   MAX_FINDINGS,
   QUALITY_SPECIALIST,
+  REVIEW_RISK_LEVELS,
+  REVIEW_RISK_RULES,
   REVIEW_SPECIALISTS,
   REVIEW_VERIFY_CONFIG,
   SECURITY_SPECIALIST,
@@ -44,6 +48,21 @@ function ctx(files: string[] = ["src/a.ts"]) {
     scope: { kind: "staged" as const, files },
     config: {},
     diff: "diff --git a/src/a.ts b/src/a.ts\n+new line\n",
+  };
+}
+
+/**
+ * Context that resolves to "full" risk level (sensitive auth path).
+ * Used by full-panel tests that need all 4 specialists to run (T17 · M6).
+ * The `auth/` directory is a sensitive path in REVIEW_RISK_RULES so it always
+ * triggers the full panel regardless of diff size.
+ */
+function fullCtx(files: string[] = ["src/auth/handler.ts"]) {
+  return {
+    cwd: "/tmp/review-test",
+    scope: { kind: "staged" as const, files },
+    config: {},
+    diff: "diff --git a/src/auth/handler.ts b/src/auth/handler.ts\n+new line\n",
   };
 }
 
@@ -550,6 +569,10 @@ describe("COVERAGE_SPECIALIST config", () => {
 // ---------------------------------------------------------------------------
 
 describe("makeReviewPhase — full panel fan-out (M5 · T15)", () => {
+  // Full-panel tests use fullCtx() (auth/ path → "full" risk level) so all 4 specialists
+  // run. With T17 risk classification wired in, ctx() (src/a.ts, 3-line diff) resolves to
+  // "trivial" → bugs-only; fullCtx() resolves to "full" → all four including security.
+
   it("includes findings from the security specialist", async () => {
     const secFinding = fakeFinding({ id: "review.security.sqli", severity: "error" });
     const phase = makeReviewPhase(
@@ -557,7 +580,7 @@ describe("makeReviewPhase — full panel fan-out (M5 · T15)", () => {
       "fake/model",
     );
 
-    const report = await phase.run(ctx());
+    const report = await phase.run(fullCtx());
 
     expect(report.status).toBe("completed");
     expect(report.findings.some((f) => f.id === "review.security.sqli")).toBe(true);
@@ -569,7 +592,7 @@ describe("makeReviewPhase — full panel fan-out (M5 · T15)", () => {
     const qFinding = fakeFinding({ id: "review.quality.dup", severity: "warning" });
     const phase = makeReviewPhase(panelRunners([], { qualityFindings: [qFinding] }), "fake/model");
 
-    const report = await phase.run(ctx());
+    const report = await phase.run(fullCtx());
 
     expect(report.status).toBe("completed");
     const f = report.findings.find((f) => f.id === "review.quality.dup");
@@ -584,7 +607,7 @@ describe("makeReviewPhase — full panel fan-out (M5 · T15)", () => {
       "fake/model",
     );
 
-    const report = await phase.run(ctx());
+    const report = await phase.run(fullCtx());
 
     expect(report.status).toBe("completed");
     const f = report.findings.find((f) => f.id === "review.coverage-gap.missing-edge");
@@ -607,7 +630,7 @@ describe("makeReviewPhase — full panel fan-out (M5 · T15)", () => {
       "fake/model",
     );
 
-    const report = await phase.run(ctx());
+    const report = await phase.run(fullCtx());
 
     expect(report.status).toBe("completed");
     const ids = report.findings.map((f) => f.id);
@@ -623,7 +646,7 @@ describe("makeReviewPhase — full panel fan-out (M5 · T15)", () => {
 
     const phase = makeReviewPhase(panelRunners([bugF], { securityFindings: [secF] }), "fake/model");
 
-    const report = await phase.run(ctx());
+    const report = await phase.run(fullCtx());
 
     expect(Value.Check(PhaseReport, report)).toBe(true);
   });
@@ -664,5 +687,169 @@ describe("makeReviewRunners — covers every panel specialist + verify", () => {
 
     expect(report.status).toBe("completed");
     expect(report.reason ?? "").not.toContain("No runner provided");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Risk rules + levels (T17 · M6 step 1 · TDD E · PRD R4/#9)
+// ---------------------------------------------------------------------------
+
+describe("REVIEW_RISK_RULES — structure", () => {
+  it("is an array of risk rules with predicate + level", () => {
+    expect(Array.isArray(REVIEW_RISK_RULES)).toBe(true);
+    expect(REVIEW_RISK_RULES.length).toBeGreaterThan(0);
+    for (const rule of REVIEW_RISK_RULES) {
+      expect(typeof rule.predicate).toBe("function");
+      expect(typeof rule.level).toBe("string");
+    }
+  });
+
+  it("every rule resolves to a level present in REVIEW_RISK_LEVELS", () => {
+    for (const rule of REVIEW_RISK_RULES) {
+      expect(REVIEW_RISK_LEVELS).toHaveProperty(rule.level);
+    }
+  });
+
+  it("sensitive path (auth/) resolves to full regardless of diff size", () => {
+    // TDD E: security-always override — first rule fires before size rules
+    const emptyDiff = "";
+    expect(classify(emptyDiff, ["src/auth/login.ts"], REVIEW_RISK_RULES)).toBe("full");
+    expect(classify(emptyDiff, ["src/auth/middleware.ts"], REVIEW_RISK_RULES)).toBe("full");
+  });
+
+  it("sensitive path (migrations/) resolves to full", () => {
+    expect(classify("", ["db/migrations/0001_add_user.sql"], REVIEW_RISK_RULES)).toBe("full");
+  });
+
+  it("sensitive path containing crypto resolves to full", () => {
+    expect(classify("", ["src/utils/crypto.ts"], REVIEW_RISK_RULES)).toBe("full");
+  });
+
+  it("small non-sensitive diff resolves to trivial", () => {
+    const smallDiff = Array.from({ length: 5 }, (_, i) => `+line ${i}`).join("\n");
+    expect(classify(smallDiff, ["src/utils.ts"], REVIEW_RISK_RULES)).toBe("trivial");
+  });
+
+  it("small diff with no sensitive paths resolves to trivial", () => {
+    // The default ctx() diff (3 lines, src/a.ts) should be trivial
+    const diff = "diff --git a/src/a.ts b/src/a.ts\n+new line\n";
+    expect(classify(diff, ["src/a.ts"], REVIEW_RISK_RULES)).toBe("trivial");
+  });
+});
+
+describe("REVIEW_RISK_LEVELS — structure", () => {
+  it("defines trivial, standard, and full levels", () => {
+    expect(REVIEW_RISK_LEVELS).toHaveProperty("trivial");
+    expect(REVIEW_RISK_LEVELS).toHaveProperty("standard");
+    expect(REVIEW_RISK_LEVELS).toHaveProperty("full");
+  });
+
+  it("trivial level includes only bugs specialist", () => {
+    const trivial = REVIEW_RISK_LEVELS["trivial"];
+    expect(trivial?.specialists).toEqual(["bugs"]);
+  });
+
+  it("trivial level sets coordinator=false (no coordinator on small diffs)", () => {
+    const trivial = REVIEW_RISK_LEVELS["trivial"];
+    expect(trivial?.coordinator).toBe(false);
+  });
+
+  it("standard level includes bugs, quality, and coverage-gaps (no security)", () => {
+    const std = REVIEW_RISK_LEVELS["standard"]?.specialists;
+    expect(std).toContain("bugs");
+    expect(std).toContain("quality");
+    expect(std).toContain("coverage-gaps");
+    expect(std).not.toContain("security");
+  });
+
+  it("full level has no specialist restriction (all four run)", () => {
+    // undefined means all specialists run (the default in makeCompositePhase)
+    const full = REVIEW_RISK_LEVELS["full"];
+    expect(full?.specialists).toBeUndefined();
+  });
+
+  it("full level does not set coordinator=false", () => {
+    const full = REVIEW_RISK_LEVELS["full"];
+    expect(full?.coordinator).not.toBe(false);
+  });
+});
+
+describe("makeReviewPhase — risk level integration (T17 · TDD E)", () => {
+  it("trivial: small non-sensitive diff → only bugs specialist runs (security finding absent)", async () => {
+    const secFinding = fakeFinding({ id: "review.security.missed", severity: "error" });
+    // All 4 runners present; only bugs should fan out for a trivial diff
+    const phase = makeReviewPhase(
+      panelRunners([], { securityFindings: [secFinding] }),
+      "fake/model",
+    );
+
+    // ctx() uses "src/a.ts" (non-sensitive) and a 3-line diff → trivial level
+    const report = await phase.run(ctx(["src/utils.ts"]));
+
+    expect(report.status).toBe("completed");
+    // Security was skipped at the trivial level → its finding must not appear
+    expect(report.findings.some((f) => f.id === "review.security.missed")).toBe(false);
+  });
+
+  it("trivial: report.level is 'trivial' for small non-sensitive diff", async () => {
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+
+    const report = await phase.run(ctx(["src/utils.ts"]));
+
+    expect(report.level).toBe("trivial");
+  });
+
+  it("trivial: bugs specialist still runs and its findings appear", async () => {
+    const bugFinding = fakeFinding({ id: "review.bug.null" });
+    const phase = makeReviewPhase(panelRunners([bugFinding]), "fake/model");
+
+    const report = await phase.run(ctx(["src/utils.ts"]));
+
+    expect(report.status).toBe("completed");
+    expect(report.findings.some((f) => f.id === "review.bug.null")).toBe(true);
+  });
+
+  it("sensitive: auth path → full level, security specialist runs and its finding appears", async () => {
+    const secFinding = fakeFinding({ id: "review.security.authn", severity: "error" });
+    const phase = makeReviewPhase(
+      panelRunners([], { securityFindings: [secFinding] }),
+      "fake/model",
+    );
+
+    // auth/ path triggers the security-always (first risk rule → full)
+    const report = await phase.run(ctx(["src/auth/login.ts"]));
+
+    expect(report.status).toBe("completed");
+    expect(report.findings.some((f) => f.id === "review.security.authn")).toBe(true);
+    const f = report.findings.find((f) => f.id === "review.security.authn");
+    expect(f!.specialist).toBe("security");
+  });
+
+  it("sensitive: report.level is 'full' for auth path", async () => {
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+
+    const report = await phase.run(ctx(["src/auth/login.ts"]));
+
+    expect(report.level).toBe("full");
+  });
+
+  it("sensitive: report validates against PhaseReport schema", async () => {
+    const secFinding = fakeFinding({ id: "review.security.xss", severity: "warning" });
+    const phase = makeReviewPhase(
+      panelRunners([], { securityFindings: [secFinding] }),
+      "fake/model",
+    );
+
+    const report = await phase.run(ctx(["src/auth/login.ts"]));
+
+    expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+
+  it("trivial: report validates against PhaseReport schema", async () => {
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+
+    const report = await phase.run(ctx(["src/utils.ts"]));
+
+    expect(Value.Check(PhaseReport, report)).toBe(true);
   });
 });

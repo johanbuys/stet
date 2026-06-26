@@ -1,12 +1,14 @@
 /**
- * review phase — full specialist panel (M5 full panel, T15).
+ * review phase — full specialist panel (M5 full panel, T15) + risk classification (M6 T17).
  *
  * Implements plan §M4 steps 2,3 + M5 · TDD D · code-review-rubric-draft.md.
  * M4 shipped `bugs` only; M5 (T15) adds `security`, `quality`, and `coverage-gaps`.
+ * M6 T17 adds riskRules + riskLevels: trivial→bugs-only, standard→bugs+quality+coverage,
+ * full→all four + security (security-always on sensitive paths, PRD R4/#9).
  *
- * PRD refs: §R1 (activation), §R3 (specialist panel), §R5 (verify), §R7 (conventions),
- *           §R8 (noise control).
- * TDD refs: D (specialist wiring), A·2 (verify lenses).
+ * PRD refs: §R1 (activation), §R3 (specialist panel), §R4/#9 (security-always), §R5 (verify),
+ *           §R7 (conventions), §R8 (noise control).
+ * TDD refs: D (specialist wiring), A·2 (verify lenses), E (risk classifier rules).
  */
 
 import { SpecialistSubmission } from "../../schema/finding.js";
@@ -14,8 +16,9 @@ import { SUBMIT_TOOL_NAME } from "../../agent/submit-tool.js";
 import { FIVE_MINUTE_BUDGETS } from "../../agent/budgets.js";
 import type { AgentRunner } from "../../agent/runner.js";
 import type { PhaseConfiguration, PhaseContext, ActivationContext } from "../types.js";
-import { makeCompositePhase, type SpecialistConfig } from "../composite.js";
+import { makeCompositePhase, type SpecialistConfig, type RiskLevel } from "../composite.js";
 import type { VerifyConfig } from "../verify.js";
+import type { RiskRule } from "../../risk/classify.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -23,6 +26,110 @@ import type { VerifyConfig } from "../verify.js";
 
 /** Per-specialist finding cap (R8 — config-overridable in M6). Substituted into rubric text. */
 export const MAX_FINDINGS = 5;
+
+// ---------------------------------------------------------------------------
+// Risk classification (TDD E · PRD R4/#9)
+// ---------------------------------------------------------------------------
+
+/**
+ * Line-count thresholds for review risk classification (plan §M6 step 1, TDD E).
+ * Placeholder values — config-overridable and eval-tuned in later iterations.
+ *
+ *  ≤ TRIVIAL_LINES  → "trivial" (small, low-risk diffs)
+ *  > FULL_LINES     → "full"    (large diffs; same panel as sensitive paths)
+ *  otherwise        → "standard"
+ */
+const TRIVIAL_LINES = 200;
+const FULL_LINES = 500;
+
+/**
+ * Directory names that make any touching path "sensitive" (TDD E · PRD R4/#9).
+ * A path segment that exactly matches one of these triggers the "full" level —
+ * ensuring security always runs even on small diffs that touch these directories.
+ */
+const SENSITIVE_DIRS = new Set(["auth", "migrations", "certs", "keys", "secrets", "credentials"]);
+
+/**
+ * Substrings that make a path component sensitive when present.
+ * Catches names like "crypto.ts", "cryptography/", "session-store.ts", "token-manager.ts".
+ */
+const SENSITIVE_SUBSTRINGS = ["crypto", "crypt", "session", "token", "private", "credential"];
+
+/** Returns true if any segment of the path touches a security-sensitive area. */
+function isSensitivePath(path: string): boolean {
+  return path
+    .toLowerCase()
+    .split("/")
+    .some(
+      (part) => SENSITIVE_DIRS.has(part) || SENSITIVE_SUBSTRINGS.some((sub) => part.includes(sub)),
+    );
+}
+
+/**
+ * Risk rules for the review phase (TDD E · PRD R4/#9).
+ * Evaluated in order by classify(); first match wins.
+ *
+ * Level semantics (see REVIEW_RISK_LEVELS):
+ *   trivial  — bugs only, coordinator off (small safe diffs)
+ *   standard — bugs + quality + coverage-gaps, coordinator on
+ *   full     — all four specialists including security, coordinator on
+ *
+ * PRD R4: security always runs on sensitive paths.
+ * Encoded as the FIRST rule: any sensitive path immediately resolves to "full",
+ * regardless of diff size. This is the "security-always override" the TDD calls
+ * "a per-level override, not a threshold."
+ */
+export const REVIEW_RISK_RULES: RiskRule[] = [
+  // 1. Sensitive paths always → full (security-always, PRD R4/#9)
+  {
+    predicate: (_diff, paths) => paths.some(isSensitivePath),
+    level: "full",
+  },
+  // 2. Large diff → full (all specialists)
+  {
+    predicate: (diff) => diff.split("\n").length > FULL_LINES,
+    level: "full",
+  },
+  // 3. Medium diff → standard
+  {
+    predicate: (diff) => diff.split("\n").length > TRIVIAL_LINES,
+    level: "standard",
+  },
+  // 4. Small diff with no sensitive paths → trivial (catch-all)
+  {
+    predicate: () => true,
+    level: "trivial",
+  },
+];
+
+/**
+ * Risk level → specialist subset + coordinator on/off for the review phase (TDD E).
+ *
+ * trivial  — bugs only, coordinator false.
+ *   Cheapest review for small, low-risk diffs. Coordinator is skipped because a
+ *   single specialist produces no cross-specialist duplicates to dedup/rerank.
+ *
+ * standard — bugs + quality + coverage-gaps, coordinator on (when configured).
+ *   Security absent: sensitive paths already upgrade to full via the first risk rule.
+ *
+ * full     — all four specialists, coordinator on.
+ *   Triggered by large diffs OR any sensitive path. "security-always" is encoded
+ *   here: full specialists = undefined (all run), and the first rule fires on
+ *   sensitive paths to guarantee full is always the resolved level for them.
+ */
+export const REVIEW_RISK_LEVELS: Record<string, RiskLevel> = {
+  trivial: {
+    specialists: ["bugs"],
+    coordinator: false,
+  },
+  standard: {
+    specialists: ["bugs", "quality", "coverage-gaps"],
+  },
+  full: {
+    // No specialist restriction — all four run (undefined = full panel).
+    // Security is included here, which is the "security-always on sensitive paths" guarantee.
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Rubric text (data — tuned against the eval in M5, not design-perfected here)
@@ -353,6 +460,8 @@ export function makeReviewPhase(
     id: "review",
     specialists: REVIEW_SPECIALISTS.map((s) => ({ ...s, model })),
     verify: { ...REVIEW_VERIFY_CONFIG, model },
+    riskRules: REVIEW_RISK_RULES,
+    riskLevels: REVIEW_RISK_LEVELS,
     activation: reviewActivation,
   });
 }
