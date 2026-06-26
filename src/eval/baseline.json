@@ -11,11 +11,11 @@
       "recall": 0
     },
     "needs-context": {
-      "fixtureCount": 1,
+      "fixtureCount": 2,
       "hitCount": 0,
       "noiseCount": 0,
       "validCount": 0,
-      "missedCount": 1,
+      "missedCount": 2,
       "precision": 0,
       "recall": 0
     },
@@ -34,8 +34,8 @@
     "hit": 0,
     "valid": 0,
     "noise": 0,
-    "missed": 4
+    "missed": 5
   },
-  "fixtureCount": 5,
-  "cleanFixtureCount": 1
+  "fixtureCount": 7,
+  "cleanFixtureCount": 2
 }

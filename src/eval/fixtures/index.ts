@@ -1,7 +1,7 @@
 /**
  * All hand-authored eval fixtures.
  *
- * Covers: in-diff (2), needs-context (1), cross-file (1), clean (1).
+ * Covers: in-diff (2), needs-context (2), cross-file (1), clean (2).
  * Extend this array as new fixtures are added; do NOT reorder (cassette
  * replay depends on fixture ids, not positions, but stable ordering helps diffs).
  */
@@ -12,6 +12,8 @@ import { inDiffDivideByZero } from "./in-diff-divide-by-zero.js";
 import { needsContextWrongArgOrder } from "./needs-context-wrong-arg-order.js";
 import { crossFileBrokenImport } from "./cross-file-broken-import.js";
 import { cleanRename } from "./clean-rename.js";
+import { conventionViolationPlainThrow } from "./convention-violation-plain-throw.js";
+import { cleanConstantExtraction } from "./clean-constant-extraction.js";
 
 export const ALL_FIXTURES: readonly Fixture[] = [
   inDiffOffByOne,
@@ -19,4 +21,6 @@ export const ALL_FIXTURES: readonly Fixture[] = [
   needsContextWrongArgOrder,
   crossFileBrokenImport,
   cleanRename,
+  conventionViolationPlainThrow,
+  cleanConstantExtraction,
 ];
