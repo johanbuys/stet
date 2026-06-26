@@ -2,7 +2,7 @@
 
 **Status:** M1–M6 **done** (merged) · **M6.5 ready** — 2026-06-26
 **Derived from:** `code-review-plan.md` (M1–M6 + **M6.5**, settled; M6.5 added by the M6-boundary revision pass PL·6) · cites `code-review-tdd.md` (A–G, F′) · `code-review-prd.md`
-**Exported:** GitHub issues **#65–#84** (M1–M6), label **`auto-tasks`**, one native **Milestone per PR** (#11 M1 → #16 M6, due-date-ordered as the sequencing device). Driven by **`.ideoshi-code` milestone mode** (one PR per milestone; build order = issue-number order). Markdown is canonical; issues/milestones are a view — if they drift, this file wins. *(M6.5 issues + Milestone exported separately — see M6.5 below.)*
+**Exported:** GitHub issues **#65–#84** (M1–M6), label **`auto-tasks`**, one native **Milestone per PR** (#11 M1 → #16 M6, due-date-ordered as the sequencing device). Driven by **`.ideoshi-code` milestone mode** (one PR per milestone; build order = issue-number order). Markdown is canonical; issues/milestones are a view — if they drift, this file wins. **M6.5:** issues **#103 (T21) · #104 (T23)**, Milestone **#17** `code-review M6.5 · config wiring (PR7)`.
 
 One task ≈ one focused agent session. Build order = task-number order within a milestone. Each task
 proves itself via its **Accept** line (a command + an observable). The plan's reality-disagrees
@@ -142,12 +142,12 @@ Honors the config keys the M6 slice accepted but left as no-ops (ledger D7a/D9c)
 **removes the key's detector from `findIgnoredConfigKeys`**, so the `review.config-ignored` advisory
 stops flagging it — that round-trip is each task's verifiable spine. Builds on M6 (merged).
 
-- [ ] **T21 · Wire `phases.review.maxFindings` (top-level + per-specialist)**  (#&lt;issue&gt;)
+- [ ] **T21 · Wire `phases.review.maxFindings` (top-level + per-specialist)**  (#103)
   Implements: plan §M6.5 T21 · TDD F / decision F′ · ledger D7a
   Files: `src/phases/review/review.ts` (per-run rubric build · `findIgnoredConfigKeys`), `src/phases/review/review.test.ts`
   Accept: today `MAX_FINDINGS` (=5) is string-substituted into the shared rubric **at module load**, so a config cap can't take effect — build the specialist rubric **per run** with the resolved cap (`phases.review.maxFindings` as default, `specialists.<n>.maxFindings` as per-specialist override) and set `SpecialistConfig.maxFindings` to match; drop `maxFindings` (top + per-specialist) from `findIgnoredConfigKeys`. `vp test`: `phases.review.maxFindings:3` → every specialist rubric carries "≤ 3"; `specialists.bugs.maxFindings:2` → bugs carries 2 while the others carry the default; the `review.config-ignored` advisory no longer lists `maxFindings`.
 
-- [ ] **T23 · Wire per-specialist `specialists.<n>.model`**  (#&lt;issue&gt;)  ⛔ **provisional — blocked on CF-1**
+- [ ] **T23 · Wire per-specialist `specialists.<n>.model`**  (#104)  ⛔ **provisional — blocked on CF-1**
   Implements: plan §M6.5 T23 + Carry-forward CF-1 · TDD F / decision F′ · ledger D9c
   Files: `src/phases/review/review.ts` (run() specialist mapping · `findIgnoredConfigKeys`), tests
   Blocked-by: **CF-1 · review→routing integration** — review still passes one `PI_TEST_MODEL` stopgap string to every specialist; a per-specialist `Tier` can't resolve until review goes through `routing/resolve.ts`. **Do not start until CF-1 lands** (its own milestone, M7).
