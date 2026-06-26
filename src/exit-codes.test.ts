@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "vite-plus/test";
 import type { Finding } from "./schema/finding.js";
+import { PREEXISTING_META_KEY } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
 import { deriveExit, exitLabel } from "./exit-codes.js";
 
@@ -390,6 +391,99 @@ describe("deriveExit — return type", () => {
     const result = deriveExit([makePhase("review", findings)], "error");
     const entry = result.gating[0]!;
     expect(Object.keys(entry).sort()).toEqual(["id", "message", "phase"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-existing filter (TDD G · T19 · PRD R6/C6)
+// ---------------------------------------------------------------------------
+
+describe("deriveExit — pre-existing filter (TDD G)", () => {
+  test("high-confidence error with meta.preexisting=true ⇒ exit 0 (does not gate)", () => {
+    const findings: Finding[] = [
+      {
+        ...makeFinding("review", "review.bug", "error", "high", "A pre-existing bug"),
+        meta: { [PREEXISTING_META_KEY]: true } as Record<string, unknown>,
+      },
+    ];
+    const result = deriveExit([makePhase("review", findings)], "error");
+    expect(result.exitCode).toBe(0);
+    expect(result.gating).toEqual([]);
+  });
+
+  test("high-confidence error without meta.preexisting ⇒ exit 1 (gates normally)", () => {
+    const findings: Finding[] = [
+      makeFinding("review", "review.bug", "error", "high", "An introduced bug"),
+    ];
+    const result = deriveExit([makePhase("review", findings)], "error");
+    expect(result.exitCode).toBe(1);
+    expect(result.gating).toHaveLength(1);
+  });
+
+  test("high-confidence error with meta.preexisting=false ⇒ exit 1 (false is not pre-existing)", () => {
+    const findings: Finding[] = [
+      {
+        ...makeFinding("review", "review.bug", "error", "high", "A bug"),
+        meta: { [PREEXISTING_META_KEY]: false } as Record<string, unknown>,
+      },
+    ];
+    const result = deriveExit([makePhase("review", findings)], "error");
+    expect(result.exitCode).toBe(1);
+    expect(result.gating).toHaveLength(1);
+  });
+
+  test("mix: pre-existing error + introduced error ⇒ exit 1, only introduced in gating", () => {
+    const findings: Finding[] = [
+      {
+        ...makeFinding("review", "review.old", "error", "high", "Old bug"),
+        meta: { [PREEXISTING_META_KEY]: true } as Record<string, unknown>,
+      },
+      makeFinding("review", "review.new", "error", "high", "New bug"),
+    ];
+    const result = deriveExit([makePhase("review", findings)], "error");
+    expect(result.exitCode).toBe(1);
+    expect(result.gating).toHaveLength(1);
+    expect(result.gating[0]?.id).toBe("review.new");
+  });
+
+  test("all pre-existing high-confidence errors ⇒ exit 0", () => {
+    const findings: Finding[] = [
+      {
+        ...makeFinding("review", "review.a", "error", "high", "Pre-existing A"),
+        meta: { [PREEXISTING_META_KEY]: true } as Record<string, unknown>,
+      },
+      {
+        ...makeFinding("review", "review.b", "error", "high", "Pre-existing B"),
+        meta: { [PREEXISTING_META_KEY]: true } as Record<string, unknown>,
+      },
+    ];
+    const result = deriveExit([makePhase("review", findings)], "error");
+    expect(result.exitCode).toBe(0);
+    expect(result.gating).toEqual([]);
+  });
+
+  test("meta with other keys but no preexisting ⇒ still gates", () => {
+    const findings: Finding[] = [
+      {
+        ...makeFinding("review", "review.bug", "error", "high", "A bug"),
+        meta: { selfConfidence: "medium" } as Record<string, unknown>,
+      },
+    ];
+    const result = deriveExit([makePhase("review", findings)], "error");
+    expect(result.exitCode).toBe(1);
+    expect(result.gating).toHaveLength(1);
+  });
+
+  test("pre-existing check is a runtime read — Finding schema allows any meta key", () => {
+    // Validates the open-meta contract: meta.preexisting is not narrowed in the schema.
+    const findings: Finding[] = [
+      {
+        ...makeFinding("review", "review.bug", "error", "high", "Pre-existing"),
+        meta: { [PREEXISTING_META_KEY]: true, selfConfidence: "high" } as Record<string, unknown>,
+      },
+    ];
+    const result = deriveExit([makePhase("review", findings)], "error");
+    expect(result.exitCode).toBe(0);
   });
 });
 
