@@ -37,6 +37,7 @@ import {
   REVIEW_SPECIALISTS,
   REVIEW_VERIFY_CONFIG,
   SECURITY_SPECIALIST,
+  findIgnoredConfigKeys,
   makeReviewPhase,
   makeReviewRunners,
   parseReviewConfig,
@@ -1104,6 +1105,96 @@ describe("makeReviewPhase — config-slice integration (T18 · TDD F)", () => {
       config: { specialists: { security: { enabled: false } } },
     });
 
+    expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Config-ignored advisory — no-silent-pass for recognized-but-unwired keys
+// ---------------------------------------------------------------------------
+
+describe("findIgnoredConfigKeys", () => {
+  it("returns [] for an empty config", () => {
+    expect(findIgnoredConfigKeys({})).toEqual([]);
+  });
+
+  it("returns [] when only WIRED keys are set (enabled, coordinator)", () => {
+    expect(
+      findIgnoredConfigKeys({
+        specialists: { security: { enabled: false } },
+        coordinator: false,
+      }),
+    ).toEqual([]);
+  });
+
+  it("flags top-level maxFindings", () => {
+    expect(findIgnoredConfigKeys({ maxFindings: 3 })).toEqual(["maxFindings"]);
+  });
+
+  it("flags verify.voters", () => {
+    expect(findIgnoredConfigKeys({ verify: { voters: 5 } })).toEqual(["verify.voters"]);
+  });
+
+  it("flags per-specialist maxFindings and model with the specialist name", () => {
+    const ignored = findIgnoredConfigKeys({
+      specialists: { bugs: { maxFindings: 2, model: "haiku" } },
+    });
+    expect(ignored).toContain("specialists.bugs.maxFindings");
+    expect(ignored).toContain("specialists.bugs.model");
+  });
+
+  it("does not flag a per-specialist entry that only sets enabled", () => {
+    expect(findIgnoredConfigKeys({ specialists: { bugs: { enabled: true } } })).toEqual([]);
+  });
+});
+
+describe("makeReviewPhase — config-ignored advisory", () => {
+  it("emits a non-gating review.config-ignored finding when an unwired key is set", async () => {
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+
+    const report = await phase.run({ ...ctx(["src/utils.ts"]), config: { maxFindings: 3 } });
+
+    const advisory = report.findings.find((f) => f.id === "review.config-ignored");
+    expect(advisory).toBeDefined();
+    expect(advisory!.message).toContain("maxFindings");
+    // Non-gating by construction: confidence below the "high" gating bar at any --fail-on.
+    expect(advisory!.confidence).toBe("low");
+    expect(advisory!.severity).toBe("warning");
+  });
+
+  it("leads the findings list with the advisory (mirrors partial-coverage ordering)", async () => {
+    const bugFinding = fakeFinding({ id: "review.bug.null" });
+    const phase = makeReviewPhase(panelRunners([bugFinding]), "fake/model");
+
+    const report = await phase.run({ ...ctx(["src/utils.ts"]), config: { maxFindings: 3 } });
+
+    expect(report.findings[0]?.id).toBe("review.config-ignored");
+    expect(report.findings.some((f) => f.id === "review.bug.null")).toBe(true);
+  });
+
+  it("does NOT emit the advisory when only wired keys are set", async () => {
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+
+    const report = await phase.run({
+      ...fullCtx(),
+      config: { specialists: { security: { enabled: false } }, coordinator: false },
+    });
+
+    expect(report.findings.some((f) => f.id === "review.config-ignored")).toBe(false);
+  });
+
+  it("does NOT emit the advisory for an empty config", async () => {
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+    const report = await phase.run({ ...ctx(["src/utils.ts"]), config: {} });
+    expect(report.findings.some((f) => f.id === "review.config-ignored")).toBe(false);
+  });
+
+  it("report with the advisory still validates against PhaseReport schema", async () => {
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+    const report = await phase.run({
+      ...ctx(["src/utils.ts"]),
+      config: { verify: { voters: 5 }, specialists: { bugs: { model: "haiku" } } },
+    });
     expect(Value.Check(PhaseReport, report)).toBe(true);
   });
 });
