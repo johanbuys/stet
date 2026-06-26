@@ -528,6 +528,7 @@ export function makeReviewPhase(
     kind: "agent",
     toolset: fullToolset,
     activation: reviewActivation,
+    consumesDiff: true,
 
     async run(ctx: PhaseContext) {
       const reviewCfg = parseReviewConfig(ctx.config);

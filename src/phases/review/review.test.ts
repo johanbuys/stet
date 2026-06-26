@@ -221,6 +221,29 @@ describe("makeReviewPhase — identity", () => {
   it('kind is "agent"', () => {
     expect(makePhase().kind).toBe("agent");
   });
+
+  it("consumesDiff is true — scheduler budget-trims diff and emits review.partial-coverage (T20 · AC#9/AC#28)", () => {
+    expect(makePhase().consumesDiff).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T20 · review.partial-coverage warning (M6 verifiable · PRD R2/AC#9/AC#28)
+// ---------------------------------------------------------------------------
+
+describe("makeReviewPhase — partial-coverage (T20)", () => {
+  it("consumesDiff is true on the main phase — scheduler emits review.partial-coverage on over-budget diff", () => {
+    const phase = makeReviewPhase(panelRunners(), "fake/model");
+    expect(phase.consumesDiff).toBe(true);
+  });
+
+  it("consumesDiff is NOT set on the creds-gate error phase — no misleading warning on errored run", () => {
+    // When model is absent the factory returns a synthetic error phase that never analyzes
+    // the diff; attaching a partial-coverage warning would be misleading, so the creds-gate
+    // path must NOT declare consumesDiff.
+    const credsGatePhase = makeReviewPhase({ bugs: bugsRunner([]) });
+    expect(credsGatePhase.consumesDiff).toBeFalsy();
+  });
 });
 
 // ---------------------------------------------------------------------------
