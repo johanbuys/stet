@@ -27,9 +27,11 @@ import {
   COVERAGE_SPECIALIST,
   MAX_FINDINGS,
   QUALITY_SPECIALIST,
+  REVIEW_SPECIALISTS,
   REVIEW_VERIFY_CONFIG,
   SECURITY_SPECIALIST,
   makeReviewPhase,
+  makeReviewRunners,
 } from "./review.js";
 
 // ---------------------------------------------------------------------------
@@ -624,5 +626,43 @@ describe("makeReviewPhase — full panel fan-out (M5 · T15)", () => {
     const report = await phase.run(ctx());
 
     expect(Value.Check(PhaseReport, report)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Runner-map coverage — regression guard for the M5 CLI wiring gap
+// ---------------------------------------------------------------------------
+//
+// The composite looks each runner up by specialist name and throws
+// `No runner provided for specialist "<name>"` on a miss (caught as a phase-level
+// error with zero findings). The M5 panel expansion broke the CLI because its
+// runner map still only carried "bugs"+"verify". makeReviewRunners derives the map
+// from REVIEW_SPECIALISTS so it can't drift; these tests lock that in.
+
+describe("makeReviewRunners — covers every panel specialist + verify", () => {
+  it("provides a runner keyed for each specialist in REVIEW_SPECIALISTS", () => {
+    const runners = makeReviewRunners(() => emptyRunner());
+    for (const s of REVIEW_SPECIALISTS) {
+      expect(runners[s.name]).toBeDefined();
+    }
+  });
+
+  it("provides a verify runner", () => {
+    const runners = makeReviewRunners(() => emptyRunner());
+    expect(runners["verify"]).toBeDefined();
+  });
+
+  it("a phase built from makeReviewRunners runs without a missing-runner error", async () => {
+    // All specialists return empty findings → no candidates → verify never runs;
+    // the point is that the composite finds a runner for every fanned-out specialist.
+    const phase = makeReviewPhase(
+      makeReviewRunners(() => emptyRunner()),
+      "fake/model",
+    );
+
+    const report = await phase.run(ctx());
+
+    expect(report.status).toBe("completed");
+    expect(report.reason ?? "").not.toContain("No runner provided");
   });
 });

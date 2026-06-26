@@ -222,6 +222,33 @@ export const COVERAGE_SPECIALIST: SpecialistConfig = {
   buildUserPrompt: buildReviewUserPrompt,
 };
 
+/**
+ * The full review specialist panel (M5 T15) — the single source of truth for which
+ * specialists the review phase fans out to. `makeReviewPhase` fans these out and
+ * `makeReviewRunners` builds one runner per name, so the two can never drift.
+ */
+export const REVIEW_SPECIALISTS: readonly SpecialistConfig[] = [
+  BUGS_SPECIALIST,
+  SECURITY_SPECIALIST,
+  QUALITY_SPECIALIST,
+  COVERAGE_SPECIALIST,
+];
+
+/**
+ * Build the runner map `makeReviewPhase` requires: one runner per panel specialist
+ * (keyed by specialist name, which is how the composite looks runners up) plus the
+ * "verify" voter. Derived from REVIEW_SPECIALISTS, so adding a specialist there
+ * automatically extends the map — the CLI and tests both build through here, which is
+ * what guarantees the map can never miss a specialist the phase fans out to (the M5
+ * regression where the CLI supplied only "bugs"+"verify" and the composite threw
+ * `No runner provided for specialist "security"`).
+ */
+export function makeReviewRunners(make: () => AgentRunner): Record<string, AgentRunner> {
+  const runners: Record<string, AgentRunner> = { verify: make() };
+  for (const s of REVIEW_SPECIALISTS) runners[s.name] = make();
+  return runners;
+}
+
 // ---------------------------------------------------------------------------
 // Verify config
 // ---------------------------------------------------------------------------
@@ -324,12 +351,7 @@ export function makeReviewPhase(
 
   return makeCompositePhase(runners, {
     id: "review",
-    specialists: [
-      { ...BUGS_SPECIALIST, model },
-      { ...SECURITY_SPECIALIST, model },
-      { ...QUALITY_SPECIALIST, model },
-      { ...COVERAGE_SPECIALIST, model },
-    ],
+    specialists: REVIEW_SPECIALISTS.map((s) => ({ ...s, model })),
     verify: { ...REVIEW_VERIFY_CONFIG, model },
     activation: reviewActivation,
   });
