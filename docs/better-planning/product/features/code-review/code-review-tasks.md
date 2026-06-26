@@ -1,8 +1,8 @@
 # code-review — Tasks
 
-**Status:** ready — 2026-06-22
-**Derived from:** `code-review-plan.md` (M1–M6, settled) · cites `code-review-tdd.md` (A–G) · `code-review-prd.md`
-**Exported:** GitHub issues **#65–#84**, label **`auto-tasks`**, one native **Milestone per PR** (#11 M1 → #16 M6, due-date-ordered as the sequencing device). Driven by **`.ideoshi-code` milestone mode** (one PR per milestone; build order = issue-number order). Markdown is canonical; issues/milestones are a view — if they drift, this file wins.
+**Status:** M1–M6 **done** (merged) · **M6.5 ready** — 2026-06-26
+**Derived from:** `code-review-plan.md` (M1–M6 + **M6.5**, settled; M6.5 added by the M6-boundary revision pass PL·6) · cites `code-review-tdd.md` (A–G, F′) · `code-review-prd.md`
+**Exported:** GitHub issues **#65–#84** (M1–M6), label **`auto-tasks`**, one native **Milestone per PR** (#11 M1 → #16 M6, due-date-ordered as the sequencing device). Driven by **`.ideoshi-code` milestone mode** (one PR per milestone; build order = issue-number order). Markdown is canonical; issues/milestones are a view — if they drift, this file wins. *(M6.5 issues + Milestone exported separately — see M6.5 below.)*
 
 One task ≈ one focused agent session. Build order = task-number order within a milestone. Each task
 proves itself via its **Accept** line (a command + an observable). The plan's reality-disagrees
@@ -18,8 +18,9 @@ protocol applies: anything that contradicts the plan/TDD/PRD surfaces upstream, 
 | **PR4** | M4 thin slice | T11–T14 | `stet --against <ref>` on a seeded-bug fixture → `review.bug`; no-creds→error | **PR1 + PR2** |
 | **PR5** | M5 panel+tune | T15–T16 | `vp run eval:live` → per-tier precision/SNR ≥ baseline | **PR4 + PR3** |
 | **PR6** | M6 risk/config/gate | T17–T20 | trivial→bugs-only; sensitive→full+security; gating = high ∧ !preexisting | **PR4 + PR2** |
+| **PR7** | M6.5 config wiring | T21 *(· T23 blocked)* | `vp test` — `maxFindings` cap takes effect in the rubric; `review.config-ignored` advisory no longer flags `maxFindings` | **PR6** *(merged)* |
 
-**Parallelism:** PR1 ∥ PR2 ∥ PR3 may start immediately. PR4 after PR1+PR2 merge. PR5 after PR4+PR3. PR6 after PR4+PR2.
+**Parallelism:** PR1 ∥ PR2 ∥ PR3 may start immediately. PR4 after PR1+PR2 merge. PR5 after PR4+PR3. PR6 after PR4+PR2. **PR7 after PR6** (M6 merged) — T21 ships PR7; **T23 is blocked on CF-1 (review→routing, M7)** and does not ship until then.
 
 ---
 
@@ -134,6 +135,29 @@ protocol applies: anything that contradicts the plan/TDD/PRD surfaces upstream, 
   Implements: plan §M6 verifiable · PRD R2/AC#9/AC#28
   Files: `src/phases/review/` (+ wherever budget-trim exclusions surface)
   Accept: an over-budget diff yields a `review.partial-coverage` warning naming the excluded files (no silent truncation). *(Confirm during build whether the harness already emits this — reality-disagrees if so.)*
+
+## M6.5 — `phases.review` config wiring · PR7  *(maintenance milestone; revision pass 2026-06-26)*
+
+Honors the config keys the M6 slice accepted but left as no-ops (ledger D7a/D9c). Each wiring also
+**removes the key's detector from `findIgnoredConfigKeys`**, so the `review.config-ignored` advisory
+stops flagging it — that round-trip is each task's verifiable spine. Builds on M6 (merged).
+
+- [ ] **T21 · Wire `phases.review.maxFindings` (top-level + per-specialist)**  (#&lt;issue&gt;)
+  Implements: plan §M6.5 T21 · TDD F / decision F′ · ledger D7a
+  Files: `src/phases/review/review.ts` (per-run rubric build · `findIgnoredConfigKeys`), `src/phases/review/review.test.ts`
+  Accept: today `MAX_FINDINGS` (=5) is string-substituted into the shared rubric **at module load**, so a config cap can't take effect — build the specialist rubric **per run** with the resolved cap (`phases.review.maxFindings` as default, `specialists.<n>.maxFindings` as per-specialist override) and set `SpecialistConfig.maxFindings` to match; drop `maxFindings` (top + per-specialist) from `findIgnoredConfigKeys`. `vp test`: `phases.review.maxFindings:3` → every specialist rubric carries "≤ 3"; `specialists.bugs.maxFindings:2` → bugs carries 2 while the others carry the default; the `review.config-ignored` advisory no longer lists `maxFindings`.
+
+- [ ] **T23 · Wire per-specialist `specialists.<n>.model`**  (#&lt;issue&gt;)  ⛔ **provisional — blocked on CF-1**
+  Implements: plan §M6.5 T23 + Carry-forward CF-1 · TDD F / decision F′ · ledger D9c
+  Files: `src/phases/review/review.ts` (run() specialist mapping · `findIgnoredConfigKeys`), tests
+  Blocked-by: **CF-1 · review→routing integration** — review still passes one `PI_TEST_MODEL` stopgap string to every specialist; a per-specialist `Tier` can't resolve until review goes through `routing/resolve.ts`. **Do not start until CF-1 lands** (its own milestone, M7).
+  Accept *(once unblocked)*: `specialists.security.model:<tier>` → the security specialist runs with the routed model (assert via the routing seam / fake); the `review.config-ignored` advisory no longer lists per-specialist `model`; `vp test`.
+
+> **Not tasks — dispositioned by the M6 revision pass (plan PL·6), recorded so they aren't lost:**
+> - **`verify.voters`** → routed to **design** (a lens-generation TDD decision; `verify.ts` throws unless `voters === lenses`). Re-enter via better-planning-design; becomes a task only after design settles. *(There is no T22 — that was the plan's `verify.voters` slot, now a design item, not a task.)*
+> - **CF-1 · review→routing integration** → tracked as the **M7** prerequisite; **T23 is blocked on it.**
+> - **D5 · combined-diff conservative handling** → accepted as **debt** (unreachable in v1).
+> - **`risk.thresholds`** → **cut** (YAGNI v1).
 
 ---
 
