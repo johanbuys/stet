@@ -577,7 +577,7 @@ if (isEntryPoint) {
       // malfunction) rather than escaping to Node's exit 1.
       const { PiAgentRunner } = await import("./agent/pi-runner.js");
       const { makeStubAgent } = await import("./phases/stub-agent.js");
-      const { makeReviewPhase } = await import("./phases/review/review.js");
+      const { makeReviewPhase, makeReviewRunners } = await import("./phases/review/review.js");
       // Pre-M6 model stopgap (plan §2a/P10): agent phases resolve their model from
       // PI_TEST_MODEL until M6 routing exists. Unset ⇒ stub-agent reports "no model
       // available" (PiAgentRunner Part B); review phase fires the creds gate (AC#8 /
@@ -587,18 +587,13 @@ if (isEntryPoint) {
       const piModel = process.env.PI_TEST_MODEL;
       registerPhase(makeStubAgent(new PiAgentRunner(), piModel));
       // Review phase (M5 full panel — bugs/security/quality/coverage-gaps + 3-voter verify).
-      // One PiAgentRunner per role: one per specialist (looked up by name in the composite)
-      // plus "verify" (per-voter). makeReviewPhase gates on piModel — when undefined the
-      // phase immediately reports status "error", never completed+empty (AC#8).
+      // makeReviewRunners builds one PiAgentRunner per panel specialist (looked up by name
+      // in the composite) plus "verify", derived from REVIEW_SPECIALISTS so the map can't
+      // drift from the panel. makeReviewPhase gates on piModel — when undefined the phase
+      // immediately reports status "error", never completed+empty (AC#8).
       registerPhase(
         makeReviewPhase(
-          {
-            bugs: new PiAgentRunner(),
-            security: new PiAgentRunner(),
-            quality: new PiAgentRunner(),
-            "coverage-gaps": new PiAgentRunner(),
-            verify: new PiAgentRunner(),
-          },
+          makeReviewRunners(() => new PiAgentRunner()),
           piModel,
         ),
       );
