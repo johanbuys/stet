@@ -528,12 +528,12 @@ export function makeReviewPhase(
     kind: "agent",
     toolset: fullToolset,
     activation: reviewActivation,
-    // The scheduler trims the diff to DIFF_BUDGET and emits a review.partial-coverage
-    // warning naming excluded files before this phase runs (no silent truncation).
-    // Caveat: the inner risk classifier (composite.ts, finding 6) reads ctx.diff and so
-    // sees the trimmed diff. Safe today — review's risk rules are path/line-count based,
-    // not content-pattern based — but a future content-scanning review risk rule would
-    // need the untrimmed diff and must not rely on the classifier seeing it here.
+    // The scheduler trims ctx.diff to DIFF_BUDGET and emits a review.partial-coverage
+    // warning naming excluded files before this phase runs (no silent truncation). The
+    // specialists consume that trimmed ctx.diff. The inner risk classifier (composite.ts)
+    // does NOT read ctx.diff — it reads ctx.fullDiff, which the scheduler forwards
+    // untrimmed (finding 6) — so trimming for prompt budget can never downgrade the risk
+    // level or let a tail file escape a path-/line-count-/content-pattern rule.
     consumesDiff: true,
 
     async run(ctx: PhaseContext) {

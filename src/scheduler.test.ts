@@ -679,7 +679,7 @@ function makeDiffSection(path: string, size: number): string {
 function makeDiffSpyPhase(
   id: string,
   kind: "deterministic" | "agent",
-  sink: { diff?: string },
+  sink: { diff?: string; fullDiff?: string },
   consumesDiff?: boolean,
 ): PhaseConfiguration {
   return {
@@ -689,6 +689,7 @@ function makeDiffSpyPhase(
     activation: () => true,
     async run(ctx: PhaseContext): Promise<PhaseReport> {
       sink.diff = ctx.diff;
+      sink.fullDiff = ctx.fullDiff;
       return {
         phase: id,
         status: "completed",
@@ -718,12 +719,15 @@ describe("T24: diff budget application (PRD §3.6, decisions #14/#20)", () => {
   it("over-budget diff to a diff-consuming phase: trimmed + partial-coverage warning prepended", async () => {
     expect(bigDiff.length).toBeGreaterThan(DIFF_BUDGET);
 
-    const sink: { diff?: string } = {};
+    const sink: { diff?: string; fullDiff?: string } = {};
     const phase = makeDiffSpyPhase("review", "agent", sink, true);
     const reports = await runPhases([phase], { ...baseCtx, diff: bigDiff });
 
     // The phase received the trimmed diff (section A only — section B excluded).
     expect(sink.diff).toBe(sectionA);
+    // ...but fullDiff carries the WHOLE untrimmed diff (finding 6): a consumesDiff phase's
+    // risk classifier reads fullDiff so the over-budget tail (section B) can't escape it.
+    expect(sink.fullDiff).toBe(bigDiff);
 
     const report = reports[0]!;
     // The warning leads the findings (PRD #20), the pre-existing finding follows.

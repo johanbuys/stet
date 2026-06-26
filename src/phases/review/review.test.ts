@@ -244,6 +244,42 @@ describe("makeReviewPhase — partial-coverage (T20)", () => {
     const credsGatePhase = makeReviewPhase({ bugs: bugsRunner([]) });
     expect(credsGatePhase.consumesDiff).toBeFalsy();
   });
+
+  // Regression (finding 6): consumesDiff trims ctx.diff for prompt budget, but the risk
+  // classifier must read the untrimmed ctx.fullDiff. If it classified on the trimmed
+  // ctx.diff, a large diff trimmed to a small prefix would be downgraded (e.g. full →
+  // trivial), dropping specialists from the largest change. These tests pin the classifier
+  // to ctx.fullDiff.
+  it("classifies on the untrimmed fullDiff, not the budget-trimmed diff", async () => {
+    const secFinding = fakeFinding({ id: "review.security.tail", severity: "error" });
+    const phase = makeReviewPhase(
+      panelRunners([], { securityFindings: [secFinding] }),
+      "fake/model",
+    );
+
+    // A large (>FULL_LINES) untrimmed diff on a NON-sensitive path → "full".
+    const bigFullDiff = Array.from({ length: 600 }, (_, i) => `+line ${i}`).join("\n");
+    const report = await phase.run({
+      cwd: "/tmp/review-test",
+      scope: { kind: "staged" as const, files: ["src/utils.ts"] },
+      config: {},
+      // Trimmed prefix the specialists see — small enough to classify "trivial" on its own.
+      diff: "diff --git a/src/utils.ts b/src/utils.ts\n+one line\n",
+      fullDiff: bigFullDiff,
+    });
+
+    // Classified on fullDiff (600 lines) → full level → security ran and its finding is present.
+    expect(report.level).toBe("full");
+    expect(report.findings.some((f) => f.id === "review.security.tail")).toBe(true);
+  });
+
+  it("falls back to ctx.diff for classification when fullDiff is absent", async () => {
+    // Direct unit calls (and any non-scheduler caller) omit fullDiff; the small non-sensitive
+    // diff must still classify trivial via the ctx.diff fallback.
+    const phase = makeReviewPhase(panelRunners([]), "fake/model");
+    const report = await phase.run(ctx(["src/utils.ts"]));
+    expect(report.level).toBe("trivial");
+  });
 });
 
 // ---------------------------------------------------------------------------

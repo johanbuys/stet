@@ -148,21 +148,16 @@ async function runPhaseGuarded(
     // result (computed once in runPhases — finding 9); it is undefined when ctx.diff is.
     //
     // Only phases that DECLARE they inject the diff into an agent prompt
-    // (consumesDiff === true) get the budget-trimmed diff and the partial-coverage warning
-    // (PRD #14, #20). Phases without consumesDiff — deterministic gates that ignore the
-    // diff, and the risk classifier (composite.ts), which reads the FULL ctx.diff directly
-    // (finding 6: trimming it would let a risk-relevant file in the over-budget tail escape
-    // content-based risk rules) — receive the untrimmed ctx.diff. Trimming or attaching a
-    // "files excluded from analysis" warning to such a phase would misattribute / under-
-    // classify (decision #20: harness-emitted findings attach to the phase they concern).
+    // (consumesDiff === true) get the budget-trimmed diff in `ctx.diff` and the partial-
+    // coverage warning (PRD #14, #20). Phases without consumesDiff — deterministic gates
+    // that ignore the diff — receive the untrimmed diff in `ctx.diff`.
     //
-    // The review phase (review.ts) is the first real consumesDiff: true consumer; it
-    // injects the (trimmed) diff into its specialist prompts, so the trim/warning branch
-    // runs in production, not just under test. Note its inner risk classifier
-    // (composite.ts) intentionally does NOT set consumesDiff and reads ctx.diff directly —
-    // but it receives the already-trimmed phaseDiff here. That is currently safe (review's
-    // risk rules are path- and line-count-based, never content-pattern-based), but a future
-    // content-scanning review risk rule would need the untrimmed diff (finding 6).
+    // The risk classifier (composite.ts) NEVER reads `ctx.diff`; it reads `ctx.fullDiff`,
+    // which we always forward untrimmed below. That decouples "inject a budget-trimmed
+    // diff into prompts" from "classify on every file": the review phase (review.ts) is
+    // the first real consumesDiff: true consumer — its specialists see the trimmed
+    // `ctx.diff`, while its inner classifier still sees the full diff via `ctx.fullDiff`,
+    // so a risk-relevant file in the over-budget tail can't escape classification (finding 6).
     let phaseDiff = ctx.diff;
     let coverageWarning: Finding | undefined = undefined;
     if (phase.consumesDiff === true && budgeted !== undefined) {
@@ -184,8 +179,10 @@ async function runPhaseGuarded(
       signal: ctx.signal,
       // Forward spec context (M8/T23) so phases that consume spec receive it.
       spec: ctx.spec,
-      // Forward the budget-trimmed diff (M8/T24).
+      // Forward the budget-trimmed diff (M8/T24) for prompt injection...
       diff: phaseDiff,
+      // ...and the untrimmed diff for deterministic risk classification (finding 6).
+      fullDiff: ctx.diff,
     });
 
     // Prepend the partial-coverage warning so it leads the phase's findings (PRD #20).

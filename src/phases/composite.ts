@@ -437,11 +437,13 @@ export function makeCompositePhase(
 
       if (cfg.riskRules && cfg.riskRules.length > 0) {
         // The risk classifier reads the UNTRIMMED diff (finding 6): its rule predicates
-        // scan diff text, so it must see every file. This phase therefore does NOT set
-        // consumesDiff (M8/T24) — the scheduler forwards the full ctx.diff here rather than
-        // the budget-trimmed prefix, so a risk-relevant file in the over-budget tail can't
-        // escape content-based risk rules due to git file order.
-        resolvedLevel = classify(ctx.diff ?? "", ctx.scope.files, cfg.riskRules);
+        // scan diff text (line counts, content patterns), so it must see every file. It
+        // reads `ctx.fullDiff`, which the scheduler forwards untrimmed even when the phase
+        // sets consumesDiff (and `ctx.diff` is therefore the budget-trimmed prefix). This
+        // is why a consumesDiff phase like review can still classify on the whole diff — a
+        // risk-relevant file in the over-budget tail can't escape rules via git file order.
+        // Falls back to ctx.diff when fullDiff is absent (direct unit-test calls / no trim).
+        resolvedLevel = classify(ctx.fullDiff ?? ctx.diff ?? "", ctx.scope.files, cfg.riskRules);
         const levelCfg = cfg.riskLevels?.[resolvedLevel];
         if (levelCfg) {
           if (levelCfg.specialists !== undefined) {
