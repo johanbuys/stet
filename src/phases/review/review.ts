@@ -104,7 +104,7 @@ KEY PRECEDENTS (do not flag these as vulns):
 - Environment variables and CLI flags are trusted input.
 - Findings in test files / fixtures / markdown are not production vulnerabilities.
 Require an attacker-input -> impact scenario. If reachability depends on a caller passing untrusted
-input, say so and set confidence accordingly.
+input, say so in the finding's explanation.
 Default severity: error for a reachable exploit; warning for a defensive/hardening gap with no
 current reachable path.`;
 

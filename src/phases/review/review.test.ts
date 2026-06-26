@@ -393,6 +393,14 @@ describe("shared preamble (all specialist rubrics)", () => {
       expect(s.rubric).toContain(String(MAX_FINDINGS));
     }
   });
+
+  // B·1 invariant: confidence is harness-stamped (SpecialistSubmission omits it), so no rubric
+  // may instruct the model to set/emit a confidence field — the submit-tool would reject it.
+  it("no specialist rubric instructs the model to set a top-level confidence field", () => {
+    for (const s of specialists) {
+      expect(s.rubric).not.toMatch(/set confidence/i);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
