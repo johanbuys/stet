@@ -1,15 +1,16 @@
 /**
  * Exit-code derivation — pure, no I/O.
  *
- * Implements the gating rule from harness PRD §4.8:
- *   A finding gates iff severity ≥ failOn AND confidence === "high".
+ * Implements the gating rule from harness PRD §4.8 + TDD G:
+ *   A finding gates iff severity ≥ failOn AND confidence === "high"
+ *                    AND meta.preexisting !== true.
  *
  * Severity order: error > warning > info.
  * Phase status (completed/skipped/cancelled/error) is irrelevant — only findings gate.
  * Exit 2 is never produced here; that is the CLI shell's domain (error taxonomy).
  */
 
-import { severityAtLeast, type Severity } from "./schema/finding.js";
+import { PREEXISTING_META_KEY, severityAtLeast, type Severity } from "./schema/finding.js";
 import type { PhaseReport } from "./schema/report.js";
 
 /** Result of exit-code derivation. Feeds into RunReport.result (assembled in T6). */
@@ -22,8 +23,11 @@ export interface ExitResult {
 /**
  * Derive the exit code and gating list from a set of phase reports.
  *
- * PRD §4.8: exitCode is 1 iff ≥1 gating finding exists; gating lists exactly
- * those findings. Traversal is phases[] order, findings[] order within each phase.
+ * PRD §4.8 + TDD G: exitCode is 1 iff ≥1 gating finding exists; a finding gates iff:
+ *   severityAtLeast(severity, failOn) ∧ confidence === "high" ∧ meta.preexisting !== true
+ *
+ * The preexisting check is a runtime read on the open meta field (no TypeScript narrowing —
+ * TDD G / code-review-tdd.md Area G). Traversal is phases[] order, findings[] order.
  *
  * @param phases - All PhaseReports for the run (skipped/cancelled phases included).
  * @param failOn - The severity threshold from --fail-on (default "error").
@@ -33,7 +37,13 @@ export function deriveExit(phases: PhaseReport[], failOn: Severity): ExitResult 
 
   for (const phaseReport of phases) {
     for (const finding of phaseReport.findings) {
-      if (finding.confidence === "high" && severityAtLeast(finding.severity, failOn)) {
+      const isPreexisting =
+        (finding.meta as Record<string, unknown> | undefined)?.[PREEXISTING_META_KEY] === true;
+      if (
+        finding.confidence === "high" &&
+        severityAtLeast(finding.severity, failOn) &&
+        !isPreexisting
+      ) {
         gating.push({
           phase: finding.phase,
           id: finding.id,

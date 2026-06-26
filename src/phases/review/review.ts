@@ -1,21 +1,29 @@
 /**
- * review phase — full specialist panel (M5 full panel, T15).
+ * review phase — full specialist panel (M5 full panel, T15) + risk classification (M6 T17)
+ * + config-slice validator (M6 T18).
  *
  * Implements plan §M4 steps 2,3 + M5 · TDD D · code-review-rubric-draft.md.
  * M4 shipped `bugs` only; M5 (T15) adds `security`, `quality`, and `coverage-gaps`.
+ * M6 T17 adds riskRules + riskLevels: trivial→bugs-only, standard→bugs+quality+coverage,
+ * full→all four + security (security-always on sensitive paths, PRD R4/#9).
+ * M6 T18 adds the phases.review config-slice validator: specialist enable/disable, maxFindings,
+ * verify.voters, coordinator on/off — parsed from ctx.config at run time (TDD F · PRD R10).
  *
- * PRD refs: §R1 (activation), §R3 (specialist panel), §R5 (verify), §R7 (conventions),
- *           §R8 (noise control).
- * TDD refs: D (specialist wiring), A·2 (verify lenses).
+ * PRD refs: §R1 (activation), §R3 (specialist panel), §R4/#9 (security-always), §R5 (verify),
+ *           §R7 (conventions), §R8 (noise control), §R10 (config slice).
+ * TDD refs: D (specialist wiring), A·2 (verify lenses), E (risk classifier rules), F (config slice).
  */
 
+import { type Static, Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { SpecialistSubmission } from "../../schema/finding.js";
 import { SUBMIT_TOOL_NAME } from "../../agent/submit-tool.js";
 import { FIVE_MINUTE_BUDGETS } from "../../agent/budgets.js";
 import type { AgentRunner } from "../../agent/runner.js";
 import type { PhaseConfiguration, PhaseContext, ActivationContext } from "../types.js";
-import { makeCompositePhase, type SpecialistConfig } from "../composite.js";
+import { makeCompositePhase, type SpecialistConfig, type RiskLevel } from "../composite.js";
 import type { VerifyConfig } from "../verify.js";
+import type { RiskRule } from "../../risk/classify.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -23,6 +31,163 @@ import type { VerifyConfig } from "../verify.js";
 
 /** Per-specialist finding cap (R8 — config-overridable in M6). Substituted into rubric text. */
 export const MAX_FINDINGS = 5;
+
+// ---------------------------------------------------------------------------
+// Risk classification (TDD E · PRD R4/#9)
+// ---------------------------------------------------------------------------
+
+/**
+ * Line-count thresholds for review risk classification (plan §M6 step 1, TDD E).
+ * Placeholder values — config-overridable and eval-tuned in later iterations.
+ *
+ *  ≤ TRIVIAL_LINES  → "trivial" (small, low-risk diffs)
+ *  > FULL_LINES     → "full"    (large diffs; same panel as sensitive paths)
+ *  otherwise        → "standard"
+ */
+const TRIVIAL_LINES = 200;
+const FULL_LINES = 500;
+
+/**
+ * Directory names that make any touching path "sensitive" (TDD E · PRD R4/#9).
+ * A path segment that exactly matches one of these triggers the "full" level —
+ * ensuring security always runs even on small diffs that touch these directories.
+ */
+const SENSITIVE_DIRS = new Set(["auth", "migrations", "certs", "keys", "secrets", "credentials"]);
+
+/**
+ * Substrings that make a path component sensitive when present.
+ * Catches names like "crypto.ts", "cryptography/", "session-store.ts", "token-manager.ts".
+ */
+const SENSITIVE_SUBSTRINGS = ["crypto", "crypt", "session", "token", "private", "credential"];
+
+/** Returns true if any segment of the path touches a security-sensitive area. */
+function isSensitivePath(path: string): boolean {
+  return path
+    .toLowerCase()
+    .split("/")
+    .some(
+      (part) => SENSITIVE_DIRS.has(part) || SENSITIVE_SUBSTRINGS.some((sub) => part.includes(sub)),
+    );
+}
+
+/**
+ * Risk rules for the review phase (TDD E · PRD R4/#9).
+ * Evaluated in order by classify(); first match wins.
+ *
+ * Level semantics (see REVIEW_RISK_LEVELS):
+ *   trivial  — bugs only, coordinator off (small safe diffs)
+ *   standard — bugs + quality + coverage-gaps, coordinator on
+ *   full     — all four specialists including security, coordinator on
+ *
+ * PRD R4: security always runs on sensitive paths.
+ * Encoded as the FIRST rule: any sensitive path immediately resolves to "full",
+ * regardless of diff size. This is the "security-always override" the TDD calls
+ * "a per-level override, not a threshold."
+ */
+export const REVIEW_RISK_RULES: RiskRule[] = [
+  // 1. Sensitive paths always → full (security-always, PRD R4/#9)
+  {
+    predicate: (_diff, paths) => paths.some(isSensitivePath),
+    level: "full",
+  },
+  // 2. Large diff → full (all specialists)
+  {
+    predicate: (diff) => diff.split("\n").length > FULL_LINES,
+    level: "full",
+  },
+  // 3. Medium diff → standard
+  {
+    predicate: (diff) => diff.split("\n").length > TRIVIAL_LINES,
+    level: "standard",
+  },
+  // 4. Small diff with no sensitive paths → trivial (catch-all)
+  {
+    predicate: () => true,
+    level: "trivial",
+  },
+];
+
+/**
+ * Risk level → specialist subset + coordinator on/off for the review phase (TDD E).
+ *
+ * trivial  — bugs only, coordinator false.
+ *   Cheapest review for small, low-risk diffs. Coordinator is skipped because a
+ *   single specialist produces no cross-specialist duplicates to dedup/rerank.
+ *
+ * standard — bugs + quality + coverage-gaps, coordinator on (when configured).
+ *   Security absent: sensitive paths already upgrade to full via the first risk rule.
+ *
+ * full     — all four specialists, coordinator on.
+ *   Triggered by large diffs OR any sensitive path. "security-always" is encoded
+ *   here: full specialists = undefined (all run), and the first rule fires on
+ *   sensitive paths to guarantee full is always the resolved level for them.
+ */
+export const REVIEW_RISK_LEVELS: Record<string, RiskLevel> = {
+  trivial: {
+    specialists: ["bugs"],
+    coordinator: false,
+  },
+  standard: {
+    specialists: ["bugs", "quality", "coverage-gaps"],
+  },
+  full: {
+    // No specialist restriction — all four run (undefined = full panel).
+    // Security is included here, which is the "security-always on sensitive paths" guarantee.
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Config slice (TDD F · PRD R10 · T18)
+// ---------------------------------------------------------------------------
+
+const ReviewSpecialistEntry = Type.Object(
+  {
+    enabled: Type.Optional(Type.Boolean()),
+    maxFindings: Type.Optional(Type.Number({ minimum: 1 })),
+    model: Type.Optional(Type.String()),
+  },
+  { additionalProperties: true },
+);
+
+/**
+ * TypeBox schema for the `phases.review` config slice (TDD F · PRD R10).
+ *
+ * The `phases` record in StetConfig is `Type.Unknown()` at the seam — each phase
+ * validates its own slice here. This schema is permissive (additionalProperties: true)
+ * for forward-compat; unknown keys pass through without error.
+ *
+ * specialists.<name>.enabled = false → specialist is dropped from the panel.
+ * coordinator = false → coordinator is forced off at every risk level.
+ * verify.voters and maxFindings are parsed for future use (not yet wired to behavior
+ * because voters must match lenses count, which is resolved in a later milestone).
+ */
+export const ReviewConfigSchema = Type.Object(
+  {
+    specialists: Type.Optional(Type.Record(Type.String(), ReviewSpecialistEntry)),
+    maxFindings: Type.Optional(Type.Number({ minimum: 1 })),
+    verify: Type.Optional(
+      Type.Object(
+        { voters: Type.Optional(Type.Number({ minimum: 1 })) },
+        { additionalProperties: true },
+      ),
+    ),
+    coordinator: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: true },
+);
+
+export type ReviewConfig = Static<typeof ReviewConfigSchema>;
+
+/**
+ * Parse the `phases.review` config slice from an unknown ctx.config value.
+ * Returns an empty ReviewConfig (all defaults) when the slice is absent or invalid.
+ * Validation is permissive — an invalid shape falls back to defaults rather than erroring,
+ * because the CLI already reports ConfigError for schema-invalid config files.
+ */
+export function parseReviewConfig(config: unknown): ReviewConfig {
+  if (Value.Check(ReviewConfigSchema, config)) return config;
+  return {};
+}
 
 // ---------------------------------------------------------------------------
 // Rubric text (data — tuned against the eval in M5, not design-perfected here)
@@ -303,12 +468,15 @@ function reviewActivation(ctx: ActivationContext): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Build the review phase configuration (full panel — M5 T15).
+ * Build the review phase configuration (full panel — M5 T15 · config slice — M6 T18).
  *
  * All 4 specialists (bugs, security, quality, coverage-gaps) fan out in parallel.
  * `runners` must contain entries for "bugs", "security", "quality", and "coverage-gaps".
  * When verify is configured, `runners["verify"]` must also be present.
- * When coordinator is configured, `runners["coordinator"]` must be present.
+ *
+ * Per-run config (T18): ctx.config is parsed as a `phases.review` slice on each run.
+ * specialists.<name>.enabled = false → specialist is dropped from that run's panel.
+ * coordinator = false → coordinator is forced off at every risk level for that run.
  *
  * `model` is the pre-M6 stopgap (plan §2a/P10): the CLI passes `process.env.PI_TEST_MODEL`.
  * When falsy (undefined or empty string) → creds gate fires: the phase immediately reports
@@ -349,10 +517,73 @@ export function makeReviewPhase(
     };
   }
 
-  return makeCompositePhase(runners, {
+  // Pre-compute the full toolset across all specialists. toolset is declared at
+  // construction time (before per-run config is known), so it must be the union of
+  // all possible specialists — the mutation-free invariant is on the declared set,
+  // not the dynamically-filtered subset.
+  const fullToolset = [...new Set(REVIEW_SPECIALISTS.flatMap((s) => s.toolset))];
+
+  return {
     id: "review",
-    specialists: REVIEW_SPECIALISTS.map((s) => ({ ...s, model })),
-    verify: { ...REVIEW_VERIFY_CONFIG, model },
+    kind: "agent",
+    toolset: fullToolset,
     activation: reviewActivation,
-  });
+    // The scheduler trims ctx.diff to DIFF_BUDGET and emits a review.partial-coverage
+    // warning naming excluded files before this phase runs (no silent truncation). The
+    // specialists consume that trimmed ctx.diff. The inner risk classifier (composite.ts)
+    // does NOT read ctx.diff — it reads ctx.fullDiff, which the scheduler forwards
+    // untrimmed (finding 6) — so trimming for prompt budget can never downgrade the risk
+    // level or let a tail file escape a path-/line-count-/content-pattern rule.
+    consumesDiff: true,
+
+    async run(ctx: PhaseContext) {
+      const reviewCfg = parseReviewConfig(ctx.config);
+
+      // Filter specialists: specialists.<name>.enabled === false → drop from panel.
+      const enabledSpecialists = REVIEW_SPECIALISTS.filter(
+        (s) => reviewCfg.specialists?.[s.name]?.enabled !== false,
+      );
+
+      // Adjust risk level specialist subsets to only reference enabled specialists.
+      // This keeps validateRiskConfig inside makeCompositePhase from throwing when a
+      // subset entry names a specialist that the config has disabled.
+      const enabledNames = new Set(enabledSpecialists.map((s) => s.name));
+      const adjustedRiskLevels: Record<string, RiskLevel> = {};
+      for (const [level, levelCfg] of Object.entries(REVIEW_RISK_LEVELS)) {
+        const adjusted: RiskLevel = {
+          ...levelCfg,
+          specialists: levelCfg.specialists?.filter((name) => enabledNames.has(name)),
+        };
+        // coordinator: false in user config → force coordinator off at every risk level.
+        if (reviewCfg.coordinator === false) {
+          adjusted.coordinator = false;
+        }
+        adjustedRiskLevels[level] = adjusted;
+      }
+
+      let composite: PhaseConfiguration;
+      try {
+        composite = makeCompositePhase(runners, {
+          id: "review",
+          specialists: enabledSpecialists.map((s) => ({ ...s, model })),
+          verify: { ...REVIEW_VERIFY_CONFIG, model },
+          riskRules: REVIEW_RISK_RULES,
+          riskLevels: adjustedRiskLevels,
+          activation: reviewActivation,
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return {
+          phase: "review" as const,
+          status: "error" as const,
+          reason: `review config error: ${reason}`,
+          findings: [],
+          audit: {},
+          cost: { durationMs: 0 },
+        };
+      }
+
+      return composite.run(ctx);
+    },
+  };
 }

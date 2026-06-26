@@ -48,10 +48,21 @@ export interface PhaseContext {
    */
   signal?: AbortSignal;
   /**
-   * Full diff text for risk classification (§3.4.1a, M7.5).
+   * Diff text for this phase. For phases with `consumesDiff: true` this is the
+   * budget-trimmed prefix (the scheduler reduces it to DIFF_BUDGET before the run);
+   * for all other phases it is the full run-wide diff. Risk classifiers must NOT read
+   * this field — they read `fullDiff`, which is never trimmed (§3.4.1a, M7.5).
    * Populated by M8's semantic pre-filter; absent until M8 lands — classify receives "".
    */
   diff?: string;
+  /**
+   * The untrimmed run-wide diff, forwarded verbatim by the scheduler regardless of any
+   * phase's `consumesDiff` budget. Risk classifiers read this (not `diff`) so a phase can
+   * inject the budget-trimmed `diff` into agent prompts while its deterministic risk rules
+   * still see every file — a budget-excluded file in the over-budget tail can't escape
+   * path- or content-based risk classification (composite.ts classify()).
+   */
+  fullDiff?: string;
   /**
    * Combined spec text from --prd/--task/--issue (§3.6, M8/T23).
    * Empty string when no spec flags were provided; phases that declare spec consumption
@@ -105,8 +116,10 @@ export interface PhaseConfiguration {
   cancelClass?: boolean;
   /**
    * True when this phase injects the unified diff into an agent prompt and must respect
-   * the per-phase context budget (M8/T24). The deterministic risk classifier reads
-   * `ctx.diff` directly and must NOT set this — it needs the full diff. Default false.
+   * the per-phase context budget (M8/T24): the scheduler trims `ctx.diff` to DIFF_BUDGET
+   * and emits a `<phase>.partial-coverage` warning. Setting this is safe even for a phase
+   * that also risk-classifies, because the deterministic risk classifier reads the never-
+   * trimmed `ctx.fullDiff`, not `ctx.diff`. Default false.
    */
   consumesDiff?: boolean;
 }
