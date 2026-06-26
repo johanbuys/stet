@@ -1,6 +1,6 @@
 # code-review — Implementation Plan
 
-**Status:** settled — 2026-06-22 (two adversarial cold-reader passes incorporated; pass-2 verdict: M1 executable test-first, M2/M4/M6 corrected; "go build M1" is a literal next prompt)
+**Status:** settled — 2026-06-22 (two adversarial cold-reader passes incorporated; pass-2 verdict: M1 executable test-first, M2/M4/M6 corrected; "go build M1" is a literal next prompt) · **revised 2026-06-26** at the M6 boundary (comprehend M5–M6 sync, PR #100): M1–M6 built & merged; added **M6.5** (config wiring) + a **Carry-forward** section (PL·6)
 **Depends on:** `code-review-tdd.md` (settled — cites areas A–G) · `code-review-prd.md` (settled) · the built harness (`src/phases/composite.ts`, `coordinator.ts`, `src/agent/*`, `src/risk/classify.ts`, `src/schema/finding.ts`, `src/schema/report.ts`, `src/diff-sections.ts`, `src/exit-codes.ts`, `src/config/*`)
 **Companion:** `code-review-plan-overview.html`
 
@@ -182,6 +182,35 @@ its own slice, `types.ts`); `src/exit-codes.ts`.
 a high non-pre-existing `error` gates exit 1, a pre-existing `error` does not; `review.partial-coverage`
 warning names excluded files on an over-budget diff (AC#9/#28); disabling a specialist in config drops it.
 
+### M6.5 — `phases.review` config wiring *(maintenance milestone — revision pass 2026-06-26)*
+**Goal:** honor the recognized config keys the M6 slice accepted but left as no-ops (ledger D7a/D9c).
+Each wiring also **removes the key's detector from `findIgnoredConfigKeys`** so the
+`review.config-ignored` advisory stops flagging it — that round-trip is the milestone's verifiable spine.
+**Files:** `src/phases/review/review.ts` (per-run rubric build, run() specialist mapping,
+`findIgnoredConfigKeys`), tests. Only **T21 is firm**; T23 is provisional behind a prerequisite;
+`verify.voters` and D5 are **not** here (Carry-forward).
+
+- **T21 · wire `maxFindings` (top-level + per-specialist) — firm.** Today `MAX_FINDINGS` (=5) is
+  string-substituted into the shared rubric at module load, so a config cap can't take effect. Build
+  the specialist rubric **per run** with the resolved cap: `phases.review.maxFindings` sets the
+  default, `specialists.<n>.maxFindings` overrides per specialist; set `SpecialistConfig.maxFindings`
+  to match. Drop `maxFindings` (top + per-specialist) from `findIgnoredConfigKeys`.
+  **Verifiable:** `phases.review.maxFindings: 3` → every specialist rubric carries "≤ 3";
+  `specialists.bugs.maxFindings: 2` → bugs carries 2 while others carry the default; the advisory no
+  longer lists `maxFindings`; `vp test`.
+- **T23 · per-specialist `specialists.<n>.model` — provisional (gated on CF-1).** Prerequisite:
+  review must resolve specialist models through the routing layer (`routing/resolve.ts`) instead of
+  the single `PI_TEST_MODEL` stopgap (**Carry-forward CF-1**). Once routed, thread
+  `specialists.<n>.model` (a `Tier`) → resolved model per specialist in the review wrapper; drop
+  `model` from `findIgnoredConfigKeys`.
+  **Verifiable:** `specialists.security.model: <tier>` → the security specialist runs with the routed
+  model (assert via the routing seam / fake); advisory no longer lists per-specialist `model`;
+  `vp test`. **Blocked until CF-1 lands.**
+
+**Milestone outcome (run X, see Y):** a config setting `maxFindings` takes effect in the rubric, and
+the `review.config-ignored` advisory then flags only the still-unwired keys (`verify.voters`, and
+per-specialist `model` until T23).
+
 ---
 
 ## Dependencies & parallelism
@@ -206,6 +235,22 @@ warning names excluded files on an over-budget diff (AC#9/#28); disabling a spec
 
 ---
 
+## Carry-forward — deferred items & where each went
+
+The live list of deferred work; the revision pass at each boundary dispositions every item, so nothing
+crosses a boundary undispositioned. (Established at the M6 boundary, 2026-06-26.)
+
+| Item | Source | Disposition |
+|---|---|---|
+| `maxFindings` wiring | ledger D7a | **M6.5 · T21** — firm |
+| per-specialist `model` wiring | ledger D9c | **M6.5 · T23** — provisional, gated on **CF-1** |
+| **CF-1 · review→routing integration** | comprehend M5–M6 lesson | **tracked prerequisite** — review still runs on the `PI_TEST_MODEL` stopgap, not `routing/resolve.ts` (M6 assumed this had happened; it hadn't). Scope a milestone (**M7**) when routing-in-review becomes the priority; **blocks T23** |
+| `verify.voters` configurability | ledger D8b | **route to design** — needs a lens-generation TDD decision (`verify.ts` throws unless `voters === lenses`); becomes a task only after design settles. Re-enter via better-planning-design |
+| `risk.thresholds` config | comprehend M5–M6 | **cut** — YAGNI in v1 (predicates are eval-tuned code, not user config) |
+| D5 · combined-diff conservative handling | ledger D5 | **accept as debt** — unreachable in v1 (`--against` three-dot → two-way diff); stays tracked, not scheduled |
+
+---
+
 ## Reality-disagrees protocol (for the builder)
 
 If, while building, the implementation **contradicts a PRD or TDD decision** — a contract that can't
@@ -227,3 +272,4 @@ The docs follow reality, deliberately. (This pass already exercised the protocol
 | PL·3 | **Thin slice (bugs only) at M4** before the full panel | draft | proves the verify-wired pipeline end-to-end on one lens before fan-out | proposed |
 | PL·4 | **Cold-reader pass 1 folded in** — added M1 prereqs (fake-runner per-call queue B1; `VerifyAudit` schema B4); re-scoped M2 added-line parsing as new code (B5, TDD corrected); split M3 + synthetic-cassette caveat (S1); expanded M4 verify-wiring sub-steps + diff-threading + post-coordinator `markPreexisting` (S3/S4/S5); made gating harness-global + M6→M2 dep (B3); config slice is review-local (N1); added AC#3/#9/#11/#28 coverage (N2); fixed dep graph (N3) | agent + user | independent cold reader found 5 blockers / 5 should-fixes against the real code; verdict had been "not buildable as written" | applied |
 | PL·5 | **Cold-reader pass 2 folded in** — M1 confirmed buildable. Fixed F1 (`meta` stays **open**; `meta.preexisting` read via runtime check, not a narrowed type — aligns with TDD B·3, avoids breaking Phase-5 meta tests); F2 (`markPreexisting` wraps **all five** completed return paths, not just coordinator-OK — else trivial-level pre-existing findings gate, AC#4); F3 (AC#8 no-creds verifiable); F4 (protected-class test matrix); F5 (CLI `runners`-map wiring + phase registration step); F6 (`eval:live` script); F7 (reuse `PhaseReport.level`) | agent + user | pass 2 verified pass-1 fixes hold and found 2 new blockers (one a contradiction the pass-1 revision introduced) + 3 should-fixes; verdict: M1 executable, M2/M4/M6 now corrected | applied |
+| PL·6 | **Revision pass at the M6 boundary (2026-06-26)** — M1–M6 built & merged; added **M6.5** (config wiring: T21 `maxFindings` firm, T23 per-specialist `model` provisional); routed `verify.voters` to **design**; tracked **CF-1 review→routing** as T23's prerequisite; accepted **D5** as debt; recorded `risk.thresholds` **cut**. Established the Carry-forward section | user (2026-06-26) | comprehend M5–M6 surfaced the narrow config slice + the routing stopgap; disposition every deferred item, none silently dropped | settled |
