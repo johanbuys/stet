@@ -586,12 +586,21 @@ if (isEntryPoint) {
       // import stays side-effect-free and defaultPhases stays a static [stubDet].
       const piModel = process.env.PI_TEST_MODEL;
       registerPhase(makeStubAgent(new PiAgentRunner(), piModel));
-      // Review phase (M4 thin slice — bugs specialist + 3-voter agreement verify).
-      // One PiAgentRunner per role: "bugs" (specialist), "verify" (per-voter).
-      // Coordinator deferred to M5. makeReviewPhase gates on piModel — when undefined
-      // the phase immediately reports status "error", never completed+empty (AC#8).
+      // Review phase (M5 full panel — bugs/security/quality/coverage-gaps + 3-voter verify).
+      // One PiAgentRunner per role: one per specialist (looked up by name in the composite)
+      // plus "verify" (per-voter). makeReviewPhase gates on piModel — when undefined the
+      // phase immediately reports status "error", never completed+empty (AC#8).
       registerPhase(
-        makeReviewPhase({ bugs: new PiAgentRunner(), verify: new PiAgentRunner() }, piModel),
+        makeReviewPhase(
+          {
+            bugs: new PiAgentRunner(),
+            security: new PiAgentRunner(),
+            quality: new PiAgentRunner(),
+            "coverage-gaps": new PiAgentRunner(),
+            verify: new PiAgentRunner(),
+          },
+          piModel,
+        ),
       );
     }
 
